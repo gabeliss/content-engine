@@ -46,12 +46,10 @@ Requirements:
 - Each slide should have 1-2 short, punchy sentences (max 90 characters)
 - Make them attention-grabbing and valuable
 - Format as a cohesive story or tips
-- Also generate a caption (max 150 characters)
 
 IMPORTANT: Return EXACTLY this JSON format (slides must be an array of strings):
 {
-  "slides": ["slide 1 text", "slide 2 text", "slide 3 text", ...],
-  "caption": "caption text"
+  "slides": ["slide 1 text", "slide 2 text", "slide 3 text", ...]
 }
 
 Each element in the "slides" array must be a single string containing all the text for that slide.`;
@@ -67,7 +65,6 @@ Each element in the "slides" array must be a single string containing all the te
       // Parse the response
       const parsed = JSON.parse(textResponse.text);
       const slideTexts: string[] = parsed.slides || [];
-      const caption: string = parsed.caption || "";
 
       // Step 2: Generate images for each slide
       const imageResponse = await generateCarouselImages(slideTexts);
@@ -89,7 +86,6 @@ Each element in the "slides" array must be a single string containing all the te
         content: {
           type: "carousel",
           slides,
-          caption,
           config: {
             fontSize: 48,
             fontColor: "#FFFFFF",

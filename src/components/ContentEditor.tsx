@@ -27,7 +27,6 @@ interface ContentEditorProps {
   product: Doc<"products"> | null;
   onClose: () => void;
   onDownload: () => void;
-  onMarkPosted: () => void;
 }
 
 export default function ContentEditor({
@@ -35,7 +34,6 @@ export default function ContentEditor({
   product,
   onClose,
   onDownload,
-  onMarkPosted,
 }: ContentEditorProps) {
   const updateSlide = useMutation(api.content.updateSlide);
   const updateCaption = useMutation(api.content.updateCaption);
@@ -449,10 +447,6 @@ export default function ContentEditor({
 
           <button className="btn btn-primary" onClick={onDownload}>
             <Download size={16} /> Download All
-          </button>
-
-          <button className="btn btn-success" onClick={onMarkPosted}>
-            <Check size={16} /> Mark Posted
           </button>
         </div>
       </div>

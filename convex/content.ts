@@ -155,7 +155,6 @@ export const updateContent = mutation({
       slides: v.optional(v.array(slideValidator)),
       texts: v.optional(v.array(v.string())),
       mediaUrls: v.optional(v.array(v.string())),
-      caption: v.optional(v.string()),
       config: v.optional(v.object({
         fontSize: v.number(),
         fontColor: v.string(),
@@ -225,29 +224,6 @@ export const toggleSlideOverlay = mutation({
         ...content.content,
         slides,
       },
-      updatedAt: Date.now(),
-    });
-  },
-});
-
-// Update caption
-export const updateCaption = mutation({
-  args: {
-    id: v.id("content"),
-    caption: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const content = await ctx.db.get(args.id);
-    if (!content || !content.content) {
-      throw new Error("Content not found");
-    }
-
-    await ctx.db.patch(args.id, {
-      content: {
-        ...content.content,
-        caption: args.caption,
-      },
-      status: "edited",
       updatedAt: Date.now(),
     });
   },

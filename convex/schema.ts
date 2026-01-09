@@ -71,7 +71,6 @@ export default defineSchema({
       slides: v.optional(v.array(slideValidator)),
       texts: v.optional(v.array(v.string())), // For threads
       mediaUrls: v.optional(v.array(v.string())),
-      caption: v.optional(v.string()),
       config: v.optional(v.object({
         fontSize: v.number(),
         fontColor: v.string(),

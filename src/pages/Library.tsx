@@ -5,9 +5,6 @@ import { Id } from "../../convex/_generated/dataModel";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import {
-  Download,
-  Copy,
-  Check,
   Trash2,
   X,
   Edit2,
@@ -28,7 +25,6 @@ export default function Library() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedContent, setSelectedContent] = useState<Id<"content"> | null>(null);
   const [editingContent, setEditingContent] = useState<Id<"content"> | null>(null);
-  const [copiedCaption, setCopiedCaption] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
   const selectedItem = content?.find((c) => c._id === selectedContent);
@@ -48,13 +44,6 @@ export default function Library() {
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleString();
-  };
-
-  const handleCopyCaption = async () => {
-    if (!selectedItem?.content?.caption) return;
-    await navigator.clipboard.writeText(selectedItem.content.caption);
-    setCopiedCaption(true);
-    setTimeout(() => setCopiedCaption(false), 2000);
   };
 
   const handleDownloadAll = async (item = selectedItem) => {
@@ -78,11 +67,6 @@ export default function Library() {
         }
       }
 
-      // Add caption as text file
-      if (item.content.caption) {
-        zip.file(`${folderName}/caption.txt`, item.content.caption);
-      }
-
       // Add slide texts as text file
       const slideTexts = item.content.slides.map((s, i) => `Slide ${i + 1}: ${s.text}`).join("\n\n");
       zip.file(`${folderName}/slide-texts.txt`, slideTexts);
@@ -101,17 +85,6 @@ export default function Library() {
       alert("Failed to download slides");
     } finally {
       setIsDownloading(false);
-    }
-  };
-
-  const handleMarkPosted = async (item = selectedItem) => {
-    if (!item) return;
-    await updateStatus({
-      id: item._id,
-      status: "posted",
-    });
-    if (selectedContent === item._id) {
-      setSelectedContent(null);
     }
   };
 
@@ -297,33 +270,6 @@ export default function Library() {
               </>
             )}
 
-            {/* Caption */}
-            {selectedItem.content?.caption && (
-              <div style={{ marginTop: "1rem" }}>
-                <h3 style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.5rem" }}>
-                  Caption
-                </h3>
-                <div
-                  style={{
-                    padding: "0.75rem",
-                    background: "#f9fafb",
-                    borderRadius: "8px",
-                    fontSize: "0.875rem",
-                  }}
-                >
-                  {selectedItem.content.caption}
-                </div>
-                <button
-                  className="btn btn-sm btn-secondary"
-                  style={{ marginTop: "0.5rem" }}
-                  onClick={handleCopyCaption}
-                >
-                  {copiedCaption ? <Check size={14} /> : <Copy size={14} />}
-                  {copiedCaption ? "Copied!" : "Copy Caption"}
-                </button>
-              </div>
-            )}
-
             {/* Actions */}
             {(selectedItem.status === "ready" || selectedItem.status === "edited" || selectedItem.status === "downloaded") && (
               <div style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -349,9 +295,6 @@ export default function Library() {
                     </>
                   )}
                 </button>
-                <button className="btn btn-success" onClick={() => handleMarkPosted()}>
-                  <Check size={16} /> Mark as Posted
-                </button>
               </div>
             )}
           </div>
@@ -366,10 +309,6 @@ export default function Library() {
           onClose={() => setEditingContent(null)}
           onDownload={() => {
             handleDownloadAll(editingItem);
-            setEditingContent(null);
-          }}
-          onMarkPosted={() => {
-            handleMarkPosted(editingItem);
             setEditingContent(null);
           }}
         />
