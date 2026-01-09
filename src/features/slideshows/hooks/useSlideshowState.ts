@@ -33,8 +33,6 @@ export function useSlideshowState() {
         ?.sort((a, b) => b.createdAt - a.createdAt) as ContentItem[] | undefined)
     : allCarousels;
 
-  const recentCarousels = allCarousels?.slice(0, 10);
-
   const selectedCarouselItem = selectedCarousel
     ? filteredCarousels?.find((c) => c._id === selectedCarousel)
     : filteredCarousels?.[0];
@@ -85,7 +83,6 @@ export function useSlideshowState() {
     products: products as Product[] | undefined,
     allCarousels,
     filteredCarousels,
-    recentCarousels,
     selectedCarouselItem,
 
     // Actions

@@ -28,6 +28,7 @@ interface SlideCarouselProps {
   onIncrementFontSize: () => void;
   onDecrementFontSize: () => void;
   onDeleteText: () => void;
+  onStartTextEdit: () => void;
 }
 
 export function SlideCarousel({
@@ -42,6 +43,7 @@ export function SlideCarousel({
   onIncrementFontSize,
   onDecrementFontSize,
   onDeleteText,
+  onStartTextEdit,
 }: SlideCarouselProps) {
   const fontSize = config?.fontSize || 48;
   const textPosition = config?.textPosition || { x: 50, y: 50 };
@@ -110,6 +112,12 @@ export function SlideCarousel({
               />
             ) : slide.text ? (
               <div
+                onClick={(e) => {
+                  if (selectedIndex === idx) {
+                    e.stopPropagation();
+                    onStartTextEdit();
+                  }
+                }}
                 style={{
                   position: "absolute",
                   top: `${textPosition.y}%`,
@@ -129,6 +137,7 @@ export function SlideCarousel({
                   display: "flex",
                   justifyContent: "center",
                   alignItems: "flex-start",
+                  cursor: selectedIndex === idx ? "pointer" : "default",
                 }}
               >
                 {slide.text}

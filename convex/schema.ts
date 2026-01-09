@@ -90,6 +90,7 @@ export default defineSchema({
     currentStep: v.optional(v.number()),
 
     errorMessage: v.optional(v.string()),
+    exportedAt: v.optional(v.number()), // When user exported/finalized this slideshow
     createdAt: v.number(),
     updatedAt: v.number(),
   })

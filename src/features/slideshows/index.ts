@@ -1,10 +1,9 @@
 // Components
-export { GenerationForm, PreviewPanel, RecentSlideshows } from "./components";
+export { GenerationForm, PreviewPanel, SlideshowActionModal, SlideshowGrid } from "./components";
 
 // Hooks
 export {
   useSlideshowGeneration,
-  useSlideshowDownload,
   useTextEditing,
   useSlideshowState,
 } from "./hooks";

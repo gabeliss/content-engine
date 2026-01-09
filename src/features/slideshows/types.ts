@@ -50,6 +50,7 @@ export interface ContentItem {
   content?: CarouselContent;
   currentStep?: number;
   errorMessage?: string;
+  exportedAt?: number;
   createdAt: number;
   updatedAt: number;
 }

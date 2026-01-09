@@ -1,8 +1,8 @@
+import { Upload } from "lucide-react";
 import { ContentItem, AspectRatio } from "../../types";
 import { PlaceholderState } from "./PlaceholderState";
 import { SlideCarousel } from "./SlideCarousel";
 import { ThumbnailNav } from "./ThumbnailNav";
-import { ActionButtons } from "./ActionButtons";
 import { EditModeButtons } from "./EditModeButtons";
 
 interface PreviewPanelProps {
@@ -28,9 +28,8 @@ interface PreviewPanelProps {
   onToggleRatioMenu: () => void;
   onChangeRatio: (ratio: AspectRatio) => void;
 
-  // Actions
-  onDownload: () => void;
-  isDownloading: boolean;
+  // Export
+  onExport: () => void;
 }
 
 export function PreviewPanel({
@@ -51,9 +50,9 @@ export function PreviewPanel({
   showRatioMenu,
   onToggleRatioMenu,
   onChangeRatio,
-  onDownload,
-  isDownloading,
+  onExport,
 }: PreviewPanelProps) {
+  const isExported = selectedCarouselItem?.exportedAt !== undefined;
   return (
     <div className="card" style={{ overflow: "hidden" }}>
       {/* Header */}
@@ -93,6 +92,7 @@ export function PreviewPanel({
                   onIncrementFontSize={onIncrementFontSize}
                   onDecrementFontSize={onDecrementFontSize}
                   onDeleteText={onDeleteText}
+                  onStartTextEdit={onStartTextEdit}
                 />
 
                 <EditModeButtons
@@ -115,18 +115,31 @@ export function PreviewPanel({
                   selectedIndex={selectedSlideIndex}
                   onSelectSlide={onSelectSlide}
                 />
+
+                {/* Export Button */}
+                {!isExported && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={onExport}
+                    style={{ width: "100%" }}
+                  >
+                    <Upload size={16} /> Export Slideshow
+                  </button>
+                )}
+                {isExported && (
+                  <div
+                    style={{
+                      textAlign: "center",
+                      color: "#10b981",
+                      fontSize: "0.875rem",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Exported
+                  </div>
+                )}
               </>
             )}
-
-          {/* Action Buttons */}
-          {(selectedCarouselItem.status === "ready" ||
-            selectedCarouselItem.status === "edited" ||
-            selectedCarouselItem.status === "downloaded") && (
-            <ActionButtons
-              onDownload={onDownload}
-              isDownloading={isDownloading}
-            />
-          )}
         </>
       ) : (
         <PlaceholderState />

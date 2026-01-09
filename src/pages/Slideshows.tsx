@@ -1,9 +1,10 @@
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import {
   GenerationForm,
   PreviewPanel,
-  RecentSlideshows,
+  SlideshowGrid,
   useSlideshowGeneration,
-  useSlideshowDownload,
   useTextEditing,
   useSlideshowState,
 } from "../features/slideshows";
@@ -12,8 +13,8 @@ export default function Slideshows() {
   // State management
   const state = useSlideshowState();
   const generation = useSlideshowGeneration();
-  const download = useSlideshowDownload();
   const textEditing = useTextEditing();
+  const exportContent = useMutation(api.content.exportContent);
 
   // Handle generation
   const handleGenerate = () => {
@@ -46,11 +47,10 @@ export default function Slideshows() {
     await textEditing.deleteText(state.selectedCarousel, state.selectedSlideIndex, currentSlide);
   };
 
-  // Handle download
-  const handleDownload = () => {
-    if (state.selectedCarouselItem) {
-      download.downloadCarousel(state.selectedCarouselItem);
-    }
+  // Handle export
+  const handleExport = async () => {
+    if (!state.selectedCarousel) return;
+    await exportContent({ id: state.selectedCarousel });
   };
 
   return (
@@ -96,13 +96,20 @@ export default function Slideshows() {
           showRatioMenu={state.showRatioMenu}
           onToggleRatioMenu={() => state.setShowRatioMenu(!state.showRatioMenu)}
           onChangeRatio={state.handleChangeRatio}
-          onDownload={handleDownload}
-          isDownloading={download.isDownloading}
+          onExport={handleExport}
         />
       </div>
 
-      {/* Bottom Section: Recent Slideshows */}
-      <RecentSlideshows carousels={state.recentCarousels} products={state.products} />
+      {/* My Slideshows Section */}
+      <SlideshowGrid
+        slideshows={state.allCarousels}
+        products={state.products}
+        currentSlideshowId={state.selectedCarousel}
+        onSelectDraft={(id) => {
+          state.setSelectedCarousel(id);
+          state.setSelectedSlideIndex(0);
+        }}
+      />
     </div>
   );
 }

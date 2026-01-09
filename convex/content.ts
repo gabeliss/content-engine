@@ -309,3 +309,39 @@ export const getStats = query({
     };
   },
 });
+
+// Export a slideshow (mark as finalized)
+export const exportContent = mutation({
+  args: { id: v.id("content") },
+  handler: async (ctx, args) => {
+    const content = await ctx.db.get(args.id);
+    if (!content) {
+      throw new Error("Content not found");
+    }
+
+    await ctx.db.patch(args.id, {
+      exportedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// List exported content (for Library and Exported tab)
+export const listExported = query({
+  handler: async (ctx) => {
+    const all = await ctx.db.query("content").order("desc").collect();
+    return all.filter((c) => c.exportedAt !== undefined);
+  },
+});
+
+// List draft content (not exported, ready for editing)
+export const listDrafts = query({
+  handler: async (ctx) => {
+    const all = await ctx.db.query("content").order("desc").collect();
+    return all.filter(
+      (c) =>
+        c.exportedAt === undefined &&
+        (c.status === "ready" || c.status === "edited")
+    );
+  },
+});
