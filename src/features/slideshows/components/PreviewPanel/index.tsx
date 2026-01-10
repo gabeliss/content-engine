@@ -37,6 +37,12 @@ interface PreviewPanelProps {
   onToggleRatioMenu: () => void;
   onChangeRatio: (ratio: AspectRatio) => void;
 
+  // Image regeneration
+  showRegeneratePopover: boolean;
+  onToggleRegeneratePopover: () => void;
+  onRegenerateImage: (prompt: string) => void;
+  isRegenerating: boolean;
+
   // Actions
   onDownload: () => void;
   onDelete: () => void;
@@ -61,12 +67,16 @@ export function PreviewPanel({
   showRatioMenu,
   onToggleRatioMenu,
   onChangeRatio,
+  showRegeneratePopover,
+  onToggleRegeneratePopover,
+  onRegenerateImage,
+  isRegenerating,
   onDownload,
   onDelete,
   isDownloading,
 }: PreviewPanelProps) {
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
+    <div className="card" style={{ overflow: "visible" }}>
       {/* Header */}
       <div
         style={{
@@ -113,6 +123,13 @@ export function PreviewPanel({
                     selectedCarouselItem.content.slides[selectedSlideIndex]?.overlay || false
                   }
                   onChangeRatio={onChangeRatio}
+                  showRegeneratePopover={showRegeneratePopover}
+                  onToggleRegeneratePopover={onToggleRegeneratePopover}
+                  onRegenerateImage={onRegenerateImage}
+                  currentSlidePrompt={
+                    selectedCarouselItem.content.slides[selectedSlideIndex]?.prompt
+                  }
+                  isRegenerating={isRegenerating}
                 />
 
                 <ThumbnailNav

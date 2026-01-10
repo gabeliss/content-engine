@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import JSZip from "jszip";
 import {
@@ -18,6 +18,11 @@ export default function Slideshows() {
   const generation = useSlideshowGeneration();
   const textEditing = useTextEditing();
   const removeContent = useMutation(api.content.remove);
+  const regenerateSlideImage = useAction(api.slideshows.generate.regenerateSlideImage);
+
+  // Image regeneration state
+  const [showRegeneratePopover, setShowRegeneratePopover] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   // Sync prompt with selected slideshow
   useEffect(() => {
@@ -106,6 +111,33 @@ export default function Slideshows() {
     state.setSelectedCarousel(null);
   };
 
+  // Handle image regeneration
+  const handleRegenerateImage = async (prompt: string) => {
+    if (!state.selectedCarousel) return;
+
+    setIsRegenerating(true);
+    try {
+      const result = await regenerateSlideImage({
+        contentId: state.selectedCarousel,
+        slideIndex: state.selectedSlideIndex,
+        prompt,
+      });
+
+      if (!result.success) {
+        console.error("Failed to regenerate image:", result.error);
+        alert(`Failed to regenerate image: ${result.error}`);
+      } else {
+        // Close the popover on success
+        setShowRegeneratePopover(false);
+      }
+    } catch (error) {
+      console.error("Failed to regenerate image:", error);
+      alert("Failed to regenerate image. Please try again.");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
   return (
     <div>
       {/* Top Section: Grid with Generation Form + Preview Panel */}
@@ -149,6 +181,10 @@ export default function Slideshows() {
           showRatioMenu={state.showRatioMenu}
           onToggleRatioMenu={() => state.setShowRatioMenu(!state.showRatioMenu)}
           onChangeRatio={state.handleChangeRatio}
+          showRegeneratePopover={showRegeneratePopover}
+          onToggleRegeneratePopover={() => setShowRegeneratePopover(!showRegeneratePopover)}
+          onRegenerateImage={handleRegenerateImage}
+          isRegenerating={isRegenerating}
           onDownload={handleDownload}
           onDelete={handleDelete}
           isDownloading={isDownloading}

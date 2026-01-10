@@ -1,11 +1,12 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
-// Slide validator (text, image, and optional overlay)
+// Slide validator (text, image, optional overlay, and optional prompt)
 const slideValidator = v.object({
   text: v.string(),
   imageUrl: v.string(),
   overlay: v.optional(v.boolean()),
+  prompt: v.optional(v.string()),
 });
 
 // Content validator

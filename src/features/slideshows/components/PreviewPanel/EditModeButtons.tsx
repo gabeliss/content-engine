@@ -1,5 +1,6 @@
-import { X, Check, Contrast, Type } from "lucide-react";
+import { X, Check, Contrast, Type, ImageIcon } from "lucide-react";
 import { AspectRatio } from "../../types";
+import { ImageRegeneratePopover } from "./ImageRegeneratePopover";
 
 interface EditModeButtonsProps {
   isEditingText: boolean;
@@ -12,6 +13,12 @@ interface EditModeButtonsProps {
   currentRatio: AspectRatio;
   hasOverlay: boolean;
   onChangeRatio: (ratio: AspectRatio) => void;
+  // Image regeneration
+  showRegeneratePopover: boolean;
+  onToggleRegeneratePopover: () => void;
+  onRegenerateImage: (prompt: string) => void;
+  currentSlidePrompt?: string;
+  isRegenerating: boolean;
 }
 
 export function EditModeButtons({
@@ -25,6 +32,11 @@ export function EditModeButtons({
   currentRatio,
   hasOverlay,
   onChangeRatio,
+  showRegeneratePopover,
+  onToggleRegeneratePopover,
+  onRegenerateImage,
+  currentSlidePrompt,
+  isRegenerating,
 }: EditModeButtonsProps) {
   if (isEditingText) {
     return (
@@ -133,6 +145,36 @@ export function EditModeButtons({
       >
         <Type size={18} />
       </button>
+      <div style={{ position: "relative" }}>
+        <button
+          onClick={onToggleRegeneratePopover}
+          title="Regenerate image"
+          disabled={isRegenerating}
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "50%",
+            border: "2px solid #e5e7eb",
+            background: showRegeneratePopover ? "#3b82f6" : "white",
+            color: showRegeneratePopover ? "white" : "#6b7280",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: isRegenerating ? "not-allowed" : "pointer",
+            transition: "all 0.2s ease",
+            opacity: isRegenerating ? 0.6 : 1,
+          }}
+        >
+          <ImageIcon size={18} />
+        </button>
+        <ImageRegeneratePopover
+          isOpen={showRegeneratePopover}
+          onClose={onToggleRegeneratePopover}
+          onRegenerate={onRegenerateImage}
+          currentPrompt={currentSlidePrompt}
+          isRegenerating={isRegenerating}
+        />
+      </div>
       <div style={{ position: "relative" }}>
         <button
           onClick={onToggleRatioMenu}

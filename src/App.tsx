@@ -75,22 +75,22 @@ function AppContent() {
     );
   }
 
-  // Show landing page for unauthenticated users on root path
-  if (!isSignedIn && location.pathname === "/") {
+  // Show landing page on root path (for both authenticated and unauthenticated users)
+  if (location.pathname === "/") {
     return <Landing />;
   }
 
-  // Redirect authenticated users from "/" to "/dashboard"
-  if (isSignedIn && location.pathname === "/") {
-    return <Navigate to="/dashboard" replace />;
-  }
 
   // For any other route, use ProtectedRoute to handle auth
   return (
     <div className="app">
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-logo">
+        <div
+          className="sidebar-logo"
+          onClick={() => navigate("/")}
+          style={{ cursor: "pointer" }}
+        >
           <Zap size={20} style={{ display: "inline", marginRight: "0.5rem" }} />
           Content Engine
         </div>

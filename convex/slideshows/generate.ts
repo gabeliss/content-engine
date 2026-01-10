@@ -94,14 +94,13 @@ Each element in the "slides" array must be a single string containing all the te
 });
 
 /**
- * Regenerate a single slide's image
+ * Regenerate a single slide's image with a custom prompt
  */
 export const regenerateSlideImage = action({
   args: {
     contentId: v.id("content"),
     slideIndex: v.number(),
-    slideText: v.string(),
-    style: v.optional(v.string()),
+    prompt: v.string(), // Custom prompt for image generation
   },
   handler: async (
     ctx,
@@ -127,12 +126,9 @@ export const regenerateSlideImage = action({
         throw new Error("Slide not found");
       }
 
-      // Generate a new image for this slide
+      // Generate a new image for this slide using the custom prompt
       const { generateCarouselImage } = await import("../providers/gemini");
-      const result = await generateCarouselImage(
-        args.slideText,
-        args.style
-      );
+      const result = await generateCarouselImage(args.prompt);
 
       // Upload base64 image to Convex storage and get URL
       const storageUrl = await ctx.runAction(api.storage.uploadBase64Image, {
@@ -140,7 +136,19 @@ export const regenerateSlideImage = action({
         filename: `slide-${args.slideIndex}`,
       });
 
-      // Update the slide with new image
+      // Delete the old image from storage (fire and forget - don't fail if this fails)
+      if (currentSlide.imageUrl) {
+        try {
+          await ctx.runMutation(api.storage.deleteByUrl, {
+            url: currentSlide.imageUrl,
+          });
+        } catch (e) {
+          // Log but don't fail the operation if cleanup fails
+          console.error("Failed to delete old image:", e);
+        }
+      }
+
+      // Update the slide with new image and store the prompt
       await ctx.runMutation(api.content.updateSlide, {
         id: args.contentId,
         slideIndex: args.slideIndex,
@@ -148,6 +156,7 @@ export const regenerateSlideImage = action({
           text: currentSlide.text,
           imageUrl: storageUrl,
           overlay: currentSlide.overlay,
+          prompt: args.prompt, // Store the custom prompt
         },
       });
 

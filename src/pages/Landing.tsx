@@ -1,7 +1,11 @@
-import { SignInButton } from "@clerk/clerk-react";
+import { SignInButton, useAuth } from "@clerk/clerk-react";
+import { useNavigate } from "react-router-dom";
 import { Zap, Layers, Sparkles, ArrowRight } from "lucide-react";
 
 export default function Landing() {
+  const { isSignedIn } = useAuth();
+  const navigate = useNavigate();
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#ffffff" }}>
       {/* Header */}
@@ -21,8 +25,9 @@ export default function Landing() {
             Content Engine
           </span>
         </div>
-        <SignInButton mode="modal">
+        {isSignedIn ? (
           <button
+            onClick={() => navigate("/dashboard")}
             style={{
               padding: "0.625rem 1.25rem",
               backgroundColor: "#111827",
@@ -37,10 +42,31 @@ export default function Landing() {
               gap: "0.5rem",
             }}
           >
-            Sign in
+            Go to Dashboard
             <ArrowRight size={16} />
           </button>
-        </SignInButton>
+        ) : (
+          <SignInButton mode="modal">
+            <button
+              style={{
+                padding: "0.625rem 1.25rem",
+                backgroundColor: "#111827",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "0.875rem",
+                fontWeight: 500,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+              }}
+            >
+              Sign in
+              <ArrowRight size={16} />
+            </button>
+          </SignInButton>
+        )}
       </header>
 
       {/* Hero */}
@@ -78,8 +104,9 @@ export default function Landing() {
           <br />
           Just describe your idea and watch it come to life.
         </p>
-        <SignInButton mode="modal">
+        {isSignedIn ? (
           <button
+            onClick={() => navigate("/dashboard")}
             style={{
               padding: "1rem 2rem",
               backgroundColor: "#3b82f6",
@@ -95,10 +122,32 @@ export default function Landing() {
               boxShadow: "0 4px 14px rgba(59, 130, 246, 0.3)",
             }}
           >
-            Get started with Google
+            Go to Dashboard
             <ArrowRight size={20} />
           </button>
-        </SignInButton>
+        ) : (
+          <SignInButton mode="modal">
+            <button
+              style={{
+                padding: "1rem 2rem",
+                backgroundColor: "#3b82f6",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "12px",
+                fontSize: "1.125rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.75rem",
+                boxShadow: "0 4px 14px rgba(59, 130, 246, 0.3)",
+              }}
+            >
+              Get started with Google
+              <ArrowRight size={20} />
+            </button>
+          </SignInButton>
+        )}
       </main>
 
       {/* Features */}

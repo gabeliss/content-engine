@@ -6,6 +6,7 @@ const slideValidator = v.object({
   text: v.string(),
   imageUrl: v.string(),
   overlay: v.optional(v.boolean()), // Dark overlay for text readability
+  prompt: v.optional(v.string()), // Custom prompt used for image regeneration
 });
 
 export default defineSchema({
