@@ -11,12 +11,15 @@ const slideValidator = v.object({
 export default defineSchema({
   // Products - Apps/brands/businesses for content context
   products: defineTable({
+    userId: v.string(),
     name: v.string(),
     description: v.optional(v.string()),
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_active", ["isActive"]),
+  })
+    .index("by_active", ["isActive"])
+    .index("by_user", ["userId"]),
 
   // Accounts - Social media accounts
   accounts: defineTable({
@@ -44,6 +47,7 @@ export default defineSchema({
 
   // Content - Generated content library (only stores completed slideshows)
   content: defineTable({
+    userId: v.string(),
     productId: v.optional(v.id("products")),
     accountId: v.optional(v.id("accounts")),
 
@@ -79,6 +83,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_user", ["userId"])
     .index("by_product", ["productId"])
     .index("by_account", ["accountId"]),
 

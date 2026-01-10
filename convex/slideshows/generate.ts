@@ -22,6 +22,11 @@ export const generate = action({
     ctx,
     args
   ): Promise<{ contentId: Id<"content">; success: boolean }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
     const slideCount = args.slideCount || 5;
 
     // Step 1: Generate text content
@@ -67,6 +72,7 @@ Each element in the "slides" array must be a single string containing all the te
 
     // Step 5: Save completed slideshow to DB
     const contentId = await ctx.runMutation(api.content.create, {
+      userId: identity.subject,
       productId: args.productId,
       inputParams: {
         topic: args.topic,
@@ -101,8 +107,13 @@ export const regenerateSlideImage = action({
     ctx,
     args
   ): Promise<{ success: boolean; imageUrl?: string; error?: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { success: false, error: "Not authenticated" };
+    }
+
     try {
-      // Get the content item
+      // Get the content item (auth check is done in the query)
       const contentItem = await ctx.runQuery(api.content.get, {
         id: args.contentId,
       });

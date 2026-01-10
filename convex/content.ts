@@ -29,25 +29,36 @@ const contentValidator = v.object({
   })),
 });
 
-// Get all content
+// Get all content for current user
 export const list = query({
   handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
     return await ctx.db
       .query("content")
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
       .order("desc")
       .collect();
   },
 });
 
-// Get content by product
+// Get content by product for current user
 export const listByProduct = query({
   args: { productId: v.id("products") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+    const content = await ctx.db
       .query("content")
       .withIndex("by_product", (q) => q.eq("productId", args.productId))
-      .order("desc")
       .collect();
+    return content
+      .filter((c) => c.userId === identity.subject)
+      .sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
@@ -55,7 +66,15 @@ export const listByProduct = query({
 export const get = query({
   args: { id: v.id("content") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+    const content = await ctx.db.get(args.id);
+    if (!content || content.userId !== identity.subject) {
+      return null;
+    }
+    return content;
   },
 });
 
@@ -63,8 +82,12 @@ export const get = query({
 export const getWithDetails = query({
   args: { id: v.id("content") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
     const content = await ctx.db.get(args.id);
-    if (!content) return null;
+    if (!content || content.userId !== identity.subject) return null;
 
     const product = content.productId
       ? await ctx.db.get(content.productId)
@@ -84,6 +107,7 @@ export const getWithDetails = query({
 // Create a completed slideshow (only called after successful generation)
 export const create = mutation({
   args: {
+    userId: v.string(),
     productId: v.optional(v.id("products")),
     accountId: v.optional(v.id("accounts")),
     inputParams: v.object({
@@ -97,6 +121,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const contentId = await ctx.db.insert("content", {
+      userId: args.userId,
       productId: args.productId,
       accountId: args.accountId,
       inputParams: args.inputParams,
@@ -116,8 +141,13 @@ export const updateSlide = mutation({
     slide: slideValidator,
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
     const content = await ctx.db.get(args.id);
-    if (!content || !content.content?.slides) {
+    if (!content || content.userId !== identity.subject || !content.content?.slides) {
       throw new Error("Content not found or has no slides");
     }
 
@@ -141,8 +171,13 @@ export const toggleSlideOverlay = mutation({
     slideIndex: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
     const content = await ctx.db.get(args.id);
-    if (!content || !content.content?.slides) {
+    if (!content || content.userId !== identity.subject || !content.content?.slides) {
       throw new Error("Content not found or has no slides");
     }
 
@@ -173,8 +208,13 @@ export const updateAspectRatio = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
     const content = await ctx.db.get(args.id);
-    if (!content || !content.content) {
+    if (!content || content.userId !== identity.subject || !content.content) {
       throw new Error("Content not found");
     }
 
@@ -198,8 +238,13 @@ export const updateFontSize = mutation({
     fontSize: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
     const content = await ctx.db.get(args.id);
-    if (!content || !content.content) {
+    if (!content || content.userId !== identity.subject || !content.content) {
       throw new Error("Content not found");
     }
 
@@ -220,14 +265,32 @@ export const updateFontSize = mutation({
 export const remove = mutation({
   args: { id: v.id("content") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const content = await ctx.db.get(args.id);
+    if (!content || content.userId !== identity.subject) {
+      throw new Error("Content not found");
+    }
+
     await ctx.db.delete(args.id);
   },
 });
 
-// Get stats for dashboard
+// Get stats for dashboard (for current user)
 export const getStats = query({
   handler: async (ctx) => {
-    const all = await ctx.db.query("content").collect();
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { totalGenerated: 0, generatedThisWeek: 0 };
+    }
+
+    const all = await ctx.db
+      .query("content")
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+      .collect();
 
     const now = Date.now();
     const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;

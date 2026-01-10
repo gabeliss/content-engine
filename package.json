@@ -11,6 +11,7 @@
     "convex:deploy": "convex deploy"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.59.3",
     "convex": "^1.28.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
