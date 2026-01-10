@@ -1,19 +1,13 @@
-import { useState } from "react";
-import { Image as ImageIcon, RefreshCw } from "lucide-react";
+import { Image as ImageIcon } from "lucide-react";
 import { ContentItem, Product } from "../types";
-import { SlideshowActionModal } from "./SlideshowActionModal";
 import { formatDate } from "../utils";
 import { Id } from "../../../../convex/_generated/dataModel";
-
-type TabFilter = "all" | "drafts" | "exported";
 
 interface SlideshowGridProps {
   slideshows: ContentItem[] | undefined;
   products: Product[] | undefined;
   currentSlideshowId?: Id<"content"> | null;
-  onSelectDraft: (id: Id<"content">) => void;
-  showTabs?: boolean;
-  defaultTab?: TabFilter;
+  onSelectSlideshow: (id: Id<"content">) => void;
   title?: string;
 }
 
@@ -21,99 +15,23 @@ export function SlideshowGrid({
   slideshows,
   products,
   currentSlideshowId,
-  onSelectDraft,
-  showTabs = true,
-  defaultTab = "all",
+  onSelectSlideshow,
   title = "My Slideshows",
 }: SlideshowGridProps) {
-  const [activeTab, setActiveTab] = useState<TabFilter>(defaultTab);
-  const [selectedExportedSlideshow, setSelectedExportedSlideshow] = useState<ContentItem | null>(null);
-
-  // Filter slideshows based on tab
-  const filteredSlideshows = slideshows?.filter((s) => {
-    // Only show ready/edited slideshows (not pending/generating/failed)
-    if (s.status !== "ready" && s.status !== "edited") return false;
-
-    if (activeTab === "all") return true;
-    if (activeTab === "drafts") return s.exportedAt === undefined;
-    if (activeTab === "exported") return s.exportedAt !== undefined;
-    return true;
-  });
-
-  const counts = {
-    all: slideshows?.filter((s) => s.status === "ready" || s.status === "edited").length || 0,
-    drafts: slideshows?.filter((s) => (s.status === "ready" || s.status === "edited") && s.exportedAt === undefined).length || 0,
-    exported: slideshows?.filter((s) => s.exportedAt !== undefined).length || 0,
-  };
-
-  const handleSlideshowClick = (slideshow: ContentItem) => {
-    if (slideshow.exportedAt !== undefined) {
-      // Open action modal for exported slideshows
-      setSelectedExportedSlideshow(slideshow);
-    } else {
-      // Load draft into editor
-      onSelectDraft(slideshow._id);
-    }
-  };
-
   const getProduct = (productId?: Id<"products">) => {
     return products?.find((p) => p._id === productId);
   };
 
   return (
     <div className="card">
-      {/* Header with Tabs */}
-      <div style={{ marginBottom: "1rem" }}>
-        <h2 style={{ margin: "0 0 1rem 0", fontSize: "1rem" }}>{title}</h2>
+      <h2 style={{ margin: "0 0 1rem 0", fontSize: "1rem" }}>{title}</h2>
 
-        {showTabs && (
-          <div className="tabs">
-            {(["all", "drafts", "exported"] as TabFilter[]).map((tab) => (
-              <button
-                key={tab}
-                className={`tab ${activeTab === tab ? "active" : ""}`}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                {counts[tab] > 0 && (
-                  <span
-                    style={{
-                      marginLeft: "0.5rem",
-                      background: activeTab === tab ? "#3b82f6" : "#e5e7eb",
-                      color: activeTab === tab ? "white" : "#6b7280",
-                      padding: "0.125rem 0.5rem",
-                      borderRadius: "9999px",
-                      fontSize: "0.75rem",
-                    }}
-                  >
-                    {counts[tab]}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Grid */}
-      {!filteredSlideshows || filteredSlideshows.length === 0 ? (
+      {!slideshows || slideshows.length === 0 ? (
         <div className="empty-state" style={{ padding: "2rem" }}>
-          <div className="empty-state-icon">
-            {activeTab === "drafts" ? "📝" : activeTab === "exported" ? "📤" : "📭"}
-          </div>
-          <h3>
-            {activeTab === "drafts"
-              ? "No drafts"
-              : activeTab === "exported"
-              ? "No exported slideshows"
-              : "No slideshows yet"}
-          </h3>
+          <div className="empty-state-icon">📭</div>
+          <h3>No slideshows yet</h3>
           <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
-            {activeTab === "drafts"
-              ? "Generate a slideshow to get started"
-              : activeTab === "exported"
-              ? "Export a slideshow to see it here"
-              : "Generate a slideshow to get started"}
+            Generate a slideshow to get started
           </p>
         </div>
       ) : (
@@ -124,16 +42,15 @@ export function SlideshowGrid({
             gap: "1rem",
           }}
         >
-          {filteredSlideshows.map((slideshow) => {
+          {slideshows.map((slideshow) => {
             const product = getProduct(slideshow.productId);
             const isCurrentlyEditing = currentSlideshowId === slideshow._id;
-            const isDraft = slideshow.exportedAt === undefined;
             const firstSlide = slideshow.content?.slides?.[0];
 
             return (
               <div
                 key={slideshow._id}
-                onClick={() => handleSlideshowClick(slideshow)}
+                onClick={() => onSelectSlideshow(slideshow._id)}
                 style={{
                   cursor: "pointer",
                   borderRadius: "12px",
@@ -178,32 +95,9 @@ export function SlideshowGrid({
                         objectFit: "cover",
                       }}
                     />
-                  ) : slideshow.status === "generating" || slideshow.status === "pending" ? (
-                    <RefreshCw
-                      size={32}
-                      style={{ opacity: 0.3, animation: "spin 2s linear infinite" }}
-                    />
                   ) : (
                     <ImageIcon size={32} style={{ opacity: 0.3 }} />
                   )}
-
-                  {/* Badge */}
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "0.5rem",
-                      right: "0.5rem",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "4px",
-                      fontSize: "0.625rem",
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      background: isDraft ? "#fef3c7" : "#d1fae5",
-                      color: isDraft ? "#92400e" : "#065f46",
-                    }}
-                  >
-                    {isDraft ? "Draft" : "Exported"}
-                  </div>
 
                   {/* Currently Editing Indicator */}
                   {isCurrentlyEditing && (
@@ -261,16 +155,6 @@ export function SlideshowGrid({
             );
           })}
         </div>
-      )}
-
-      {/* Action Modal for Exported Slideshows */}
-      {selectedExportedSlideshow && (
-        <SlideshowActionModal
-          slideshow={selectedExportedSlideshow}
-          product={getProduct(selectedExportedSlideshow.productId)}
-          onClose={() => setSelectedExportedSlideshow(null)}
-          onDelete={() => setSelectedExportedSlideshow(null)}
-        />
       )}
     </div>
   );

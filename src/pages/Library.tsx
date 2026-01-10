@@ -2,28 +2,35 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { SlideshowGrid, ContentItem, Product } from "../features/slideshows";
 
-export default function Library() {
-  const exported = useQuery(api.content.listExported);
+interface LibraryProps {
+  onNavigate: (path: string) => void;
+}
+
+export default function Library({ onNavigate }: LibraryProps) {
+  const content = useQuery(api.content.list);
   const products = useQuery(api.products.list);
 
   // Cast to correct types
-  const exportedSlideshows = exported as ContentItem[] | undefined;
+  const slideshows = content as ContentItem[] | undefined;
   const productsList = products as Product[] | undefined;
+
+  const handleSelectSlideshow = () => {
+    // Navigate to slideshows page when clicking a slideshow
+    onNavigate("/slideshows");
+  };
 
   return (
     <div>
       <div className="page-header">
         <h1>Content Library</h1>
-        <p>View and manage your exported content</p>
+        <p>Browse all your generated slideshows</p>
       </div>
 
       <SlideshowGrid
-        slideshows={exportedSlideshows}
+        slideshows={slideshows}
         products={productsList}
-        onSelectDraft={() => {}} // No-op since Library only shows exported
-        showTabs={false}
-        defaultTab="exported"
-        title="Exported Slideshows"
+        onSelectSlideshow={handleSelectSlideshow}
+        title="All Slideshows"
       />
     </div>
   );

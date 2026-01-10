@@ -31,26 +31,13 @@ export interface InputParams {
   variables?: any;
 }
 
-export type ContentStatus =
-  | "pending"
-  | "generating"
-  | "ready"
-  | "edited"
-  | "downloaded"
-  | "posted"
-  | "failed";
-
 export interface ContentItem {
   _id: Id<"content">;
   _creationTime: number;
   productId?: Id<"products">;
   accountId?: Id<"accounts">;
-  status: ContentStatus;
   inputParams: InputParams;
-  content?: CarouselContent;
-  currentStep?: number;
-  errorMessage?: string;
-  exportedAt?: number;
+  content: CarouselContent;
   createdAt: number;
   updatedAt: number;
 }

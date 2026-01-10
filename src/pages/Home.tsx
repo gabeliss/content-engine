@@ -22,15 +22,15 @@ export default function Home({ onNavigate }: HomeProps) {
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-value">{stats?.totalGenerated || 0}</div>
-          <div className="stat-label">Total Generated</div>
+          <div className="stat-label">Total Slideshows</div>
         </div>
         <div className="stat-card">
           <div className="stat-value">{stats?.generatedThisWeek || 0}</div>
           <div className="stat-label">This Week</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{stats?.pendingReview || 0}</div>
-          <div className="stat-label">Ready to Post</div>
+          <div className="stat-value">{products?.length || 0}</div>
+          <div className="stat-label">Products</div>
         </div>
       </div>
 
@@ -147,9 +147,6 @@ export default function Home({ onNavigate }: HomeProps) {
                     {content.content?.slides?.length || 0} slides •{" "}
                     {new Date(content.createdAt).toLocaleDateString()}
                   </div>
-                  <span className={`badge badge-${content.status}`}>
-                    {content.status}
-                  </span>
                 </div>
               </div>
             ))}

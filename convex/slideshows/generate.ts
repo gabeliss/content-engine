@@ -10,6 +10,7 @@ import {
 
 /**
  * Generate a carousel slideshow
+ * Only saves to DB on success - no intermediate status tracking
  */
 export const generate = action({
   args: {
@@ -23,24 +24,8 @@ export const generate = action({
   ): Promise<{ contentId: Id<"content">; success: boolean }> => {
     const slideCount = args.slideCount || 5;
 
-    // Create the content item
-    const contentId = await ctx.runMutation(api.content.create, {
-      productId: args.productId,
-      inputParams: {
-        topic: args.topic,
-        slideCount,
-      },
-    });
-
-    try {
-      // Update status to generating
-      await ctx.runMutation(api.content.updateStatus, {
-        id: contentId,
-        status: "generating",
-      });
-
-      // Step 1: Generate text content
-      const prompt = `Generate ${slideCount} engaging carousel slides about: ${args.topic}
+    // Step 1: Generate text content
+    const prompt = `Generate ${slideCount} engaging carousel slides about: ${args.topic}
 
 Requirements:
 - Each slide should have 1-2 short, punchy sentences (max 90 characters)
@@ -54,60 +39,51 @@ IMPORTANT: Return EXACTLY this JSON format (slides must be an array of strings):
 
 Each element in the "slides" array must be a single string containing all the text for that slide.`;
 
-      const textResponse = await generateText(prompt,
-        "You are a social media expert creating viral TikTok/Instagram carousels.",
-        {
-          model: "gemini-2.0-flash",
-          responseFormat: { type: "json_object" },
-        }
-      );
+    const textResponse = await generateText(prompt,
+      "You are a social media expert creating viral TikTok/Instagram carousels.",
+      {
+        model: "gemini-2.0-flash",
+        responseFormat: { type: "json_object" },
+      }
+    );
 
-      // Parse the response
-      const parsed = JSON.parse(textResponse.text);
-      const slideTexts: string[] = parsed.slides || [];
+    // Parse the response
+    const parsed = JSON.parse(textResponse.text);
+    const slideTexts: string[] = parsed.slides || [];
 
-      // Step 2: Generate images for each slide
-      const imageResponse = await generateCarouselImages(slideTexts);
+    // Step 2: Generate images for each slide
+    const imageResponse = await generateCarouselImages(slideTexts);
 
-      // Step 3: Upload images to Convex storage
-      const storageUrls = await ctx.runAction(api.storage.uploadBase64Images, {
-        base64DataArray: imageResponse.images,
-      });
+    // Step 3: Upload images to Convex storage
+    const storageUrls = await ctx.runAction(api.storage.uploadBase64Images, {
+      base64DataArray: imageResponse.images,
+    });
 
-      // Step 4: Create final slides
-      const slides = slideTexts.map((text, index) => ({
-        text,
-        imageUrl: storageUrls[index],
-      }));
+    // Step 4: Create final slides
+    const slides = slideTexts.map((text, index) => ({
+      text,
+      imageUrl: storageUrls[index],
+    }));
 
-      // Step 5: Save content
-      await ctx.runMutation(api.content.updateContent, {
-        id: contentId,
-        content: {
-          type: "carousel",
-          slides,
-          config: {
-            fontSize: 48,
-            fontColor: "#FFFFFF",
-            textPosition: { x: 50, y: 50 },
-          },
+    // Step 5: Save completed slideshow to DB
+    const contentId = await ctx.runMutation(api.content.create, {
+      productId: args.productId,
+      inputParams: {
+        topic: args.topic,
+        slideCount,
+      },
+      content: {
+        type: "carousel",
+        slides,
+        config: {
+          fontSize: 48,
+          fontColor: "#FFFFFF",
+          textPosition: { x: 50, y: 50 },
         },
-      });
+      },
+    });
 
-      return { contentId, success: true };
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-
-      // Update status to failed
-      await ctx.runMutation(api.content.updateStatus, {
-        id: contentId,
-        status: "failed",
-        errorMessage,
-      });
-
-      throw error;
-    }
+    return { contentId, success: true };
   },
 });
 
@@ -135,6 +111,11 @@ export const regenerateSlideImage = action({
         throw new Error("Content item not found");
       }
 
+      const currentSlide = contentItem.content?.slides?.[args.slideIndex];
+      if (!currentSlide) {
+        throw new Error("Slide not found");
+      }
+
       // Generate a new image for this slide
       const { generateCarouselImage } = await import("../providers/gemini");
       const result = await generateCarouselImage(
@@ -148,22 +129,16 @@ export const regenerateSlideImage = action({
         filename: `slide-${args.slideIndex}`,
       });
 
-      // Update the slide
-      const slides = [...(contentItem.content?.slides || [])];
-      if (slides[args.slideIndex]) {
-        slides[args.slideIndex] = {
-          ...slides[args.slideIndex],
+      // Update the slide with new image
+      await ctx.runMutation(api.content.updateSlide, {
+        id: args.contentId,
+        slideIndex: args.slideIndex,
+        slide: {
+          text: currentSlide.text,
           imageUrl: storageUrl,
-        };
-
-        await ctx.runMutation(api.content.updateContent, {
-          id: args.contentId,
-          content: {
-            ...contentItem.content!,
-            slides,
-          },
-        });
-      }
+          overlay: currentSlide.overlay,
+        },
+      });
 
       return { success: true, imageUrl: storageUrl };
     } catch (error: unknown) {

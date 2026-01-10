@@ -1,9 +1,18 @@
-import { Upload } from "lucide-react";
+import { Download, Trash2, Calendar } from "lucide-react";
 import { ContentItem, AspectRatio } from "../../types";
 import { PlaceholderState } from "./PlaceholderState";
 import { SlideCarousel } from "./SlideCarousel";
 import { ThumbnailNav } from "./ThumbnailNav";
 import { EditModeButtons } from "./EditModeButtons";
+
+// TikTok icon component
+function TikTokIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
+    </svg>
+  );
+}
 
 interface PreviewPanelProps {
   selectedCarouselItem: ContentItem | undefined;
@@ -28,8 +37,10 @@ interface PreviewPanelProps {
   onToggleRatioMenu: () => void;
   onChangeRatio: (ratio: AspectRatio) => void;
 
-  // Export
-  onExport: () => void;
+  // Actions
+  onDownload: () => void;
+  onDelete: () => void;
+  isDownloading?: boolean;
 }
 
 export function PreviewPanel({
@@ -50,9 +61,10 @@ export function PreviewPanel({
   showRatioMenu,
   onToggleRatioMenu,
   onChangeRatio,
-  onExport,
+  onDownload,
+  onDelete,
+  isDownloading,
 }: PreviewPanelProps) {
-  const isExported = selectedCarouselItem?.exportedAt !== undefined;
   return (
     <div className="card" style={{ overflow: "hidden" }}>
       {/* Header */}
@@ -69,13 +81,6 @@ export function PreviewPanel({
 
       {selectedCarouselItem ? (
         <>
-          {/* Status (only show if error) */}
-          {selectedCarouselItem.errorMessage && (
-            <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
-              {selectedCarouselItem.errorMessage}
-            </div>
-          )}
-
           {/* Slides Carousel Preview */}
           {selectedCarouselItem.content?.slides &&
             selectedCarouselItem.content.slides.length > 0 && (
@@ -116,28 +121,45 @@ export function PreviewPanel({
                   onSelectSlide={onSelectSlide}
                 />
 
-                {/* Export Button */}
-                {!isExported && (
+                {/* Action Buttons */}
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                   <button
                     className="btn btn-primary"
-                    onClick={onExport}
-                    style={{ width: "100%" }}
+                    onClick={onDownload}
+                    disabled={isDownloading}
+                    style={{ flex: 1, minWidth: "120px" }}
                   >
-                    <Upload size={16} /> Export Slideshow
+                    <Download size={16} /> {isDownloading ? "Downloading..." : "Download"}
                   </button>
-                )}
-                {isExported && (
-                  <div
+                  <button
+                    className="btn"
+                    onClick={() => alert("Publish to TikTok coming soon!")}
                     style={{
-                      textAlign: "center",
-                      color: "#10b981",
-                      fontSize: "0.875rem",
-                      fontWeight: 500,
+                      background: "#fe2c55",
+                      color: "white",
+                      border: "none",
                     }}
                   >
-                    Exported
-                  </div>
-                )}
+                    <TikTokIcon size={16} />
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => alert("Scheduling coming soon!")}
+                  >
+                    <Calendar size={16} />
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={onDelete}
+                    style={{
+                      background: "#fef2f2",
+                      color: "#dc2626",
+                      border: "1px solid #fecaca",
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </>
             )}
         </>

@@ -42,20 +42,10 @@ export default defineSchema({
     .index("by_product", ["productId"])
     .index("by_username", ["platform", "username"]),
 
-  // Content - Generated content library
+  // Content - Generated content library (only stores completed slideshows)
   content: defineTable({
     productId: v.optional(v.id("products")),
     accountId: v.optional(v.id("accounts")),
-
-    status: v.union(
-      v.literal("pending"),
-      v.literal("generating"),
-      v.literal("ready"),
-      v.literal("edited"),
-      v.literal("downloaded"),
-      v.literal("posted"),
-      v.literal("failed")
-    ),
 
     // Input parameters used for generation
     inputParams: v.object({
@@ -66,7 +56,7 @@ export default defineSchema({
     }),
 
     // Generated content
-    content: v.optional(v.object({
+    content: v.object({
       type: v.string(),
       slides: v.optional(v.array(slideValidator)),
       texts: v.optional(v.array(v.string())), // For threads
@@ -84,18 +74,12 @@ export default defineSchema({
           v.literal("9:16")
         )),
       })),
-    })),
+    }),
 
-    // Execution tracking
-    currentStep: v.optional(v.number()),
-
-    errorMessage: v.optional(v.string()),
-    exportedAt: v.optional(v.number()), // When user exported/finalized this slideshow
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_product", ["productId"])
-    .index("by_status", ["status"])
     .index("by_account", ["accountId"]),
 
   // Config - API keys and global settings

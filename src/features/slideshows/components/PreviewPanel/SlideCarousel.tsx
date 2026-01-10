@@ -1,20 +1,12 @@
-import { Slide, ContentConfig, AspectRatio } from "../../types";
+import { Slide, ContentConfig } from "../../types";
 import { SlideEditor } from "./SlideEditor";
-
-const SLIDE_WIDTH = 275;
-
-function getSlideHeight(aspectRatio: AspectRatio): number {
-  switch (aspectRatio) {
-    case "1:1":
-      return SLIDE_WIDTH; // 300px
-    case "4:5":
-      return SLIDE_WIDTH * (5 / 4); // 375px
-    case "9:16":
-      return SLIDE_WIDTH * (16 / 9); // ~533px
-    default:
-      return SLIDE_WIDTH;
-  }
-}
+import {
+  TEXT_STYLES,
+  DEFAULT_CONFIG,
+  PREVIEW_SLIDE_WIDTH,
+  getPreviewFontSize,
+  getDimensions,
+} from "../../styles";
 
 interface SlideCarouselProps {
   slides: Slide[];
@@ -45,10 +37,11 @@ export function SlideCarousel({
   onDeleteText,
   onStartTextEdit,
 }: SlideCarouselProps) {
-  const fontSize = config?.fontSize || 48;
-  const textPosition = config?.textPosition || { x: 50, y: 50 };
-  const aspectRatio = config?.aspectRatio || "1:1";
-  const slideHeight = getSlideHeight(aspectRatio);
+  const fontSize = config?.fontSize || DEFAULT_CONFIG.fontSize;
+  const textPosition = config?.textPosition || DEFAULT_CONFIG.textPosition;
+  const aspectRatio = config?.aspectRatio || DEFAULT_CONFIG.aspectRatio;
+  const { height: slideHeight } = getDimensions(aspectRatio, PREVIEW_SLIDE_WIDTH);
+  const previewFontSize = getPreviewFontSize(fontSize);
 
   return (
     <div style={{ marginBottom: "1rem", position: "relative", overflow: "hidden" }}>
@@ -57,7 +50,7 @@ export function SlideCarousel({
           display: "flex",
           gap: "1rem",
           height: `${slideHeight}px`,
-          transform: `translateX(calc(50% - ${selectedIndex * (SLIDE_WIDTH + 20)}px - ${SLIDE_WIDTH / 2}px))`,
+          transform: `translateX(calc(50% - ${selectedIndex * (PREVIEW_SLIDE_WIDTH + 20)}px - ${PREVIEW_SLIDE_WIDTH / 2}px))`,
           transition: "transform 0.3s ease-out, height 0.3s ease-out",
         }}
       >
@@ -65,8 +58,8 @@ export function SlideCarousel({
           <div
             key={idx}
             style={{
-              minWidth: `${SLIDE_WIDTH}px`,
-              width: `${SLIDE_WIDTH}px`,
+              minWidth: `${PREVIEW_SLIDE_WIDTH}px`,
+              width: `${PREVIEW_SLIDE_WIDTH}px`,
               height: `${slideHeight}px`,
               position: "relative",
               borderRadius: "12px",
@@ -123,17 +116,16 @@ export function SlideCarousel({
                   top: `${textPosition.y}%`,
                   left: `${textPosition.x}%`,
                   transform: "translate(-50%, -50%)",
-                  color: "white",
-                  fontSize: `${fontSize / 4}px`,
-                  fontFamily: '"TikTok Display Medium"',
-                  fontWeight: 700,
+                  color: TEXT_STYLES.color,
+                  fontSize: `${previewFontSize}px`,
+                  fontFamily: TEXT_STYLES.fontFamily,
+                  fontWeight: TEXT_STYLES.fontWeight,
                   textAlign: "center",
-                  textShadow:
-                    "rgb(0, 0, 0) -0.714286px -0.714286px 0px, rgb(0, 0, 0) 0.714286px -0.714286px 0px, rgb(0, 0, 0) -0.714286px 0.714286px 0px, rgb(0, 0, 0) 0.714286px 0.714286px 0px",
+                  textShadow: TEXT_STYLES.getTextShadow(PREVIEW_SLIDE_WIDTH),
                   width: "max-content",
-                  maxWidth: "90%",
+                  maxWidth: `${TEXT_STYLES.maxWidthPercent * 100}%`,
                   whiteSpace: "pre-wrap",
-                  lineHeight: 1.2,
+                  lineHeight: TEXT_STYLES.lineHeight,
                   display: "flex",
                   justifyContent: "center",
                   alignItems: "flex-start",

@@ -1,6 +1,4 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
-import { useQuery } from "convex/react";
-import { api } from "../convex/_generated/api";
 import {
   Home as HomeIcon,
   Library as LibraryIcon,
@@ -26,7 +24,6 @@ import SettingsPage from "./pages/Settings";
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
-  const stats = useQuery(api.content.getStats);
 
   const generalNavItems = [
     { path: "/", label: "Home", icon: HomeIcon },
@@ -59,20 +56,6 @@ function AppContent() {
             >
               <item.icon size={18} />
               {item.label}
-              {item.path === "/library" && stats && stats.pendingReview > 0 && (
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    background: "#ef4444",
-                    color: "white",
-                    padding: "0.125rem 0.5rem",
-                    borderRadius: "9999px",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  {stats.pendingReview}
-                </span>
-              )}
             </div>
           ))}
 
@@ -110,7 +93,7 @@ function AppContent() {
       <main className="main-content">
         <Routes>
           <Route path="/" element={<Home onNavigate={(path) => navigate(path)} />} />
-          <Route path="/library" element={<Library />} />
+          <Route path="/library" element={<Library onNavigate={(path) => navigate(path)} />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/slideshows" element={<Slideshows />} />

@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import JSZip from "jszip";
 import {
   GenerationForm,
   PreviewPanel,
@@ -7,6 +9,7 @@ import {
   useSlideshowGeneration,
   useTextEditing,
   useSlideshowState,
+  renderSlideToCanvas,
 } from "../features/slideshows";
 
 export default function Slideshows() {
@@ -14,7 +17,14 @@ export default function Slideshows() {
   const state = useSlideshowState();
   const generation = useSlideshowGeneration();
   const textEditing = useTextEditing();
-  const exportContent = useMutation(api.content.exportContent);
+  const removeContent = useMutation(api.content.remove);
+
+  // Sync prompt with selected slideshow
+  useEffect(() => {
+    if (state.selectedCarouselItem?.inputParams?.topic) {
+      generation.setPrompt(state.selectedCarouselItem.inputParams.topic);
+    }
+  }, [state.selectedCarouselItem?._id]);
 
   // Handle generation
   const handleGenerate = () => {
@@ -47,10 +57,53 @@ export default function Slideshows() {
     await textEditing.deleteText(state.selectedCarousel, state.selectedSlideIndex, currentSlide);
   };
 
-  // Handle export
-  const handleExport = async () => {
+  // Handle download as zip
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    const slides = state.selectedCarouselItem?.content?.slides;
+    const config = state.selectedCarouselItem?.content?.config;
+    if (!slides) return;
+
+    setIsDownloading(true);
+    try {
+      const zip = new JSZip();
+
+      // Render each slide and add to zip
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        if (slide.imageUrl) {
+          const blob = await renderSlideToCanvas(slide, {
+            fontSize: config?.fontSize,
+            aspectRatio: config?.aspectRatio,
+            textPosition: config?.textPosition,
+          });
+          zip.file(`slide-${i + 1}.png`, blob);
+        }
+      }
+
+      // Generate and download zip
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const blobUrl = URL.createObjectURL(zipBlob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = "slideshow.zip";
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("Failed to download slides:", error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // Handle delete
+  const handleDelete = async () => {
     if (!state.selectedCarousel) return;
-    await exportContent({ id: state.selectedCarousel });
+    if (!confirm("Are you sure you want to delete this slideshow?")) return;
+
+    await removeContent({ id: state.selectedCarousel });
+    state.setSelectedCarousel(null);
   };
 
   return (
@@ -96,7 +149,9 @@ export default function Slideshows() {
           showRatioMenu={state.showRatioMenu}
           onToggleRatioMenu={() => state.setShowRatioMenu(!state.showRatioMenu)}
           onChangeRatio={state.handleChangeRatio}
-          onExport={handleExport}
+          onDownload={handleDownload}
+          onDelete={handleDelete}
+          isDownloading={isDownloading}
         />
       </div>
 
@@ -105,7 +160,7 @@ export default function Slideshows() {
         slideshows={state.allCarousels}
         products={state.products}
         currentSlideshowId={state.selectedCarousel}
-        onSelectDraft={(id) => {
+        onSelectSlideshow={(id) => {
           state.setSelectedCarousel(id);
           state.setSelectedSlideIndex(0);
         }}

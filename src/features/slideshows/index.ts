@@ -1,5 +1,5 @@
 // Components
-export { GenerationForm, PreviewPanel, SlideshowActionModal, SlideshowGrid } from "./components";
+export { GenerationForm, PreviewPanel, SlideshowGrid } from "./components";
 
 // Hooks
 export {
@@ -14,11 +14,13 @@ export type {
   ContentConfig,
   CarouselContent,
   InputParams,
-  ContentStatus,
   ContentItem,
   Product,
   AspectRatio,
 } from "./types";
 
 // Utils
-export { formatDate, sanitizeForFilename, extractSlideCountFromPrompt, clampSlideCount } from "./utils";
+export { formatDate, sanitizeForFilename, extractSlideCountFromPrompt, clampSlideCount, renderSlideToCanvas } from "./utils";
+
+// Styles
+export { TEXT_STYLES, DEFAULT_CONFIG, EXPORT_BASE_SIZE, PREVIEW_SLIDE_WIDTH } from "./styles";
