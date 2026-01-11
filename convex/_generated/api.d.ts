@@ -8,7 +8,9 @@
  * @module
  */
 
+import type * as accounts from "../accounts.js";
 import type * as content from "../content.js";
+import type * as http from "../http.js";
 import type * as products from "../products.js";
 import type * as providers_gemini from "../providers/gemini.js";
 import type * as slideshows_generate from "../slideshows/generate.js";
@@ -21,7 +23,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accounts: typeof accounts;
   content: typeof content;
+  http: typeof http;
   products: typeof products;
   "providers/gemini": typeof providers_gemini;
   "slideshows/generate": typeof slideshows_generate;

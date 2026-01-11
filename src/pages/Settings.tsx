@@ -1,16 +1,68 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { Plus, Edit2, Trash2, X, Check, Package } from "lucide-react";
+import { Plus, Edit2, Trash2, X, Check, Package, Link, Unlink, ExternalLink } from "lucide-react";
 
 type Tab = "general" | "products" | "account" | "billing";
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<Tab>("products");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "account" || tab === "general" || tab === "products" || tab === "billing") {
+      return tab;
+    }
+    return "products";
+  });
+  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Handle OAuth callback params
+  useEffect(() => {
+    const success = searchParams.get("success");
+    const error = searchParams.get("error");
+
+    if (success === "tiktok_connected") {
+      setNotification({ type: "success", message: "TikTok account connected successfully!" });
+      // Clean up URL params
+      searchParams.delete("success");
+      searchParams.delete("tab");
+      setSearchParams(searchParams, { replace: true });
+    } else if (error) {
+      setNotification({ type: "error", message: `Connection failed: ${error}` });
+      searchParams.delete("error");
+      searchParams.delete("tab");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  // Auto-dismiss notification after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   return (
     <div>
+      {/* Notification Banner */}
+      {notification && (
+        <div
+          className={`alert ${notification.type === "success" ? "alert-success" : "alert-error"}`}
+          style={{ marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+        >
+          {notification.message}
+          <button
+            onClick={() => setNotification(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "0.25rem" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       <div className="page-header">
         <h1>Settings</h1>
         <p>Manage your account and application settings</p>
@@ -282,11 +334,204 @@ function ProductsTab() {
 }
 
 function AccountTab() {
+  const accounts = useQuery(api.accounts.list);
+  const createOAuthState = useMutation(api.accounts.createOAuthState);
+  const removeAccount = useMutation(api.accounts.remove);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const tiktokAccounts = accounts?.filter((a) => a.platform === "tiktok") || [];
+
+  const handleConnectTikTok = async () => {
+    setIsConnecting(true);
+    try {
+      // Create OAuth state
+      const state = await createOAuthState({
+        platform: "tiktok",
+        redirectUrl: window.location.href,
+      });
+
+      // Build TikTok OAuth URL
+      const clientKey = import.meta.env.VITE_TIKTOK_CLIENT_KEY;
+      const redirectUri = `${import.meta.env.VITE_CONVEX_SITE_URL}/auth/tiktok/callback`;
+
+      // TikTok OAuth scopes
+      const scopes = [
+        "user.info.basic",
+        "user.info.profile",
+        "user.info.stats",
+        "video.list",
+        "video.publish",
+        "video.upload",
+      ].join(",");
+
+      const authUrl = new URL("https://www.tiktok.com/v2/auth/authorize/");
+      authUrl.searchParams.set("client_key", clientKey);
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("scope", scopes);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("state", state);
+
+      // Redirect to TikTok
+      window.location.href = authUrl.toString();
+    } catch (err) {
+      console.error("Failed to initiate TikTok OAuth:", err);
+      setIsConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async (accountId: Id<"accounts">) => {
+    if (confirm("Are you sure you want to disconnect this TikTok account?")) {
+      try {
+        await removeAccount({ id: accountId });
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to disconnect account");
+      }
+    }
+  };
+
   return (
     <div className="card">
-      <h2>Account Settings</h2>
-      <div className="empty-state" style={{ padding: "3rem" }}>
-        <p style={{ fontSize: "1rem", color: "#9ca3af" }}>Coming soon...</p>
+      <h2>Connected Accounts</h2>
+      <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>
+        Connect your social media accounts to publish content directly from Content Engine.
+      </p>
+
+      {/* TikTok Section */}
+      <div style={{ marginBottom: "2rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "8px",
+              background: "#000",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-5.2 1.74 2.89 2.89 0 012.31-4.64 2.93 2.93 0 01.88.13V9.4a6.84 6.84 0 00-1-.05A6.33 6.33 0 005 20.1a6.34 6.34 0 0010.86-4.43v-7a8.16 8.16 0 004.77 1.52v-3.4a4.85 4.85 0 01-1-.1z"
+                fill="#fff"
+              />
+            </svg>
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: "1.125rem" }}>TikTok</h3>
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "#6b7280" }}>
+              Post videos and view analytics
+            </p>
+          </div>
+        </div>
+
+        {tiktokAccounts.length === 0 ? (
+          <button
+            className="btn btn-primary"
+            onClick={handleConnectTikTok}
+            disabled={isConnecting}
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            {isConnecting ? (
+              <>
+                <span className="spinner" style={{ width: 16, height: 16 }} />
+                Connecting...
+              </>
+            ) : (
+              <>
+                <Link size={16} />
+                Connect TikTok Account
+              </>
+            )}
+          </button>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            {tiktokAccounts.map((account) => (
+              <div
+                key={account._id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "1rem",
+                  background: "#f9fafb",
+                  borderRadius: "8px",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  {account.avatarUrl ? (
+                    <img
+                      src={account.avatarUrl}
+                      alt={account.displayName || account.username}
+                      style={{ width: "40px", height: "40px", borderRadius: "50%" }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "40px",
+                        height: "40px",
+                        borderRadius: "50%",
+                        background: "#e5e7eb",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 600,
+                        color: "#6b7280",
+                      }}
+                    >
+                      {(account.displayName || account.username)[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {account.displayName || account.username}
+                    </div>
+                    <div style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+                      @{account.username}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <span className="badge badge-ready">Connected</span>
+                  <a
+                    href={`https://www.tiktok.com/@${account.username}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-sm btn-secondary"
+                    title="View on TikTok"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                  <button
+                    className="btn btn-sm btn-danger"
+                    onClick={() => handleDisconnect(account._id)}
+                    title="Disconnect"
+                  >
+                    <Unlink size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleConnectTikTok}
+              disabled={isConnecting}
+              style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
+            >
+              <Plus size={14} />
+              Add Another Account
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Future: Instagram, Twitter sections */}
+      <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: "1.5rem", marginTop: "1rem" }}>
+        <h3 style={{ fontSize: "1rem", color: "#9ca3af", marginBottom: "0.5rem" }}>Coming Soon</h3>
+        <p style={{ fontSize: "0.875rem", color: "#9ca3af" }}>
+          Instagram and Twitter integrations are in development.
+        </p>
       </div>
     </div>
   );

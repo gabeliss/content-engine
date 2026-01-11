@@ -24,6 +24,7 @@ export default defineSchema({
 
   // Accounts - Social media accounts
   accounts: defineTable({
+    userId: v.string(), // Owner of this connected account
     platform: v.union(
       v.literal("tiktok"),
       v.literal("instagram"),
@@ -33,18 +34,33 @@ export default defineSchema({
     displayName: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
     productId: v.optional(v.id("products")), // Associated product
-    // Credentials stored separately for security
+    // OAuth credentials
     accessToken: v.optional(v.string()),
     refreshToken: v.optional(v.string()),
     tokenExpiresAt: v.optional(v.number()),
     platformUserId: v.optional(v.string()), // Platform-specific user ID
+    scopes: v.optional(v.array(v.string())), // Granted OAuth scopes
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_user", ["userId"])
     .index("by_platform", ["platform"])
+    .index("by_user_platform", ["userId", "platform"])
     .index("by_product", ["productId"])
     .index("by_username", ["platform", "username"]),
+
+  // OAuth state - temporary storage for OAuth flow
+  oauthStates: defineTable({
+    state: v.string(), // Random state for CSRF protection
+    userId: v.string(),
+    platform: v.string(),
+    redirectUrl: v.string(), // Where to redirect after OAuth
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_state", ["state"])
+    .index("by_expiry", ["expiresAt"]),
 
   // Content - Generated content library (only stores completed slideshows)
   content: defineTable({
