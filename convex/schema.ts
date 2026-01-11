@@ -111,4 +111,50 @@ export default defineSchema({
     isSecret: v.boolean(), // If true, value is encrypted/masked in UI
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  // Scheduled posts - Posts scheduled for future publication
+  scheduledPosts: defineTable({
+    userId: v.string(),
+    contentId: v.id("content"), // Reference to the slideshow
+    accountId: v.id("accounts"), // TikTok account to post from
+
+    // Post metadata (captured at schedule time)
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    privacyLevel: v.union(
+      v.literal("PUBLIC_TO_EVERYONE"),
+      v.literal("MUTUAL_FOLLOW_FRIENDS"),
+      v.literal("SELF_ONLY")
+    ),
+    postMode: v.union(
+      v.literal("DIRECT_POST"),
+      v.literal("MEDIA_UPLOAD")
+    ),
+    autoAddMusic: v.boolean(),
+
+    // Pre-rendered images (stored as Convex storage URLs at schedule time)
+    renderedImageUrls: v.array(v.string()),
+
+    // Scheduling
+    scheduledFor: v.number(), // UTC timestamp
+    timezone: v.string(), // User's timezone for display
+
+    // Status tracking
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("posting"),
+      v.literal("posted"),
+      v.literal("failed")
+    ),
+    publishId: v.optional(v.string()), // TikTok's publish_id after posting
+    errorMessage: v.optional(v.string()), // Error message if failed
+    postedAt: v.optional(v.number()), // When actually posted
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_status", ["status"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_scheduled_time", ["scheduledFor"]),
 });

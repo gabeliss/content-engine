@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { X, Check, AlertCircle } from "lucide-react";
-import { useQuery, useAction } from "convex/react";
+import { useState, useEffect } from "react";
+import { X, Check, AlertCircle, Clock, Calendar } from "lucide-react";
+import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { Slide, ContentConfig } from "../../types";
 import { renderSlidesToWebPBase64 } from "../../utils";
+import { DateTimePicker } from "../../../scheduling/components/DateTimePicker";
 
 // TikTok icon component
 function TikTokIcon({ size = 16 }: { size?: number }) {
@@ -18,6 +19,7 @@ function TikTokIcon({ size = 16 }: { size?: number }) {
 // Privacy level options
 type PrivacyLevel = "PUBLIC_TO_EVERYONE" | "MUTUAL_FOLLOW_FRIENDS" | "SELF_ONLY";
 type PostMode = "DIRECT_POST" | "MEDIA_UPLOAD";
+type ModalTab = "post" | "schedule";
 
 const privacyOptions: { value: PrivacyLevel; label: string; description: string }[] = [
   { value: "PUBLIC_TO_EVERYONE", label: "Everyone", description: "Anyone can view" },
@@ -25,21 +27,50 @@ const privacyOptions: { value: PrivacyLevel; label: string; description: string 
   { value: "SELF_ONLY", label: "Only Me", description: "Private to you" },
 ];
 
-const postModeOptions: { value: PostMode; label: string; description: string }[] = [
-  { value: "DIRECT_POST", label: "Post Now", description: "Publish immediately to your profile" },
-  { value: "MEDIA_UPLOAD", label: "Save as Draft", description: "Send to your TikTok inbox to edit later" },
+const postModeOptions: { value: PostMode; label: string; description: string; scheduleDescription: string }[] = [
+  { value: "DIRECT_POST", label: "Post Directly", description: "Publish immediately to your profile", scheduleDescription: "Publish to your profile at scheduled time" },
+  { value: "MEDIA_UPLOAD", label: "Send to Drafts", description: "Send to your TikTok inbox to edit later", scheduleDescription: "Send to inbox at scheduled time for final edits" },
 ];
+
+// Get the minimum schedulable time (current time + 20 minutes, rounded to next 15-min slot)
+function getMinScheduleTime(): Date {
+  const now = new Date();
+  const buffer = 20; // 20 minute buffer
+  now.setMinutes(now.getMinutes() + buffer);
+  // Round up to next 15-minute slot
+  const minutes = Math.ceil(now.getMinutes() / 15) * 15;
+  now.setMinutes(minutes, 0, 0);
+  return now;
+}
+
+// Get the default schedule time (next available slot)
+function getDefaultScheduleTime(): Date {
+  return getMinScheduleTime();
+}
 
 interface TikTokPostModalProps {
   isOpen: boolean;
   onClose: () => void;
   slides: Slide[];
   config?: ContentConfig;
+  contentId?: Id<"content">;
+  initialTab?: ModalTab;
 }
 
-export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostModalProps) {
+export function TikTokPostModal({
+  isOpen,
+  onClose,
+  slides,
+  config,
+  contentId,
+  initialTab = "post",
+}: TikTokPostModalProps) {
   const accounts = useQuery(api.accounts.list);
   const postRenderedSlideshow = useAction(api.tiktok.postRenderedSlideshow);
+  const createScheduledPost = useMutation(api.scheduledPosts.create);
+  const uploadBase64Images = useAction(api.storage.uploadBase64Images);
+
+  const [activeTab, setActiveTab] = useState<ModalTab>(initialTab);
   const [selectedAccount, setSelectedAccount] = useState<Id<"accounts"> | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -49,6 +80,18 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
   const [isPosting, setIsPosting] = useState(false);
   const [postingStatus, setPostingStatus] = useState<string>("");
   const [postResult, setPostResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Scheduling state
+  const [scheduledDate, setScheduledDate] = useState<Date>(getDefaultScheduleTime);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  // Reset tab when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      setPostResult(null);
+    }
+  }, [isOpen, initialTab]);
 
   const tiktokAccounts = accounts?.filter((a) => a.platform === "tiktok") || [];
   const slideCount = slides.length;
@@ -108,6 +151,71 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
     }
   };
 
+  const handleSchedule = async () => {
+    if (!selectedAccount || !contentId) return;
+
+    setIsPosting(true);
+    setPostResult(null);
+    setPostingStatus("Rendering slides...");
+
+    try {
+      // Step 1: Render all slides to WebP base64 on the frontend
+      const renderedImages = await renderSlidesToWebPBase64(slides, {
+        fontSize: config?.fontSize,
+        aspectRatio: config?.aspectRatio,
+        textPosition: config?.textPosition,
+      });
+
+      setPostingStatus("Uploading images...");
+
+      // Step 2: Upload rendered images to Convex storage
+      const storageUrls = await uploadBase64Images({
+        base64DataArray: renderedImages,
+      });
+
+      setPostingStatus("Creating schedule...");
+
+      // Step 3: Create scheduled post
+      await createScheduledPost({
+        contentId,
+        accountId: selectedAccount,
+        title: title || undefined,
+        description: description || undefined,
+        privacyLevel,
+        postMode,
+        autoAddMusic,
+        renderedImageUrls: storageUrls,
+        scheduledFor: scheduledDate.getTime(),
+        timezone,
+      });
+
+      const formattedDate = scheduledDate.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
+      const formattedTime = scheduledDate.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+
+      const modeMessage =
+        postMode === "MEDIA_UPLOAD" ? " (to drafts)" : "";
+      setPostResult({
+        success: true,
+        message: `Scheduled for ${formattedDate} at ${formattedTime}${modeMessage}`,
+      });
+    } catch (err) {
+      setPostResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsPosting(false);
+      setPostingStatus("");
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -115,17 +223,70 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: "500px", maxHeight: "90vh", overflow: "auto" }}
+        style={{ maxWidth: "540px", maxHeight: "90vh", overflow: "auto" }}
       >
         <div className="modal-header">
           <h2 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <TikTokIcon size={20} />
-            Post to TikTok
+            {activeTab === "post" ? "Post to TikTok" : "Schedule Post"}
           </h2>
           <button className="modal-close" onClick={onClose}>
             <X size={20} />
           </button>
         </div>
+
+        {/* Tab Selector */}
+        {!postResult && (
+          <div
+            style={{
+              display: "flex",
+              borderBottom: "1px solid #e5e7eb",
+              marginBottom: "1rem",
+            }}
+          >
+            <button
+              onClick={() => setActiveTab("post")}
+              style={{
+                flex: 1,
+                padding: "0.75rem",
+                background: "none",
+                border: "none",
+                borderBottom: activeTab === "post" ? "2px solid #1f2937" : "2px solid transparent",
+                fontWeight: activeTab === "post" ? 600 : 400,
+                color: activeTab === "post" ? "#1f2937" : "#6b7280",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+              }}
+            >
+              <TikTokIcon size={16} />
+              Post Now
+            </button>
+            <button
+              onClick={() => setActiveTab("schedule")}
+              style={{
+                flex: 1,
+                padding: "0.75rem",
+                background: "none",
+                border: "none",
+                borderBottom:
+                  activeTab === "schedule" ? "2px solid #1f2937" : "2px solid transparent",
+                fontWeight: activeTab === "schedule" ? 600 : 400,
+                color: activeTab === "schedule" ? "#1f2937" : "#6b7280",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+              }}
+            >
+              <Calendar size={16} />
+              Schedule
+            </button>
+          </div>
+        )}
 
         {postResult ? (
           <div style={{ padding: "1rem 0" }}>
@@ -149,6 +310,13 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
                 <AlertCircle size={16} />
                 TikTok requires at least 2 images for a photo post. This slideshow only has{" "}
                 {slideCount} slide(s).
+              </div>
+            )}
+
+            {activeTab === "schedule" && !contentId && (
+              <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
+                <AlertCircle size={16} />
+                Unable to schedule this slideshow. Please save it first.
               </div>
             )}
 
@@ -225,7 +393,9 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
 
                 {/* Post Mode Selection */}
                 <div className="form-group">
-                  <label className="form-label">Post Mode</label>
+                  <label className="form-label">
+                    {activeTab === "post" ? "Post Mode" : "When scheduled"}
+                  </label>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
                     {postModeOptions.map((option) => (
                       <button
@@ -236,20 +406,37 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
                           padding: "0.75rem",
                           background: postMode === option.value ? "#eff6ff" : "#f9fafb",
                           border:
-                            postMode === option.value ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+                            postMode === option.value
+                              ? "2px solid #3b82f6"
+                              : "1px solid #e5e7eb",
                           borderRadius: "8px",
                           cursor: "pointer",
                           textAlign: "center",
                         }}
                       >
-                        <div style={{ fontWeight: 600, fontSize: "0.875rem" }}>{option.label}</div>
+                        <div style={{ fontWeight: 600, fontSize: "0.875rem" }}>
+                          {option.label}
+                        </div>
                         <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                          {option.description}
+                          {activeTab === "post" ? option.description : option.scheduleDescription}
                         </div>
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {/* Date/Time Picker - Only for Schedule tab */}
+                {activeTab === "schedule" && (
+                  <div className="form-group">
+                    <label className="form-label">Schedule for</label>
+                    <DateTimePicker
+                      value={scheduledDate}
+                      onChange={setScheduledDate}
+                      minDate={getMinScheduleTime()}
+                      timezone={timezone}
+                    />
+                  </div>
+                )}
 
                 {/* Title */}
                 <div className="form-group">
@@ -328,30 +515,57 @@ export function TikTokPostModal({ isOpen, onClose, slides, config }: TikTokPostM
                   <button className="btn btn-secondary" onClick={onClose} disabled={isPosting}>
                     Cancel
                   </button>
-                  <button
-                    className="btn"
-                    onClick={handlePost}
-                    disabled={!selectedAccount || isPosting || slideCount < 2}
-                    style={{
-                      background: "#fe2c55",
-                      color: "white",
-                      border: "none",
-                      opacity: !selectedAccount || isPosting || slideCount < 2 ? 0.5 : 1,
-                    }}
-                  >
-                    {isPosting ? (
-                      <>
-                        <span className="spinner" style={{ width: 16, height: 16 }} />
-                        {postingStatus ||
-                          (postMode === "MEDIA_UPLOAD" ? "Sending..." : "Posting...")}
-                      </>
-                    ) : (
-                      <>
-                        <TikTokIcon size={16} />
-                        {postMode === "MEDIA_UPLOAD" ? "Send to Drafts" : "Post to TikTok"}
-                      </>
-                    )}
-                  </button>
+                  {activeTab === "post" ? (
+                    <button
+                      className="btn"
+                      onClick={handlePost}
+                      disabled={!selectedAccount || isPosting || slideCount < 2}
+                      style={{
+                        background: "#fe2c55",
+                        color: "white",
+                        border: "none",
+                        opacity: !selectedAccount || isPosting || slideCount < 2 ? 0.5 : 1,
+                      }}
+                    >
+                      {isPosting ? (
+                        <>
+                          <span className="spinner" style={{ width: 16, height: 16 }} />
+                          {postingStatus ||
+                            (postMode === "MEDIA_UPLOAD" ? "Sending..." : "Posting...")}
+                        </>
+                      ) : (
+                        <>
+                          <TikTokIcon size={16} />
+                          {postMode === "MEDIA_UPLOAD" ? "Send to Drafts" : "Post to TikTok"}
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn"
+                      onClick={handleSchedule}
+                      disabled={!selectedAccount || isPosting || slideCount < 2 || !contentId}
+                      style={{
+                        background: "#1f2937",
+                        color: "white",
+                        border: "none",
+                        opacity:
+                          !selectedAccount || isPosting || slideCount < 2 || !contentId ? 0.5 : 1,
+                      }}
+                    >
+                      {isPosting ? (
+                        <>
+                          <span className="spinner" style={{ width: 16, height: 16 }} />
+                          {postingStatus || "Scheduling..."}
+                        </>
+                      ) : (
+                        <>
+                          <Clock size={16} />
+                          Schedule Post
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </>
             )}

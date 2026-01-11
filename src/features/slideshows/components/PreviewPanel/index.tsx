@@ -7,6 +7,8 @@ import { ThumbnailNav } from "./ThumbnailNav";
 import { EditModeButtons } from "./EditModeButtons";
 import { TikTokPostModal } from "./TikTokPostModal";
 
+type ModalTab = "post" | "schedule";
+
 // TikTok icon component
 function TikTokIcon({ size = 16 }: { size?: number }) {
   return (
@@ -78,6 +80,12 @@ export function PreviewPanel({
   isDownloading,
 }: PreviewPanelProps) {
   const [showTikTokModal, setShowTikTokModal] = useState(false);
+  const [modalInitialTab, setModalInitialTab] = useState<ModalTab>("post");
+
+  const openModal = (tab: ModalTab) => {
+    setModalInitialTab(tab);
+    setShowTikTokModal(true);
+  };
 
   return (
     <div className="card" style={{ overflow: "visible", minWidth: 0 }}>
@@ -154,7 +162,7 @@ export function PreviewPanel({
                   </button>
                   <button
                     className="btn"
-                    onClick={() => setShowTikTokModal(true)}
+                    onClick={() => openModal("post")}
                     style={{
                       background: "#fe2c55",
                       color: "white",
@@ -165,7 +173,7 @@ export function PreviewPanel({
                   </button>
                   <button
                     className="btn btn-secondary"
-                    onClick={() => alert("Scheduling coming soon!")}
+                    onClick={() => openModal("schedule")}
                   >
                     <Calendar size={16} />
                   </button>
@@ -195,6 +203,8 @@ export function PreviewPanel({
           onClose={() => setShowTikTokModal(false)}
           slides={selectedCarouselItem.content.slides}
           config={selectedCarouselItem.content.config}
+          contentId={selectedCarouselItem._id}
+          initialTab={modalInitialTab}
         />
       )}
     </div>

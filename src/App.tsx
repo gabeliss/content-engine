@@ -10,12 +10,14 @@ import {
   Video,
   Users,
   Calendar,
+  CalendarClock,
   LogOut,
 } from "lucide-react";
 
 // Pages
 import Home from "./pages/Home";
 import Library from "./pages/Library";
+import Scheduled from "./pages/Scheduled";
 import Analytics from "./pages/Analytics";
 import Automations from "./pages/Automations";
 import Slideshows from "./pages/Slideshows";
@@ -36,6 +38,7 @@ function AppContent() {
   const generalNavItems = [
     { path: "/dashboard", label: "Home", icon: HomeIcon },
     { path: "/library", label: "Library", icon: LibraryIcon },
+    { path: "/scheduled", label: "Scheduled", icon: CalendarClock },
     { path: "/analytics", label: "Analytics", icon: BarChart3 },
     { path: "/automations", label: "Automations", icon: Calendar },
   ];
@@ -259,6 +262,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Library onNavigate={(path) => navigate(path)} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/scheduled"
+            element={
+              <ProtectedRoute>
+                <Scheduled />
               </ProtectedRoute>
             }
           />

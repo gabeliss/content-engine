@@ -10,9 +10,11 @@
 
 import type * as accounts from "../accounts.js";
 import type * as content from "../content.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as products from "../products.js";
 import type * as providers_gemini from "../providers/gemini.js";
+import type * as scheduledPosts from "../scheduledPosts.js";
 import type * as slideshows_generate from "../slideshows/generate.js";
 import type * as storage from "../storage.js";
 import type * as tiktok from "../tiktok.js";
@@ -26,9 +28,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   content: typeof content;
+  crons: typeof crons;
   http: typeof http;
   products: typeof products;
   "providers/gemini": typeof providers_gemini;
+  scheduledPosts: typeof scheduledPosts;
   "slideshows/generate": typeof slideshows_generate;
   storage: typeof storage;
   tiktok: typeof tiktok;
