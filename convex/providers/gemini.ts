@@ -137,10 +137,10 @@ export async function generateImages(
   const numberOfImages = params.numberOfImages || 1;
   const images: string[] = [];
 
-  // Generate images one at a time
+  // Generate images one at a time using Gemini Flash Image (outputs PNG)
   for (let i = 0; i < numberOfImages; i++) {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: {

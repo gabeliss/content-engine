@@ -15,6 +15,7 @@ import type * as products from "../products.js";
 import type * as providers_gemini from "../providers/gemini.js";
 import type * as slideshows_generate from "../slideshows/generate.js";
 import type * as storage from "../storage.js";
+import type * as tiktok from "../tiktok.js";
 
 import type {
   ApiFromModules,
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   "providers/gemini": typeof providers_gemini;
   "slideshows/generate": typeof slideshows_generate;
   storage: typeof storage;
+  tiktok: typeof tiktok;
 }>;
 
 /**
