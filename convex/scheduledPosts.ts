@@ -510,6 +510,16 @@ export const processScheduledPost = internalAction({
         postedAt: Date.now(),
       });
 
+      // Schedule polling to link this post to the video once TikTok processing completes
+      // This enables fallback thumbnails for slideshows and proper source tracking
+      await ctx.runMutation(internal.tiktokAnalytics.schedulePollPostStatus, {
+        accountId: post.accountId,
+        publishId,
+        contentId: post.contentId,
+        scheduledPostId: args.postId,
+        delayMs: 30000, // Start checking after 30 seconds
+      });
+
       console.log("Scheduled post published successfully:", args.postId, publishId);
 
       return { success: true, publishId };

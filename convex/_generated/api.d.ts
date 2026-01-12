@@ -9,6 +9,7 @@
  */
 
 import type * as accounts from "../accounts.js";
+import type * as analytics from "../analytics.js";
 import type * as content from "../content.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
@@ -18,6 +19,7 @@ import type * as scheduledPosts from "../scheduledPosts.js";
 import type * as slideshows_generate from "../slideshows/generate.js";
 import type * as storage from "../storage.js";
 import type * as tiktok from "../tiktok.js";
+import type * as tiktokAnalytics from "../tiktokAnalytics.js";
 
 import type {
   ApiFromModules,
@@ -27,6 +29,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
+  analytics: typeof analytics;
   content: typeof content;
   crons: typeof crons;
   http: typeof http;
@@ -36,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   "slideshows/generate": typeof slideshows_generate;
   storage: typeof storage;
   tiktok: typeof tiktok;
+  tiktokAnalytics: typeof tiktokAnalytics;
 }>;
 
 /**

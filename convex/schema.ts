@@ -157,4 +157,49 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_user_status", ["userId", "status"])
     .index("by_scheduled_time", ["scheduledFor"]),
+
+  // Posted content - Tracks published TikTok videos with analytics
+  // Videos are synced from TikTok's video list API, not just from Content Engine posts
+  postedContent: defineTable({
+    userId: v.string(),
+    accountId: v.id("accounts"), // TikTok account that posted
+    contentId: v.optional(v.id("content")), // Original slideshow (if from Content Engine)
+    scheduledPostId: v.optional(v.id("scheduledPosts")), // If from scheduled post
+
+    // TikTok identifiers
+    videoId: v.string(), // TikTok's video ID (required - primary identifier)
+    publishId: v.optional(v.string()), // From posting API (only for Content Engine posts)
+
+    // Source tracking
+    source: v.union(
+      v.literal("content_engine"), // Posted via Content Engine
+      v.literal("synced") // Synced from TikTok (posted elsewhere)
+    ),
+
+    // Video metadata (from TikTok)
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    coverImageUrl: v.optional(v.string()),
+    embedLink: v.optional(v.string()),
+    shareUrl: v.optional(v.string()),
+    duration: v.optional(v.number()),
+
+    // Metrics (updated periodically)
+    metrics: v.object({
+      views: v.number(),
+      likes: v.number(),
+      comments: v.number(),
+      shares: v.number(),
+    }),
+
+    // Timestamps
+    postedAt: v.number(), // When published on TikTok (create_time from API)
+    metricsLastUpdated: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_account", ["accountId"])
+    .index("by_video_id", ["videoId"])
+    .index("by_posted_at", ["postedAt"]),
 });

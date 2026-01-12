@@ -1,7 +1,6 @@
 import { v } from "convex/values";
-import { action, internalAction } from "./_generated/server";
+import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
 
 /**
  * Convert a Convex storage URL to a proxy URL served from our verified domain.
@@ -167,6 +166,15 @@ export const postSlideshow = action({
       // Status can be: PROCESSING_UPLOAD, PROCESSING_DOWNLOAD, SEND_TO_USER_INBOX, PUBLISH_COMPLETE, FAILED
       console.log("Post initiated successfully. Publish ID:", publishId);
 
+      // Schedule polling to link this post to the video once TikTok processing completes
+      // This enables fallback thumbnails for slideshows and proper source tracking
+      await ctx.runMutation(internal.tiktokAnalytics.schedulePollPostStatus, {
+        accountId: args.accountId,
+        publishId,
+        contentId: args.contentId,
+        delayMs: 30000, // Start checking after 30 seconds
+      });
+
       return {
         success: true,
         publishId,
@@ -246,6 +254,13 @@ export const getContentById = internalQuery({
   },
 });
 
+export const getAccountById = internalQuery({
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.accountId);
+  },
+});
+
 /**
  * Post rendered slides to TikTok
  * This action accepts pre-rendered base64 WebP images (with text overlays baked in)
@@ -254,6 +269,7 @@ export const getContentById = internalQuery({
 export const postRenderedSlideshow = action({
   args: {
     accountId: v.id("accounts"),
+    contentId: v.optional(v.id("content")), // Optional reference to original content
     renderedImages: v.array(v.string()), // Array of base64 WebP data URIs
     title: v.optional(v.string()),
     description: v.optional(v.string()),
@@ -358,6 +374,9 @@ export const postRenderedSlideshow = action({
       }
 
       console.log("Rendered slideshow post initiated. Publish ID:", publishId);
+
+      // Note: Video will be picked up by the hourly sync job
+      // The publishId can be used to link it to this content later via pollPostStatus
 
       return {
         success: true,

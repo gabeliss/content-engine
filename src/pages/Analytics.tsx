@@ -1,41 +1,167 @@
-import { BarChart3, TrendingUp, Heart, MessageCircle, Share2, Eye } from "lucide-react";
+import { useState } from "react";
+import { RefreshCw, BarChart3 } from "lucide-react";
+import { Id } from "../../convex/_generated/dataModel";
+import {
+  useAnalytics,
+  SummaryCards,
+  AccountTabs,
+  DateRangePicker,
+  ContentTable,
+  DateRange,
+} from "../features/analytics";
 
 export default function Analytics() {
+  const [dateRange, setDateRange] = useState<DateRange>("30d");
+  const [selectedAccountId, setSelectedAccountId] = useState<Id<"accounts"> | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const { stats, accountStats, postedContent, refreshMetrics, isLoading } = useAnalytics({
+    accountId: selectedAccountId ?? undefined,
+    dateRange,
+  });
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshMetrics();
+    } catch (err) {
+      console.error("Failed to refresh metrics:", err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const formatLastUpdated = (timestamp: number | null) => {
+    if (!timestamp) return null;
+    const diff = Date.now() - timestamp;
+    const minutes = Math.floor(diff / (1000 * 60));
+    if (minutes < 1) return "just now";
+    if (minutes === 1) return "1 minute ago";
+    if (minutes < 60) return `${minutes} minutes ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours === 1) return "1 hour ago";
+    return `${hours} hours ago`;
+  };
+
   return (
     <div>
-      <div className="page-header">
-        <h1>Analytics</h1>
-        <p>Track your content performance and engagement metrics</p>
-      </div>
-
-      <div className="card">
-        <div className="empty-state">
-          <BarChart3 size={48} style={{ opacity: 0.3, marginBottom: "1rem" }} />
-          <h3>Social Media Analytics Coming Soon</h3>
-          <p style={{ maxWidth: "500px", margin: "0 auto", marginTop: "0.5rem" }}>
-            Track performance metrics for your posted content including views, likes, comments, shares, and engagement rates across TikTok, Instagram, and other platforms.
-          </p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginTop: "2rem", maxWidth: "800px" }}>
-            <div style={{ padding: "1rem", background: "#f9fafb", borderRadius: "8px", textAlign: "center" }}>
-              <Eye size={24} style={{ opacity: 0.5, margin: "0 auto" }} />
-              <div style={{ marginTop: "0.5rem", fontSize: "0.875rem", fontWeight: 500 }}>Views</div>
-            </div>
-            <div style={{ padding: "1rem", background: "#f9fafb", borderRadius: "8px", textAlign: "center" }}>
-              <Heart size={24} style={{ opacity: 0.5, margin: "0 auto" }} />
-              <div style={{ marginTop: "0.5rem", fontSize: "0.875rem", fontWeight: 500 }}>Likes</div>
-            </div>
-            <div style={{ padding: "1rem", background: "#f9fafb", borderRadius: "8px", textAlign: "center" }}>
-              <MessageCircle size={24} style={{ opacity: 0.5, margin: "0 auto" }} />
-              <div style={{ marginTop: "0.5rem", fontSize: "0.875rem", fontWeight: 500 }}>Comments</div>
-            </div>
-            <div style={{ padding: "1rem", background: "#f9fafb", borderRadius: "8px", textAlign: "center" }}>
-              <Share2 size={24} style={{ opacity: 0.5, margin: "0 auto" }} />
-              <div style={{ marginTop: "0.5rem", fontSize: "0.875rem", fontWeight: 500 }}>Shares</div>
-            </div>
-          </div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1>Analytics</h1>
+          <p>Track your TikTok content performance and engagement metrics</p>
+        </div>
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.5rem 1rem",
+              borderRadius: "8px",
+              border: "1px solid #e5e7eb",
+              background: "white",
+              color: "#374151",
+              fontSize: "0.875rem",
+              fontWeight: 500,
+              cursor: isRefreshing ? "not-allowed" : "pointer",
+              opacity: isRefreshing ? 0.7 : 1,
+            }}
+          >
+            <RefreshCw
+              size={16}
+              style={{
+                animation: isRefreshing ? "spin 1s linear infinite" : "none",
+              }}
+            />
+            Refresh
+          </button>
         </div>
       </div>
+
+      {isLoading ? (
+        <div className="card">
+          <div
+            style={{
+              padding: "3rem",
+              textAlign: "center",
+              color: "#6b7280",
+            }}
+          >
+            <div
+              style={{
+                width: "32px",
+                height: "32px",
+                border: "3px solid #e5e7eb",
+                borderTopColor: "#3b82f6",
+                borderRadius: "50%",
+                margin: "0 auto",
+                animation: "spin 1s linear infinite",
+              }}
+            />
+            <p style={{ marginTop: "1rem" }}>Loading analytics...</p>
+          </div>
+        </div>
+      ) : stats?.totalPosts === 0 && postedContent.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <BarChart3 size={48} style={{ opacity: 0.3, marginBottom: "1rem" }} />
+            <h3>No TikTok Posts Yet</h3>
+            <p style={{ maxWidth: "400px", margin: "0.5rem auto 0" }}>
+              When you post content to TikTok via Content Engine, your analytics
+              will appear here. Views, likes, comments, and shares are updated
+              hourly.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Summary Stats */}
+          {stats && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <SummaryCards stats={stats} />
+            </div>
+          )}
+
+          {/* Account Filter */}
+          {accountStats && (
+            <AccountTabs
+              accounts={accountStats}
+              selectedAccountId={selectedAccountId}
+              onSelectAccount={setSelectedAccountId}
+            />
+          )}
+
+          {/* Content Table */}
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <ContentTable posts={postedContent} isLoading={isLoading} />
+          </div>
+
+          {/* Footer */}
+          {stats?.metricsLastUpdated && (
+            <div
+              style={{
+                marginTop: "1rem",
+                fontSize: "0.75rem",
+                color: "#9ca3af",
+                textAlign: "center",
+              }}
+            >
+              Metrics updated hourly &bull; Last updated:{" "}
+              {formatLastUpdated(stats.metricsLastUpdated)}
+            </div>
+          )}
+        </>
+      )}
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

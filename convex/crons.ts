@@ -11,4 +11,21 @@ crons.cron(
   internal.scheduledPosts.processDuePosts
 );
 
+// Sync all TikTok videos hourly
+// Fetches video list from TikTok and upserts into postedContent
+// This pulls ALL videos from connected accounts, not just Content Engine posts
+crons.cron(
+  "sync-tiktok-videos",
+  "0 * * * *",
+  internal.tiktokAnalytics.syncAllAccounts
+);
+
+// Refresh metrics for existing videos (30 mins after sync)
+// Uses video/query API to get latest counts
+crons.cron(
+  "refresh-analytics-metrics",
+  "30 * * * *",
+  internal.tiktokAnalytics.refreshAllMetrics
+);
+
 export default crons;
