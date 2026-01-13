@@ -7,7 +7,7 @@ export const TEXT_STYLES = {
   color: "white",
   strokeColor: "rgb(0, 0, 0)",
   lineHeight: 1.2,
-  maxWidthPercent: 0.9, // 90% of slide width
+  maxWidthPercent: 0.7, // 70% of slide width
 
   // Text stroke/shadow creates an outline effect
   // In CSS: 4-corner shadow at offset pixels
@@ -34,7 +34,7 @@ export const TEXT_STYLES = {
 export const DEFAULT_CONFIG = {
   fontSize: 48,
   textPosition: { x: 50, y: 50 },
-  aspectRatio: "1:1" as const,
+  aspectRatio: "4:5" as const,
 };
 
 // Canvas export size (1080p base)

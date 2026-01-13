@@ -130,7 +130,7 @@ export function PreviewPanel({
                   onStartTextEdit={onStartTextEdit}
                   onToggleRatioMenu={onToggleRatioMenu}
                   showRatioMenu={showRatioMenu}
-                  currentRatio={selectedCarouselItem.content.config?.aspectRatio || "1:1"}
+                  currentRatio={selectedCarouselItem.content.config?.aspectRatio || "4:5"}
                   hasOverlay={
                     selectedCarouselItem.content.slides[selectedSlideIndex]?.overlay || false
                   }

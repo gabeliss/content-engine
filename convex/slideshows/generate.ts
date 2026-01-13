@@ -34,7 +34,8 @@ export const generate = action({
     const prompt = `Generate ${slideCount} engaging carousel slides about: ${args.topic}
 
 Requirements:
-- Each slide should have 1-2 short, punchy sentences (max 90 characters)
+- Slide 1 (Title Slide): This is the hook slide. The text should be the main topic/title - essentially what the carousel is about. For example, if the topic is "3 habits that make you healthier", the title slide text should be "3 habits that make you healthier" or a slightly refined version of it. Keep it short, punchy, and attention-grabbing.
+- Slides 2+: Each slide should have 1-2 short, punchy sentences (max 90 characters) that deliver the actual content/tips/story
 - Make them attention-grabbing and valuable
 - Format as a cohesive story or tips
 
