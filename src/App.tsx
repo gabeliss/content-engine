@@ -20,6 +20,7 @@ import Library from "./pages/Library";
 import Scheduled from "./pages/Scheduled";
 import Analytics from "./pages/Analytics";
 import Automations from "./pages/Automations";
+import AutomationDetail from "./pages/AutomationDetail";
 import Slideshows from "./pages/Slideshows";
 import HookDemo from "./pages/HookDemo";
 import AIUGC from "./pages/AIUGC";
@@ -112,7 +113,7 @@ function AppContent() {
           {generalNavItems.map((item) => (
             <div
               key={item.path}
-              className={`nav-item ${location.pathname === item.path ? "active" : ""}`}
+              className={`nav-item ${location.pathname === item.path || location.pathname.startsWith(item.path + "/") ? "active" : ""}`}
               onClick={() => navigate(item.path)}
             >
               <item.icon size={18} />
@@ -286,6 +287,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Automations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/automations/:id"
+            element={
+              <ProtectedRoute>
+                <AutomationDetail />
               </ProtectedRoute>
             }
           />

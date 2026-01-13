@@ -28,4 +28,12 @@ crons.cron(
   internal.tiktokAnalytics.refreshAllMetrics
 );
 
+// Process automation runs at fixed 15-minute intervals
+// Runs at :07, :22, :37, :52 of every hour (offset from scheduled posts)
+crons.cron(
+  "process-automation-runs",
+  "7,22,37,52 * * * *",
+  internal.automations.process.processDueRuns
+);
+
 export default crons;

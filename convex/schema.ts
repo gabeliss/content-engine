@@ -1,6 +1,14 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { slideValidator } from "./validators";
+import {
+  slideValidator,
+  themeConfigValidator,
+  formatConfigValidator,
+  scheduleConfigValidator,
+  postSettingsValidator,
+  automationRunStatusValidator,
+  contentTypeValidator,
+} from "./validators";
 
 export default defineSchema({
   // Products - Apps/brands/businesses for content context
@@ -195,4 +203,70 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_video_id", ["videoId"])
     .index("by_posted_at", ["postedAt"]),
+
+  // Automations - Automated content generation and posting
+  automations: defineTable({
+    userId: v.string(),
+    name: v.string(), // e.g., "Self-Improvement Daily Posts"
+    description: v.optional(v.string()),
+    accountId: v.id("accounts"), // One-to-one with TikTok account
+
+    // Content type (extensible for future: "hook_demo", "ai_ugc")
+    contentType: contentTypeValidator,
+
+    // Theme configuration
+    themeConfig: themeConfigValidator,
+
+    // Format configuration
+    formatConfig: formatConfigValidator,
+
+    // Schedule configuration
+    scheduleConfig: scheduleConfigValidator,
+
+    // Post settings
+    postSettings: postSettingsValidator,
+
+    // State
+    isActive: v.boolean(),
+    lastRunAt: v.optional(v.number()),
+    nextRunAt: v.optional(v.number()),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_account", ["accountId"])
+    .index("by_next_run", ["isActive", "nextRunAt"]),
+
+  // Automation runs - Execution history for automations
+  automationRuns: defineTable({
+    automationId: v.id("automations"),
+    userId: v.string(),
+
+    // Status tracking
+    status: automationRunStatusValidator,
+
+    // Generated content (if successful)
+    contentId: v.optional(v.id("content")),
+    scheduledPostId: v.optional(v.id("scheduledPosts")),
+
+    // Generation metadata
+    generatedTopic: v.optional(v.string()), // The topic AI decided on
+    generatedCaption: v.optional(v.string()), // AI-generated caption
+
+    // Error tracking
+    errorMessage: v.optional(v.string()),
+    errorStep: v.optional(v.string()), // "topic_generation", "content_generation", "scheduling"
+
+    // Timestamps
+    scheduledFor: v.number(), // When this run was supposed to execute
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+
+    createdAt: v.number(),
+  })
+    .index("by_automation", ["automationId"])
+    .index("by_user", ["userId"])
+    .index("by_status", ["status"])
+    .index("by_automation_status", ["automationId", "status"]),
 });

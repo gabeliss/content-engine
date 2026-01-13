@@ -10,6 +10,11 @@
 
 import type * as accounts from "../accounts.js";
 import type * as analytics from "../analytics.js";
+import type * as automations_generate from "../automations/generate.js";
+import type * as automations_index from "../automations/index.js";
+import type * as automations_internal from "../automations/internal.js";
+import type * as automations_process from "../automations/process.js";
+import type * as automations_schedule from "../automations/schedule.js";
 import type * as content from "../content.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
@@ -31,6 +36,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   analytics: typeof analytics;
+  "automations/generate": typeof automations_generate;
+  "automations/index": typeof automations_index;
+  "automations/internal": typeof automations_internal;
+  "automations/process": typeof automations_process;
+  "automations/schedule": typeof automations_schedule;
   content: typeof content;
   crons: typeof crons;
   http: typeof http;
