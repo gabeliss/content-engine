@@ -1,4 +1,4 @@
-import { Slide, ContentConfig } from "../../types";
+import { Slide, TextElement, ContentConfig } from "../../types";
 import { SlideEditor } from "./SlideEditor";
 import {
   TEXT_STYLES,
@@ -14,13 +14,62 @@ interface SlideCarouselProps {
   onSelectSlide: (index: number) => void;
   config?: ContentConfig;
   isEditingText: boolean;
+  selectedElementId: string | null;
   editedText: string;
   editedFontSize: number;
   onTextChange: (text: string) => void;
   onIncrementFontSize: () => void;
   onDecrementFontSize: () => void;
   onDeleteText: () => void;
-  onStartTextEdit: () => void;
+  onStartTextEdit: (element: TextElement) => void;
+}
+
+// Render a single text element
+function TextElementView({
+  element,
+  slideWidth,
+  isSelected,
+  onClick,
+}: {
+  element: TextElement;
+  slideWidth: number;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const textShadow = TEXT_STYLES.getTextShadow(slideWidth);
+  const previewFontSize = getPreviewFontSize(element.fontSize);
+  const maxWidthPercent = element.maxWidth || 80;
+
+  return (
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      style={{
+        position: "absolute",
+        top: `${element.position.y}%`,
+        left: `${element.position.x}%`,
+        transform: "translate(-50%, -50%)",
+        maxWidth: `${maxWidthPercent}%`,
+        color: element.fontColor || "#ffffff",
+        fontSize: `${previewFontSize}px`,
+        fontFamily: TEXT_STYLES.fontFamily,
+        fontWeight: element.fontWeight || 700,
+        textAlign: element.textAlign || "center",
+        textShadow,
+        lineHeight: TEXT_STYLES.lineHeight,
+        cursor: "pointer",
+        padding: "4px 8px",
+        borderRadius: "4px",
+        border: isSelected ? "2px solid #3b82f6" : "2px solid transparent",
+        background: isSelected ? "rgba(59, 130, 246, 0.1)" : "transparent",
+        transition: "border-color 0.15s, background 0.15s",
+      }}
+    >
+      {element.content}
+    </div>
+  );
 }
 
 export function SlideCarousel({
@@ -29,6 +78,7 @@ export function SlideCarousel({
   onSelectSlide,
   config,
   isEditingText,
+  selectedElementId,
   editedText,
   editedFontSize,
   onTextChange,
@@ -37,11 +87,13 @@ export function SlideCarousel({
   onDeleteText,
   onStartTextEdit,
 }: SlideCarouselProps) {
-  const fontSize = config?.fontSize || DEFAULT_CONFIG.fontSize;
-  const textPosition = config?.textPosition || DEFAULT_CONFIG.textPosition;
   const aspectRatio = config?.aspectRatio || DEFAULT_CONFIG.aspectRatio;
   const { height: slideHeight } = getDimensions(aspectRatio, PREVIEW_SLIDE_WIDTH);
-  const previewFontSize = getPreviewFontSize(fontSize);
+
+  const currentSlide = slides[selectedIndex];
+  const editingElement = isEditingText && selectedElementId && currentSlide?.textElements
+    ? currentSlide.textElements.find(el => el.id === selectedElementId)
+    : null;
 
   return (
     <div style={{ marginBottom: "1rem", position: "relative", overflow: "hidden" }}>
@@ -92,49 +144,48 @@ export function SlideCarousel({
                 }}
               />
             )}
-            {/* Text Overlay */}
-            {isEditingText && selectedIndex === idx ? (
-              <SlideEditor
-                editedText={editedText}
-                editedFontSize={editedFontSize}
-                textPosition={textPosition}
-                onTextChange={onTextChange}
-                onIncrementFontSize={onIncrementFontSize}
-                onDecrementFontSize={onDecrementFontSize}
-                onDeleteText={onDeleteText}
+
+            {/* Text Elements */}
+            {selectedIndex === idx && slide.textElements?.map((element) => {
+              // If editing this element, show the editor instead
+              if (isEditingText && selectedElementId === element.id && editingElement) {
+                return (
+                  <SlideEditor
+                    key={element.id}
+                    editedText={editedText}
+                    editedFontSize={editedFontSize}
+                    position={element.position}
+                    onTextChange={onTextChange}
+                    onIncrementFontSize={onIncrementFontSize}
+                    onDecrementFontSize={onDecrementFontSize}
+                    onDeleteText={onDeleteText}
+                  />
+                );
+              }
+
+              // Otherwise show the text element (clickable to edit)
+              return (
+                <TextElementView
+                  key={element.id}
+                  element={element}
+                  slideWidth={PREVIEW_SLIDE_WIDTH}
+                  isSelected={selectedElementId === element.id}
+                  onClick={() => onStartTextEdit(element)}
+                />
+              );
+            })}
+
+            {/* Show text elements on non-selected slides (non-interactive) */}
+            {selectedIndex !== idx && slide.textElements?.map((element) => (
+              <TextElementView
+                key={element.id}
+                element={element}
+                slideWidth={PREVIEW_SLIDE_WIDTH}
+                isSelected={false}
+                onClick={() => {}}
               />
-            ) : slide.text ? (
-              <div
-                onClick={(e) => {
-                  if (selectedIndex === idx) {
-                    e.stopPropagation();
-                    onStartTextEdit();
-                  }
-                }}
-                style={{
-                  position: "absolute",
-                  top: `${textPosition.y}%`,
-                  left: `${textPosition.x}%`,
-                  transform: "translate(-50%, -50%)",
-                  color: TEXT_STYLES.color,
-                  fontSize: `${previewFontSize}px`,
-                  fontFamily: TEXT_STYLES.fontFamily,
-                  fontWeight: TEXT_STYLES.fontWeight,
-                  textAlign: "center",
-                  textShadow: TEXT_STYLES.getTextShadow(PREVIEW_SLIDE_WIDTH),
-                  width: "max-content",
-                  maxWidth: `${TEXT_STYLES.maxWidthPercent * 100}%`,
-                  whiteSpace: "pre-wrap",
-                  lineHeight: TEXT_STYLES.lineHeight,
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "flex-start",
-                  cursor: selectedIndex === idx ? "pointer" : "default",
-                }}
-              >
-                {slide.text}
-              </div>
-            ) : null}
+            ))}
+
             {/* Slide number badge */}
             <div
               style={{

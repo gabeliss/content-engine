@@ -316,6 +316,34 @@ export const remove = mutation({
   },
 });
 
+// Save preview content to automation (for edit mode)
+export const savePreview = mutation({
+  args: {
+    automationId: v.id("automations"),
+    contentId: v.id("content"),
+    topic: v.string(),
+    caption: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const automation = await ctx.db.get(args.automationId);
+    if (!automation || automation.userId !== identity.subject) {
+      throw new Error("Automation not found");
+    }
+
+    await ctx.db.patch(args.automationId, {
+      lastPreviewContentId: args.contentId,
+      lastPreviewTopic: args.topic,
+      lastPreviewCaption: args.caption,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 // Get stats for dashboard
 export const getStats = query({
   handler: async (ctx) => {

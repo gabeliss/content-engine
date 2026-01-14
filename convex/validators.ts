@@ -1,12 +1,32 @@
 // Shared validators used across schema and mutations
 import { v } from "convex/values";
 
-// Slide definition for carousels
+// Text element - individual text block on a slide (like Canva text layers)
+export const textElementValidator = v.object({
+  id: v.string(), // Unique ID for this text element
+  content: v.string(), // The text content
+  position: v.object({
+    x: v.number(), // X position as percentage (0-100)
+    y: v.number(), // Y position as percentage (0-100)
+  }),
+  fontSize: v.number(), // Font size in pixels
+  fontColor: v.optional(v.string()), // Defaults to white
+  fontWeight: v.optional(v.number()), // 400, 700, etc. Defaults to 700
+  textAlign: v.optional(v.union(v.literal("left"), v.literal("center"), v.literal("right"))), // Defaults to center
+  maxWidth: v.optional(v.number()), // Max width as percentage (0-100), for text wrapping
+});
+
+// Slide definition for carousels - flexible text elements approach
 export const slideValidator = v.object({
-  text: v.string(),
+  // Image fields (required)
   imageUrl: v.string(),
+  imagePrompt: v.optional(v.string()),
+
+  // Text elements - array of independently positioned/styled text blocks
+  textElements: v.optional(v.array(textElementValidator)),
+
+  // Display options
   overlay: v.optional(v.boolean()), // Dark overlay for text readability
-  imagePrompt: v.optional(v.string()), // Prompt used to generate current image (from visual planning or manual regeneration)
 });
 
 // Content validator
@@ -15,14 +35,9 @@ export const contentValidator = v.object({
   slides: v.optional(v.array(slideValidator)),
   texts: v.optional(v.array(v.string())),
   mediaUrls: v.optional(v.array(v.string())),
+  // Config now only holds slideshow-level defaults (aspect ratio)
   config: v.optional(
     v.object({
-      fontSize: v.number(),
-      fontColor: v.string(),
-      textPosition: v.object({
-        x: v.number(),
-        y: v.number(),
-      }),
       aspectRatio: v.optional(
         v.union(v.literal("1:1"), v.literal("4:5"), v.literal("9:16"))
       ),

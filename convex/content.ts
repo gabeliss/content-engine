@@ -1,7 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import { slideValidator, contentValidator } from "./validators";
+import { slideValidator, contentValidator, textElementValidator } from "./validators";
 
 // Get all content for current user
 export const list = query({
@@ -196,38 +196,8 @@ export const updateAspectRatio = mutation({
       content: {
         ...content.content,
         config: {
-          ...content.content.config!,
+          ...(content.content.config || {}),
           aspectRatio: args.aspectRatio,
-        },
-      },
-      updatedAt: Date.now(),
-    });
-  },
-});
-
-// Update font size
-export const updateFontSize = mutation({
-  args: {
-    id: v.id("content"),
-    fontSize: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
-
-    const content = await ctx.db.get(args.id);
-    if (!content || content.userId !== identity.subject || !content.content) {
-      throw new Error("Content not found");
-    }
-
-    await ctx.db.patch(args.id, {
-      content: {
-        ...content.content,
-        config: {
-          ...content.content.config!,
-          fontSize: args.fontSize,
         },
       },
       updatedAt: Date.now(),
@@ -306,5 +276,150 @@ export const getStats = query({
       totalGenerated: all.length,
       generatedThisWeek: thisWeek.length,
     };
+  },
+});
+
+// Update a single text element within a slide
+export const updateTextElement = mutation({
+  args: {
+    id: v.id("content"),
+    slideIndex: v.number(),
+    elementId: v.string(),
+    updates: v.object({
+      content: v.optional(v.string()),
+      fontSize: v.optional(v.number()),
+      fontColor: v.optional(v.string()),
+      fontWeight: v.optional(v.number()),
+      textAlign: v.optional(v.union(v.literal("left"), v.literal("center"), v.literal("right"))),
+      position: v.optional(v.object({
+        x: v.number(),
+        y: v.number(),
+      })),
+      maxWidth: v.optional(v.number()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const content = await ctx.db.get(args.id);
+    if (!content || content.userId !== identity.subject || !content.content?.slides) {
+      throw new Error("Content not found or has no slides");
+    }
+
+    const slides = [...content.content.slides];
+    const slide = slides[args.slideIndex];
+    if (!slide || !slide.textElements) {
+      throw new Error("Slide or text elements not found");
+    }
+
+    // Find and update the specific text element
+    const elementIndex = slide.textElements.findIndex(el => el.id === args.elementId);
+    if (elementIndex === -1) {
+      throw new Error("Text element not found");
+    }
+
+    const updatedElements = [...slide.textElements];
+    updatedElements[elementIndex] = {
+      ...updatedElements[elementIndex],
+      ...args.updates,
+    };
+
+    slides[args.slideIndex] = {
+      ...slide,
+      textElements: updatedElements,
+    };
+
+    await ctx.db.patch(args.id, {
+      content: {
+        ...content.content,
+        slides,
+      },
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// Delete a text element from a slide
+export const deleteTextElement = mutation({
+  args: {
+    id: v.id("content"),
+    slideIndex: v.number(),
+    elementId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const content = await ctx.db.get(args.id);
+    if (!content || content.userId !== identity.subject || !content.content?.slides) {
+      throw new Error("Content not found or has no slides");
+    }
+
+    const slides = [...content.content.slides];
+    const slide = slides[args.slideIndex];
+    if (!slide || !slide.textElements) {
+      throw new Error("Slide or text elements not found");
+    }
+
+    // Remove the text element
+    const updatedElements = slide.textElements.filter(el => el.id !== args.elementId);
+
+    slides[args.slideIndex] = {
+      ...slide,
+      textElements: updatedElements,
+    };
+
+    await ctx.db.patch(args.id, {
+      content: {
+        ...content.content,
+        slides,
+      },
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// Add a new text element to a slide
+export const addTextElement = mutation({
+  args: {
+    id: v.id("content"),
+    slideIndex: v.number(),
+    element: textElementValidator,
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const content = await ctx.db.get(args.id);
+    if (!content || content.userId !== identity.subject || !content.content?.slides) {
+      throw new Error("Content not found or has no slides");
+    }
+
+    const slides = [...content.content.slides];
+    const slide = slides[args.slideIndex];
+    if (!slide) {
+      throw new Error("Slide not found");
+    }
+
+    const existingElements = slide.textElements || [];
+    slides[args.slideIndex] = {
+      ...slide,
+      textElements: [...existingElements, args.element],
+    };
+
+    await ctx.db.patch(args.id, {
+      content: {
+        ...content.content,
+        slides,
+      },
+      updatedAt: Date.now(),
+    });
   },
 });

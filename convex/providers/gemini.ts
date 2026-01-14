@@ -237,6 +237,8 @@ For this slide, DO NOT try to literally visualize the title text. Instead, creat
 
 For slides 2+, describe concrete visual scenes that represent each slide's specific message (e.g., "glass of water on a wooden nightstand with soft morning light" NOT "an image representing hydration").
 
+CRITICAL: You MUST return EXACTLY ${slideTexts.length} descriptions - one for each slide listed above.
+
 Return JSON:
 {
   "descriptions": [
@@ -256,9 +258,20 @@ Return JSON:
   );
 
   const parsed = JSON.parse(response.text);
+  let descriptions: string[] = parsed.descriptions || [];
+
+  // Ensure we have exactly the right number of descriptions
+  // If AI returned fewer, pad with generic descriptions based on slide text
+  while (descriptions.length < slideTexts.length) {
+    const idx = descriptions.length;
+    descriptions.push(`A visually appealing background image representing: ${slideTexts[idx]}`);
+  }
+
+  // If AI returned more, trim to match
+  descriptions = descriptions.slice(0, slideTexts.length);
 
   return {
-    descriptions: parsed.descriptions || [],
+    descriptions,
     cost: response.cost,
   };
 }

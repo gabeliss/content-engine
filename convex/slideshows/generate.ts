@@ -3,14 +3,10 @@ import { action } from "../_generated/server";
 import { api } from "../_generated/api";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
-import {
-  generateText,
-  generateCarouselImages,
-  generateVisualDescriptions,
-} from "../providers/gemini";
+import { generateText } from "../providers/gemini";
 
 /**
- * Generate a carousel slideshow
+ * Generate a carousel slideshow (simple version - delegates to generateWithConfig)
  * Only saves to DB on success - no intermediate status tracking
  */
 export const generate = action({
@@ -28,91 +24,59 @@ export const generate = action({
       throw new Error("Not authenticated");
     }
 
-    const slideCount = args.slideCount || 5;
+    // Extract image style from topic if mentioned
+    const styleMatch = args.topic.match(/(?:style|aesthetic|look):\s*([^,\.]+)/i);
+    const extractedStyle = styleMatch ? styleMatch[1].trim() : null;
 
-    // Step 1: Generate text content + extract image style
-    const prompt = `Generate ${slideCount} engaging carousel slides about: ${args.topic}
-
-Requirements:
-- Slide 1 (Title Slide): This is the hook slide. The text should be the main topic/title - essentially what the carousel is about. For example, if the topic is "3 habits that make you healthier", the title slide text should be "3 habits that make you healthier" or a slightly refined version of it. Keep it short, punchy, and attention-grabbing.
-- Slides 2+: Each slide should have 1-2 short, punchy sentences (max 90 characters) that deliver the actual content/tips/story
-- Make them attention-grabbing and valuable
-- Format as a cohesive story or tips
-
-Also extract any image style preferences from the user's prompt (e.g., "dark and minimalist", "bright and colorful", "vintage aesthetic"). If no style is specified, set imageStyle to null.
-
-IMPORTANT: Return EXACTLY this JSON format:
-{
-  "slides": ["slide 1 text", "slide 2 text", "slide 3 text", ...],
-  "imageStyle": "extracted style or null"
-}
-
-Each element in the "slides" array must be a single string containing all the text for that slide.`;
-
-    const textResponse = await generateText(prompt,
-      "You are a social media expert creating viral TikTok/Instagram carousels.",
-      {
-        model: "gemini-2.0-flash",
-        responseFormat: { type: "json_object" },
-      }
-    );
-
-    // Parse the response
-    const parsed = JSON.parse(textResponse.text);
-    const slideTexts: string[] = parsed.slides || [];
-    const imageStyle: string | null = parsed.imageStyle || null;
-
-    // Step 2: Generate visual descriptions for each slide
-    const visualPlan = await generateVisualDescriptions(
-      slideTexts,
-      args.topic,
-      imageStyle
-    );
-
-    // Step 3: Generate images using visual descriptions
-    const imageResponse = await generateCarouselImages(
-      visualPlan.descriptions,
-      imageStyle
-    );
-
-    // Step 4: Upload images to Convex storage
-    const storageUrls = await ctx.runAction(api.storage.uploadBase64Images, {
-      base64DataArray: imageResponse.images,
-    });
-
-    // Step 5: Create final slides with image prompts
-    const slides = slideTexts.map((text, index) => ({
-      text,
-      imageUrl: storageUrls[index],
-      imagePrompt: visualPlan.descriptions[index],
-    }));
-
-    // Step 6: Save completed slideshow to DB
-    const contentId = await ctx.runMutation(api.content.create, {
-      userId: identity.subject,
+    // Delegate to generateWithConfig for consistent structured slide generation
+    const result = await ctx.runAction(api.slideshows.generate.generateWithConfig, {
       productId: args.productId,
-      inputParams: {
-        topic: args.topic,
-        slideCount,
-      },
-      content: {
-        type: "carousel",
-        slides,
-        config: {
-          fontSize: 48,
-          fontColor: "#FFFFFF",
-          textPosition: { x: 50, y: 50 },
-        },
-      },
+      topic: args.topic,
+      slideCount: args.slideCount,
+      formatConfig: extractedStyle ? { visualStyle: extractedStyle } : undefined,
     });
 
-    return { contentId, success: true };
+    if (!result.success || !result.contentId) {
+      throw new Error(result.error || "Failed to generate slideshow");
+    }
+
+    return { contentId: result.contentId, success: true };
   },
 });
 
+// Text element for flexible text positioning (like Canva)
+interface TextElement {
+  id: string;
+  content: string;
+  position: { x: number; y: number };
+  fontSize: number;
+  fontColor?: string;
+  fontWeight?: number;
+  textAlign?: "left" | "center" | "right";
+  maxWidth?: number;
+}
+
+// Slide with text elements array
+interface GeneratedSlide {
+  textElements: TextElement[];
+}
+
+// Helper to generate unique IDs
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 11);
+}
+
+/**
+ * Extract the number from a topic if it contains one (e.g., "5 micro-habits" -> 5)
+ */
+function extractNumberFromTopic(topic: string): number | null {
+  const match = topic.match(/(\d+)\s+\w+/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
 /**
  * Generate a carousel slideshow with format configuration
- * Used by automations for more control over generation parameters
+ * Uses structured slide format for better typography
  */
 export const generateWithConfig = action({
   args: {
@@ -144,39 +108,70 @@ export const generateWithConfig = action({
     }
 
     try {
-      const slideCount = args.slideCount || 5;
+      // Determine slide count based on topic content
+      const topicNumber = extractNumberFromTopic(args.topic);
+      let slideCount = args.slideCount || 5;
+
+      // If topic has a number like "5 habits", use that + 1 for title slide
+      if (topicNumber && topicNumber >= 2 && topicNumber <= 10) {
+        slideCount = topicNumber + 1; // +1 for title slide
+      }
+
       const visualStyle = args.formatConfig?.visualStyle;
       const aspectRatio = args.formatConfig?.aspectRatio || "4:5";
       const textStyle = args.formatConfig?.textStyle;
 
       // Build tone instruction
       const toneInstruction = textStyle?.tone
-        ? `Write in a ${textStyle.tone} tone.`
-        : "";
+        ? `Write in a ${textStyle.tone} tone - direct, confident, action-oriented.`
+        : "Write in a direct, confident tone.";
 
-      // Build character limit instruction
-      const charLimit = textStyle?.maxCharsPerSlide || 90;
+      // Build style instruction for image prompts
+      const styleInstruction = visualStyle
+        ? `Visual style preference: "${visualStyle}"`
+        : "Visual style: modern, minimal, professional";
 
-      // Step 1: Generate text content + use provided visual style
-      const prompt = `Generate ${slideCount} engaging carousel slides about: ${args.topic}
+      // Step 1: Generate text content AND image prompts in a single AI call
+      const prompt = `Generate content for a ${slideCount}-slide carousel about: "${args.topic}"
 
-Requirements:
-- Slide 1 (Title Slide): This is the hook slide. The text should be the main topic/title - essentially what the carousel is about. For example, if the topic is "3 habits that make you healthier", the title slide text should be "3 habits that make you healthier" or a slightly refined version of it. Keep it short, punchy, and attention-grabbing.
-- Slides 2+: Each slide should have 1-2 short, punchy sentences (max ${charLimit} characters) that deliver the actual content/tips/story
-- Make them attention-grabbing and valuable
-- Format as a cohesive story or tips
-${toneInstruction}
+STRUCTURE:
+- Slide 1 is the TITLE SLIDE: Use the exact topic as the title
+- Slides 2-${slideCount} are CONTENT SLIDES: Each covers one specific point/tip/habit from the topic
 
-IMPORTANT: Return EXACTLY this JSON format:
+FOR EACH SLIDE, provide:
+1. The text that should appear on the slide
+2. An image prompt describing the background visual
+
+TEXT RULES:
+- ${toneInstruction}
+- NO all-caps words (except acronyms)
+- NO exclamation points (or at most one per carousel)
+- Be specific and actionable, not vague motivation
+- Keep text concise - it needs to fit on an image
+- Headings should be 3-10 words max
+- Body text (if any) should be 1-2 sentences max
+
+IMAGE PROMPT RULES:
+- ${styleInstruction}
+- Describe specific, concrete visuals (e.g., "glass of water on wooden nightstand with soft morning light")
+- Images should work as backgrounds for text overlay (clean areas, not too busy)
+- Create visual cohesion across slides (consistent style/mood)
+- For the TITLE SLIDE: Create a thematic hero image that captures the overall mood, NOT a literal visualization
+- For CONTENT SLIDES: Visualize the specific concept of each slide
+- NEVER include text in the image description
+
+Return ONLY valid JSON with EXACTLY ${slideCount} slides:
 {
-  "slides": ["slide 1 text", "slide 2 text", "slide 3 text", ...]
-}
-
-Each element in the "slides" array must be a single string containing all the text for that slide.`;
+  "slides": [
+    { "title": "${args.topic}", "imagePrompt": "thematic hero image description" },
+    { "heading": "1. First point", "body": "Optional supporting text", "imagePrompt": "concrete visual for this point" },
+    { "heading": "2. Second point", "imagePrompt": "concrete visual for this point" }
+  ]
+}`;
 
       const textResponse = await generateText(
         prompt,
-        "You are a social media expert creating viral TikTok/Instagram carousels.",
+        "You are a social media content expert who creates high-converting carousel posts. Your content is specific, actionable, and valuable - never generic or vague. You also have excellent visual design sense.",
         {
           model: "gemini-2.0-flash",
           responseFormat: { type: "json_object" },
@@ -185,32 +180,86 @@ Each element in the "slides" array must be a single string containing all the te
 
       // Parse the response
       const parsed = JSON.parse(textResponse.text);
-      const slideTexts: string[] = parsed.slides || [];
+      // Limit to requested slideCount in case AI generates more
+      const rawSlides: Array<{ title?: string; heading?: string; body?: string; imagePrompt?: string }> = (parsed.slides || []).slice(0, slideCount);
 
-      // Step 2: Generate visual descriptions for each slide
-      const visualPlan = await generateVisualDescriptions(
-        slideTexts,
-        args.topic,
-        visualStyle
-      );
+      // Convert to slides with text elements and extract image prompts
+      const generatedSlides: GeneratedSlide[] = [];
+      const imagePrompts: string[] = [];
 
-      // Step 3: Generate images using visual descriptions with aspect ratio
+      for (let index = 0; index < rawSlides.length; index++) {
+        const slide = rawSlides[index];
+        const textElements: TextElement[] = [];
+
+        if (index === 0 && slide.title) {
+          // Title slide - single centered text element
+          textElements.push({
+            id: generateId(),
+            content: slide.title,
+            position: { x: 50, y: 50 },
+            fontSize: 56,
+            fontColor: "#ffffff",
+            fontWeight: 700,
+            textAlign: "center",
+            maxWidth: 80,
+          });
+        } else {
+          // Content slide - heading + optional body
+          if (slide.heading) {
+            textElements.push({
+              id: generateId(),
+              content: slide.heading,
+              position: { x: 50, y: 35 },
+              fontSize: 48,
+              fontColor: "#ffffff",
+              fontWeight: 700,
+              textAlign: "center",
+              maxWidth: 85,
+            });
+          }
+
+          if (slide.body) {
+            textElements.push({
+              id: generateId(),
+              content: slide.body,
+              position: { x: 50, y: 60 },
+              fontSize: 32,
+              fontColor: "#ffffff",
+              fontWeight: 400,
+              textAlign: "center",
+              maxWidth: 80,
+            });
+          }
+        }
+
+        generatedSlides.push({ textElements });
+
+        // Use provided imagePrompt or create a fallback
+        const fallbackPrompt = slide.title || slide.heading || `Slide ${index + 1}`;
+        imagePrompts.push(slide.imagePrompt || `A visually appealing background for: ${fallbackPrompt}`);
+      }
+
+      // Step 2: Generate images using the prompts from the same AI call
       const imageResponse = await generateCarouselImagesWithAspectRatio(
-        visualPlan.descriptions,
+        imagePrompts,
         visualStyle,
         aspectRatio
       );
 
-      // Step 4: Upload images to Convex storage
+      // Step 3: Upload images to Convex storage
       const storageUrls = await ctx.runAction(api.storage.uploadBase64Images, {
         base64DataArray: imageResponse.images,
       });
 
-      // Step 5: Create final slides with image prompts
-      const slides = slideTexts.map((text, index) => ({
-        text,
+      // Step 4: Create final slides with text elements
+      // Only create slides for which we have images (in case of mismatch)
+      const slideCount_actual = Math.min(generatedSlides.length, storageUrls.length);
+
+      const slides = generatedSlides.slice(0, slideCount_actual).map((slide, index) => ({
         imageUrl: storageUrls[index],
-        imagePrompt: visualPlan.descriptions[index],
+        imagePrompt: imagePrompts[index],
+        textElements: slide.textElements,
+        overlay: true, // Default to overlay for better text readability
       }));
 
       // Step 6: Save completed slideshow to DB
@@ -225,9 +274,6 @@ Each element in the "slides" array must be a single string containing all the te
           type: "carousel",
           slides,
           config: {
-            fontSize: 48,
-            fontColor: "#FFFFFF",
-            textPosition: { x: 50, y: 50 },
             aspectRatio,
           },
         },
@@ -331,15 +377,15 @@ export const regenerateSlideImage = action({
         }
       }
 
-      // Update the slide with new image and overwrite the image prompt
+      // Update the slide with new image - preserve text elements
       await ctx.runMutation(api.content.updateSlide, {
         id: args.contentId,
         slideIndex: args.slideIndex,
         slide: {
-          text: currentSlide.text,
           imageUrl: storageUrl,
-          overlay: currentSlide.overlay,
           imagePrompt: args.prompt, // Overwrite with new prompt
+          textElements: currentSlide.textElements,
+          overlay: currentSlide.overlay,
         },
       });
 

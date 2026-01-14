@@ -10,6 +10,7 @@ import {
   useTextEditing,
   useSlideshowState,
   renderSlideToCanvas,
+  TextElement,
 } from "../features/slideshows";
 
 export default function Slideshows() {
@@ -36,30 +37,25 @@ export default function Slideshows() {
     generation.generate(state.selectedProduct || undefined);
   };
 
-  // Handle text editing
-  const handleStartTextEdit = () => {
-    if (!state.selectedCarouselItem?.content?.slides?.[state.selectedSlideIndex]) return;
-    const currentSlide = state.selectedCarouselItem.content.slides[state.selectedSlideIndex];
-    const currentFontSize = state.selectedCarouselItem.content.config?.fontSize || 48;
-    textEditing.startEditing(currentSlide.text || "", currentFontSize);
+  // Handle text editing - now receives a TextElement
+  const handleStartTextEdit = (element: TextElement) => {
+    textEditing.startEditing(element);
   };
 
   const handleSaveTextEdit = async () => {
-    if (!state.selectedCarousel || !state.selectedCarouselItem?.content?.slides?.[state.selectedSlideIndex]) return;
-    const currentSlide = state.selectedCarouselItem.content.slides[state.selectedSlideIndex];
-    const currentFontSize = state.selectedCarouselItem.content.config?.fontSize || 48;
+    if (!state.selectedCarousel) return;
     await textEditing.saveText(
       state.selectedCarousel,
-      state.selectedSlideIndex,
-      currentSlide,
-      currentFontSize
+      state.selectedSlideIndex
     );
   };
 
   const handleDeleteText = async () => {
-    if (!state.selectedCarousel || !state.selectedCarouselItem?.content?.slides?.[state.selectedSlideIndex]) return;
-    const currentSlide = state.selectedCarouselItem.content.slides[state.selectedSlideIndex];
-    await textEditing.deleteText(state.selectedCarousel, state.selectedSlideIndex, currentSlide);
+    if (!state.selectedCarousel) return;
+    await textEditing.deleteElement(
+      state.selectedCarousel,
+      state.selectedSlideIndex
+    );
   };
 
   // Handle download as zip
@@ -79,9 +75,7 @@ export default function Slideshows() {
         const slide = slides[i];
         if (slide.imageUrl) {
           const blob = await renderSlideToCanvas(slide, {
-            fontSize: config?.fontSize,
             aspectRatio: config?.aspectRatio,
-            textPosition: config?.textPosition,
           });
           zip.file(`slide-${i + 1}.png`, blob);
         }
@@ -168,6 +162,7 @@ export default function Slideshows() {
           selectedSlideIndex={state.selectedSlideIndex}
           onSelectSlide={state.setSelectedSlideIndex}
           isEditingText={textEditing.isEditingText}
+          selectedElementId={textEditing.selectedElementId}
           editedText={textEditing.editedText}
           editedFontSize={textEditing.editedFontSize}
           onTextChange={textEditing.setEditedText}

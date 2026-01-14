@@ -10,6 +10,7 @@
 
 import type * as accounts from "../accounts.js";
 import type * as analytics from "../analytics.js";
+import type * as automations_feedback from "../automations/feedback.js";
 import type * as automations_generate from "../automations/generate.js";
 import type * as automations_index from "../automations/index.js";
 import type * as automations_internal from "../automations/internal.js";
@@ -36,6 +37,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   analytics: typeof analytics;
+  "automations/feedback": typeof automations_feedback;
   "automations/generate": typeof automations_generate;
   "automations/index": typeof automations_index;
   "automations/internal": typeof automations_internal;

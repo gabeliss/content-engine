@@ -73,6 +73,16 @@ export default function AutomationDetail() {
     };
   };
 
+  // Get initial preview data if available
+  const getInitialPreview = () => {
+    if (!automation?.lastPreviewContentId) return null;
+    return {
+      contentId: automation.lastPreviewContentId,
+      topic: automation.lastPreviewTopic || "",
+      caption: automation.lastPreviewCaption || "",
+    };
+  };
+
   const handleActivate = async () => {
     if (!id) return;
     try {
@@ -410,6 +420,7 @@ export default function AutomationDetail() {
           editMode={true}
           automationId={id as Id<"automations">}
           initialData={getWizardData()}
+          initialPreview={getInitialPreview()}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { X, Check, Contrast, Type, ImageIcon } from "lucide-react";
+import { X, Check, Contrast, ImageIcon } from "lucide-react";
 import { AspectRatio } from "../../types";
 import { ImageRegeneratePopover } from "./ImageRegeneratePopover";
 
@@ -7,7 +7,6 @@ interface EditModeButtonsProps {
   onCancelEdit: () => void;
   onSaveEdit: () => void;
   onToggleOverlay: () => void;
-  onStartTextEdit: () => void;
   onToggleRatioMenu: () => void;
   showRatioMenu: boolean;
   currentRatio: AspectRatio;
@@ -26,7 +25,6 @@ export function EditModeButtons({
   onCancelEdit,
   onSaveEdit,
   onToggleOverlay,
-  onStartTextEdit,
   onToggleRatioMenu,
   showRatioMenu,
   currentRatio,
@@ -125,25 +123,6 @@ export function EditModeButtons({
         }}
       >
         <Contrast size={18} />
-      </button>
-      <button
-        onClick={onStartTextEdit}
-        title="Edit text"
-        style={{
-          width: "40px",
-          height: "40px",
-          borderRadius: "50%",
-          border: "2px solid #e5e7eb",
-          background: "white",
-          color: "#6b7280",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          transition: "all 0.2s ease",
-        }}
-      >
-        <Type size={18} />
       </button>
       <div style={{ position: "relative" }}>
         <button

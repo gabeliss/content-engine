@@ -106,9 +106,7 @@ export function TikTokPostModal({
     try {
       // Step 1: Render all slides to WebP base64 on the frontend
       const renderedImages = await renderSlidesToWebPBase64(slides, {
-        fontSize: config?.fontSize,
         aspectRatio: config?.aspectRatio,
-        textPosition: config?.textPosition,
       });
 
       setPostingStatus("Uploading to TikTok...");
@@ -161,9 +159,7 @@ export function TikTokPostModal({
     try {
       // Step 1: Render all slides to WebP base64 on the frontend
       const renderedImages = await renderSlidesToWebPBase64(slides, {
-        fontSize: config?.fontSize,
         aspectRatio: config?.aspectRatio,
-        textPosition: config?.textPosition,
       });
 
       setPostingStatus("Uploading images...");

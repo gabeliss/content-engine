@@ -4,6 +4,7 @@ import {
   EXPORT_BASE_SIZE,
   getDimensions,
 } from "./styles";
+import { TextElement, Slide } from "./types";
 
 export function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
@@ -23,25 +24,82 @@ export function clampSlideCount(count: number): number {
 }
 
 // Canvas rendering for slide export
-interface SlideData {
-  text: string;
-  imageUrl: string;
-  overlay?: boolean;
+interface ConfigData {
+  aspectRatio?: string;
 }
 
-interface ConfigData {
-  fontSize?: number;
-  aspectRatio?: string;
-  textPosition?: { x: number; y: number };
+/**
+ * Render a single text element to the canvas
+ */
+function renderTextElement(
+  ctx: CanvasRenderingContext2D,
+  element: TextElement,
+  canvasWidth: number,
+  canvasHeight: number
+) {
+  const fontSize = element.fontSize;
+  const fontColor = element.fontColor || "#ffffff";
+  const fontWeight = element.fontWeight || 700;
+  const textAlign = element.textAlign || "center";
+  const maxWidthPercent = element.maxWidth || 80;
+
+  // Calculate position in pixels
+  const x = (element.position.x / 100) * canvasWidth;
+  const y = (element.position.y / 100) * canvasHeight;
+  const maxWidth = (maxWidthPercent / 100) * canvasWidth;
+
+  // Set font
+  ctx.font = `${fontWeight} ${fontSize}px "TikTok Display Medium", Inter, system-ui, sans-serif`;
+  ctx.textAlign = textAlign;
+  ctx.textBaseline = "middle";
+
+  const strokeOffset = TEXT_STYLES.getStrokeOffset(canvasWidth);
+
+  // Helper to draw text with stroke effect
+  const drawTextWithStroke = (text: string, drawX: number, drawY: number) => {
+    ctx.fillStyle = TEXT_STYLES.strokeColor;
+    ctx.fillText(text, drawX - strokeOffset, drawY - strokeOffset);
+    ctx.fillText(text, drawX + strokeOffset, drawY - strokeOffset);
+    ctx.fillText(text, drawX - strokeOffset, drawY + strokeOffset);
+    ctx.fillText(text, drawX + strokeOffset, drawY + strokeOffset);
+    ctx.fillStyle = fontColor;
+    ctx.fillText(text, drawX, drawY);
+  };
+
+  // Word wrap text
+  const wrapText = (text: string): string[] => {
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  };
+
+  const lines = wrapText(element.content);
+  const lineHeight = fontSize * TEXT_STYLES.lineHeight;
+  const totalHeight = lines.length * lineHeight;
+  const startY = y - totalHeight / 2 + lineHeight / 2;
+
+  lines.forEach((line, index) => {
+    drawTextWithStroke(line, x, startY + index * lineHeight);
+  });
 }
 
 export async function renderSlideToCanvas(
-  slide: SlideData,
+  slide: Slide,
   config: ConfigData
 ): Promise<Blob> {
-  const fontSize = config.fontSize || DEFAULT_CONFIG.fontSize;
   const aspectRatio = config.aspectRatio || DEFAULT_CONFIG.aspectRatio;
-  const textPosition = config.textPosition || DEFAULT_CONFIG.textPosition;
 
   // Get canvas dimensions
   const { width, height } = getDimensions(aspectRatio, EXPORT_BASE_SIZE);
@@ -85,57 +143,11 @@ export async function renderSlideToCanvas(
     ctx.fillRect(0, 0, width, height);
   }
 
-  // Draw text if present
-  if (slide.text) {
-    ctx.font = TEXT_STYLES.getCanvasFont(fontSize);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    // Word wrap text
-    const maxWidth = width * TEXT_STYLES.maxWidthPercent;
-    const lineHeight = fontSize * TEXT_STYLES.lineHeight;
-    const words = slide.text.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
+  // Render each text element
+  if (slide.textElements) {
+    for (const element of slide.textElements) {
+      renderTextElement(ctx, element, width, height);
     }
-    if (currentLine) lines.push(currentLine);
-
-    // Calculate text position based on config percentages
-    const centerX = (textPosition.x / 100) * width;
-    const centerY = (textPosition.y / 100) * height;
-
-    // Adjust startY so text block is centered at the position
-    const totalHeight = lines.length * lineHeight;
-    const startY = centerY - totalHeight / 2 + lineHeight / 2;
-
-    // Text stroke offset (using shared calculation)
-    const strokeOffset = TEXT_STYLES.getStrokeOffset(width);
-
-    // Draw each line with 4-corner stroke effect (matching CSS text-shadow)
-    lines.forEach((line, index) => {
-      const y = startY + index * lineHeight;
-
-      // Draw black stroke (4 corners to create outline effect)
-      ctx.fillStyle = TEXT_STYLES.strokeColor;
-      ctx.fillText(line, centerX - strokeOffset, y - strokeOffset); // top-left
-      ctx.fillText(line, centerX + strokeOffset, y - strokeOffset); // top-right
-      ctx.fillText(line, centerX - strokeOffset, y + strokeOffset); // bottom-left
-      ctx.fillText(line, centerX + strokeOffset, y + strokeOffset); // bottom-right
-
-      // Draw white text on top
-      ctx.fillStyle = TEXT_STYLES.color;
-      ctx.fillText(line, centerX, y);
-    });
   }
 
   // Convert canvas to blob
@@ -149,12 +161,10 @@ export async function renderSlideToCanvas(
  * Used for TikTok posting - renders the fully composed slide with text overlay
  */
 export async function renderSlideToWebPBase64(
-  slide: SlideData,
+  slide: Slide,
   config: ConfigData
 ): Promise<string> {
-  const fontSize = config.fontSize || DEFAULT_CONFIG.fontSize;
   const aspectRatio = config.aspectRatio || DEFAULT_CONFIG.aspectRatio;
-  const textPosition = config.textPosition || DEFAULT_CONFIG.textPosition;
 
   // Get canvas dimensions
   const { width, height } = getDimensions(aspectRatio, EXPORT_BASE_SIZE);
@@ -198,57 +208,11 @@ export async function renderSlideToWebPBase64(
     ctx.fillRect(0, 0, width, height);
   }
 
-  // Draw text if present
-  if (slide.text) {
-    ctx.font = TEXT_STYLES.getCanvasFont(fontSize);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    // Word wrap text
-    const maxWidth = width * TEXT_STYLES.maxWidthPercent;
-    const lineHeight = fontSize * TEXT_STYLES.lineHeight;
-    const words = slide.text.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
+  // Render each text element
+  if (slide.textElements) {
+    for (const element of slide.textElements) {
+      renderTextElement(ctx, element, width, height);
     }
-    if (currentLine) lines.push(currentLine);
-
-    // Calculate text position based on config percentages
-    const centerX = (textPosition.x / 100) * width;
-    const centerY = (textPosition.y / 100) * height;
-
-    // Adjust startY so text block is centered at the position
-    const totalHeight = lines.length * lineHeight;
-    const startY = centerY - totalHeight / 2 + lineHeight / 2;
-
-    // Text stroke offset (using shared calculation)
-    const strokeOffset = TEXT_STYLES.getStrokeOffset(width);
-
-    // Draw each line with 4-corner stroke effect (matching CSS text-shadow)
-    lines.forEach((line, index) => {
-      const y = startY + index * lineHeight;
-
-      // Draw black stroke (4 corners to create outline effect)
-      ctx.fillStyle = TEXT_STYLES.strokeColor;
-      ctx.fillText(line, centerX - strokeOffset, y - strokeOffset);
-      ctx.fillText(line, centerX + strokeOffset, y - strokeOffset);
-      ctx.fillText(line, centerX - strokeOffset, y + strokeOffset);
-      ctx.fillText(line, centerX + strokeOffset, y + strokeOffset);
-
-      // Draw white text on top
-      ctx.fillStyle = TEXT_STYLES.color;
-      ctx.fillText(line, centerX, y);
-    });
   }
 
   // Convert canvas to WebP base64 data URI
@@ -260,7 +224,7 @@ export async function renderSlideToWebPBase64(
  * Render all slides to WebP base64 for TikTok posting
  */
 export async function renderSlidesToWebPBase64(
-  slides: SlideData[],
+  slides: Slide[],
   config: ConfigData
 ): Promise<string[]> {
   const renderedSlides = await Promise.all(

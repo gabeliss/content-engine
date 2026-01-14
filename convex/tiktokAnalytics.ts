@@ -99,7 +99,6 @@ export const syncAccountVideos = internalAction({
         );
 
         const data = await response.json();
-        console.log("TikTok video list response:", JSON.stringify(data, null, 2));
 
         if (data.error?.code !== "ok") {
           // If we already have some videos, just stop paginating

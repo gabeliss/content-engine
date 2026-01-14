@@ -17,6 +17,11 @@ interface AutomationWizardProps {
   editMode?: boolean;
   automationId?: Id<"automations">;
   initialData?: Partial<WizardData>;
+  initialPreview?: {
+    contentId: Id<"content">;
+    topic: string;
+    caption: string;
+  } | null;
 }
 
 const stepTitles: Record<WizardStep, string> = {
@@ -41,6 +46,7 @@ export default function AutomationWizard({
   editMode = false,
   automationId,
   initialData,
+  initialPreview,
 }: AutomationWizardProps) {
   const wizard = useAutomationWizard({ initialData, editMode, automationId });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -131,7 +137,7 @@ export default function AutomationWizard({
       case "schedule":
         return <StepSchedule wizard={wizard} />;
       case "preview":
-        return <StepPreview wizard={wizard} onActivate={() => handleCreate(true)} />;
+        return <StepPreview wizard={wizard} onActivate={() => handleCreate(true)} initialPreview={initialPreview} />;
       default:
         return null;
     }

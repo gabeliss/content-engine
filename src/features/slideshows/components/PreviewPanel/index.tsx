@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Download, Trash2, Calendar } from "lucide-react";
-import { ContentItem, AspectRatio } from "../../types";
+import { ContentItem, AspectRatio, TextElement } from "../../types";
 import { PlaceholderState } from "./PlaceholderState";
 import { SlideCarousel } from "./SlideCarousel";
 import { ThumbnailNav } from "./ThumbnailNav";
@@ -25,10 +25,11 @@ interface PreviewPanelProps {
 
   // Text editing
   isEditingText: boolean;
+  selectedElementId: string | null;
   editedText: string;
   editedFontSize: number;
   onTextChange: (text: string) => void;
-  onStartTextEdit: () => void;
+  onStartTextEdit: (element: TextElement) => void;
   onCancelTextEdit: () => void;
   onSaveTextEdit: () => void;
   onDeleteText: () => void;
@@ -58,6 +59,7 @@ export function PreviewPanel({
   selectedSlideIndex,
   onSelectSlide,
   isEditingText,
+  selectedElementId,
   editedText,
   editedFontSize,
   onTextChange,
@@ -113,6 +115,7 @@ export function PreviewPanel({
                   onSelectSlide={onSelectSlide}
                   config={selectedCarouselItem.content.config}
                   isEditingText={isEditingText}
+                  selectedElementId={selectedElementId}
                   editedText={editedText}
                   editedFontSize={editedFontSize}
                   onTextChange={onTextChange}
@@ -127,7 +130,6 @@ export function PreviewPanel({
                   onCancelEdit={onCancelTextEdit}
                   onSaveEdit={onSaveTextEdit}
                   onToggleOverlay={onToggleOverlay}
-                  onStartTextEdit={onStartTextEdit}
                   onToggleRatioMenu={onToggleRatioMenu}
                   showRatioMenu={showRatioMenu}
                   currentRatio={selectedCarouselItem.content.config?.aspectRatio || "4:5"}

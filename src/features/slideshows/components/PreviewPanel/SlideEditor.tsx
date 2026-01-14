@@ -3,7 +3,7 @@ import { Minus, Plus, Trash2 } from "lucide-react";
 interface SlideEditorProps {
   editedText: string;
   editedFontSize: number;
-  textPosition: { x: number; y: number };
+  position: { x: number; y: number };
   onTextChange: (text: string) => void;
   onIncrementFontSize: () => void;
   onDecrementFontSize: () => void;
@@ -13,7 +13,7 @@ interface SlideEditorProps {
 export function SlideEditor({
   editedText,
   editedFontSize,
-  textPosition,
+  position,
   onTextChange,
   onIncrementFontSize,
   onDecrementFontSize,
@@ -24,8 +24,8 @@ export function SlideEditor({
       onClick={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
-        top: `${textPosition.y}%`,
-        left: `${textPosition.x}%`,
+        top: `${position.y}%`,
+        left: `${position.x}%`,
         transform: "translate(-50%, -50%)",
         width: "80%",
         maxWidth: "280px",

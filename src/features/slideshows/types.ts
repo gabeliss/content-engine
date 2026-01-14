@@ -1,19 +1,43 @@
 import { Id } from "../../../convex/_generated/dataModel";
 
-export interface Slide {
-  text: string;
-  imageUrl: string;
-  overlay?: boolean;
-  imagePrompt?: string; // Prompt used to generate current image (from visual planning or manual regeneration)
+// Text element - individual text block on a slide (like Canva text layers)
+export interface TextElement {
+  id: string; // Unique ID for this text element
+  content: string; // The text content
+  position: {
+    x: number; // X position as percentage (0-100)
+    y: number; // Y position as percentage (0-100)
+  };
+  fontSize: number; // Font size in pixels
+  fontColor?: string; // Defaults to white
+  fontWeight?: number; // 400, 700, etc. Defaults to 700
+  textAlign?: "left" | "center" | "right"; // Defaults to center
+  maxWidth?: number; // Max width as percentage (0-100), for text wrapping
 }
 
+// Slide with flexible text elements (like Canva)
+export interface Slide {
+  // Image fields (required)
+  imageUrl: string;
+  imagePrompt?: string;
+
+  // Text elements - array of independently positioned/styled text blocks
+  textElements?: TextElement[];
+
+  // Display options
+  overlay?: boolean; // Dark overlay for text readability
+}
+
+// Helper to get all text from a slide (for simple display/search)
+export function getSlideDisplayText(slide: Slide): string {
+  if (!slide.textElements || slide.textElements.length === 0) {
+    return "";
+  }
+  return slide.textElements.map(el => el.content).join("\n\n");
+}
+
+// Slideshow-level config (per-element styling is now in textElements)
 export interface ContentConfig {
-  fontSize: number;
-  fontColor: string;
-  textPosition: {
-    x: number;
-    y: number;
-  };
   aspectRatio?: "1:1" | "4:5" | "9:16";
 }
 

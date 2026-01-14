@@ -11,6 +11,7 @@ export {
 // Types
 export type {
   Slide,
+  TextElement,
   ContentConfig,
   CarouselContent,
   InputParams,
@@ -18,6 +19,8 @@ export type {
   Product,
   AspectRatio,
 } from "./types";
+
+export { getSlideDisplayText } from "./types";
 
 // Utils
 export { formatDate, sanitizeForFilename, extractSlideCountFromPrompt, clampSlideCount, renderSlideToCanvas } from "./utils";

@@ -83,13 +83,9 @@ export default defineSchema({
       slides: v.optional(v.array(slideValidator)),
       texts: v.optional(v.array(v.string())), // For threads
       mediaUrls: v.optional(v.array(v.string())),
+      // Config now only holds slideshow-level settings (aspect ratio)
+      // Font size, color, position are per text element
       config: v.optional(v.object({
-        fontSize: v.number(),
-        fontColor: v.string(),
-        textPosition: v.object({
-          x: v.number(),
-          y: v.number(),
-        }),
         aspectRatio: v.optional(v.union(
           v.literal("1:1"),
           v.literal("4:5"),
@@ -230,6 +226,11 @@ export default defineSchema({
     isActive: v.boolean(),
     lastRunAt: v.optional(v.number()),
     nextRunAt: v.optional(v.number()),
+
+    // Preview content (for wizard)
+    lastPreviewContentId: v.optional(v.id("content")),
+    lastPreviewTopic: v.optional(v.string()),
+    lastPreviewCaption: v.optional(v.string()),
 
     createdAt: v.number(),
     updatedAt: v.number(),
