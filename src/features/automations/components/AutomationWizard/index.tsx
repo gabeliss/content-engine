@@ -4,8 +4,7 @@ import { api } from "../../../../../convex/_generated/api";
 import { X, ChevronLeft, ChevronRight, Check, Loader2 } from "lucide-react";
 import { useAutomationWizard, WizardStep, WizardData } from "../../hooks/useAutomationWizard";
 import StepAccount from "./StepAccount";
-import StepTheme from "./StepTheme";
-import StepFormat from "./StepFormat";
+import StepContent from "./StepContent";
 import StepSchedule from "./StepSchedule";
 import StepPreview from "./StepPreview";
 import { Id } from "../../../../../convex/_generated/dataModel";
@@ -26,16 +25,14 @@ interface AutomationWizardProps {
 
 const stepTitles: Record<WizardStep, string> = {
   account: "Account & Basics",
-  theme: "Theme Configuration",
-  format: "Format & Style",
+  content: "Content Setup",
   schedule: "Schedule & Settings",
   preview: "Preview & Activate",
 };
 
 const stepDescriptions: Record<WizardStep, string> = {
   account: "Select the TikTok account and name your automation",
-  theme: "Define your account's niche, voice, and content guidelines",
-  format: "Configure slideshow format preferences",
+  content: "Define your niche, example topics, and visual style",
   schedule: "Set up your posting schedule",
   preview: "Test your configuration and activate the automation",
 };
@@ -130,10 +127,8 @@ export default function AutomationWizard({
     switch (wizard.currentStep) {
       case "account":
         return <StepAccount wizard={wizard} />;
-      case "theme":
-        return <StepTheme wizard={wizard} />;
-      case "format":
-        return <StepFormat wizard={wizard} />;
+      case "content":
+        return <StepContent wizard={wizard} />;
       case "schedule":
         return <StepSchedule wizard={wizard} />;
       case "preview":
@@ -209,7 +204,7 @@ export default function AutomationWizard({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {["account", "theme", "format", "schedule", "preview"].map((step, index) => (
+            {["account", "content", "schedule", "preview"].map((step, index) => (
               <div key={step} style={{ display: "flex", alignItems: "center" }}>
                 <div
                   style={{
@@ -237,7 +232,7 @@ export default function AutomationWizard({
                     index + 1
                   )}
                 </div>
-                {index < 4 && (
+                {index < 3 && (
                   <div
                     style={{
                       width: "40px",

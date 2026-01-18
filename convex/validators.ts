@@ -62,27 +62,14 @@ export const privacyLevelValidator = v.union(
   v.literal("SELF_ONLY")
 );
 
-// Automation theme configuration
+// Automation theme configuration (simplified)
 export const themeConfigValidator = v.object({
   accountNiche: v.string(), // e.g., "self-improvement / habit tracking"
-  targetAudience: v.optional(v.string()), // e.g., "young professionals 20-35"
-  brandVoice: v.optional(v.string()), // e.g., "motivational, direct, no-nonsense"
-  contentGuidelines: v.string(), // Detailed instructions for AI
   topicExamples: v.array(v.string()), // Example topics for inspiration
 });
 
-// Automation format configuration
+// Automation format configuration (simplified)
 export const formatConfigValidator = v.object({
-  slideCount: v.object({
-    min: v.number(),
-    max: v.number(),
-  }),
-  textStyle: v.optional(
-    v.object({
-      maxCharsPerSlide: v.optional(v.number()),
-      tone: v.optional(v.string()), // "punchy", "detailed", "casual"
-    })
-  ),
   visualStyle: v.optional(v.string()), // "dark minimalist", "bright colorful"
   aspectRatio: aspectRatioValidator,
 });

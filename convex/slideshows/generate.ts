@@ -119,12 +119,6 @@ export const generateWithConfig = action({
 
       const visualStyle = args.formatConfig?.visualStyle;
       const aspectRatio = args.formatConfig?.aspectRatio || "4:5";
-      const textStyle = args.formatConfig?.textStyle;
-
-      // Build tone instruction
-      const toneInstruction = textStyle?.tone
-        ? `Write in a ${textStyle.tone} tone - direct, confident, action-oriented.`
-        : "Write in a direct, confident tone.";
 
       // Build style instruction for image prompts
       const styleInstruction = visualStyle
@@ -143,7 +137,7 @@ FOR EACH SLIDE, provide:
 2. An image prompt describing the background visual
 
 TEXT RULES:
-- ${toneInstruction}
+- Match the tone naturally to the topic (informative for educational content, actionable for self-improvement, conversational for lifestyle, etc.)
 - NO all-caps words (except acronyms)
 - NO exclamation points (or at most one per carousel)
 - Be specific and actionable, not vague motivation

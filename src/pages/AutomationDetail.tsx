@@ -349,30 +349,26 @@ export default function AutomationDetail() {
             </div>
           </div>
 
-          {/* Theme Config */}
+          {/* Content Config */}
           <div className="card">
             <h3 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9375rem", fontWeight: 600 }}>
-              Content Theme
+              Content Setup
             </h3>
             <div style={{ fontSize: "0.875rem" }}>
               <div style={{ marginBottom: "0.5rem" }}>
                 <span style={{ color: "#6b7280" }}>Niche:</span>{" "}
                 {automation.themeConfig.accountNiche}
               </div>
-              {automation.themeConfig.targetAudience && (
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <span style={{ color: "#6b7280" }}>Audience:</span>{" "}
-                  {automation.themeConfig.targetAudience}
-                </div>
-              )}
-              {automation.themeConfig.brandVoice && (
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <span style={{ color: "#6b7280" }}>Voice:</span>{" "}
-                  {automation.themeConfig.brandVoice}
-                </div>
-              )}
+              <div style={{ marginBottom: "0.5rem" }}>
+                <span style={{ color: "#6b7280" }}>Visual Style:</span>{" "}
+                {automation.formatConfig.visualStyle}
+              </div>
+              <div style={{ marginBottom: "0.5rem" }}>
+                <span style={{ color: "#6b7280" }}>Aspect Ratio:</span>{" "}
+                {automation.formatConfig.aspectRatio}
+              </div>
               <div style={{ marginTop: "0.75rem" }}>
-                <span style={{ color: "#6b7280" }}>Examples:</span>
+                <span style={{ color: "#6b7280" }}>Topic Examples:</span>
                 <ul style={{ margin: "0.25rem 0 0 1rem", padding: 0, fontSize: "0.8125rem" }}>
                   {automation.themeConfig.topicExamples.slice(0, 3).map((example, i) => (
                     <li key={i} style={{ marginBottom: "0.25rem", color: "#374151" }}>
@@ -385,27 +381,6 @@ export default function AutomationDetail() {
                     </li>
                   )}
                 </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Format Config */}
-          <div className="card">
-            <h3 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9375rem", fontWeight: 600 }}>
-              Format
-            </h3>
-            <div style={{ fontSize: "0.875rem" }}>
-              <div style={{ marginBottom: "0.375rem" }}>
-                <span style={{ color: "#6b7280" }}>Slides:</span>{" "}
-                {automation.formatConfig.slideCount.min}-{automation.formatConfig.slideCount.max}
-              </div>
-              <div style={{ marginBottom: "0.375rem" }}>
-                <span style={{ color: "#6b7280" }}>Style:</span>{" "}
-                {automation.formatConfig.visualStyle}
-              </div>
-              <div>
-                <span style={{ color: "#6b7280" }}>Aspect Ratio:</span>{" "}
-                {automation.formatConfig.aspectRatio}
               </div>
             </div>
           </div>

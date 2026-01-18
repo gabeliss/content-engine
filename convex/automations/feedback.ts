@@ -15,18 +15,11 @@ interface ConfigSuggestion {
   changes: string[];
   themeConfig?: {
     accountNiche?: string;
-    targetAudience?: string;
-    brandVoice?: string;
-    contentGuidelines?: string;
     topicExamples?: string[];
   };
   formatConfig?: {
-    slideCount?: { min: number; max: number };
-    textStyle?: {
-      maxCharsPerSlide?: number;
-      tone?: string;
-    };
     visualStyle?: string;
+    aspectRatio?: "1:1" | "4:5" | "9:16";
   };
 }
 
@@ -57,15 +50,9 @@ export const analyzeFeedback = action({
 CURRENT CONFIGURATION:
 Theme Config:
 - Account Niche: ${args.currentThemeConfig.accountNiche}
-- Target Audience: ${args.currentThemeConfig.targetAudience || "Not specified"}
-- Brand Voice: ${args.currentThemeConfig.brandVoice || "Not specified"}
-- Content Guidelines: ${args.currentThemeConfig.contentGuidelines}
 - Topic Examples: ${args.currentThemeConfig.topicExamples.join(", ")}
 
 Format Config:
-- Slide Count: ${args.currentFormatConfig.slideCount.min}-${args.currentFormatConfig.slideCount.max}
-- Text Tone: ${args.currentFormatConfig.textStyle?.tone || "Not specified"}
-- Max Chars Per Slide: ${args.currentFormatConfig.textStyle?.maxCharsPerSlide || "Not specified"}
 - Visual Style: ${args.currentFormatConfig.visualStyle || "Not specified"}
 - Aspect Ratio: ${args.currentFormatConfig.aspectRatio}
 
@@ -81,9 +68,9 @@ Based on this feedback, determine what configuration changes would address the u
 Rules for your response:
 1. Only suggest changes that directly address the feedback
 2. Be specific about what should change and why
-3. For contentGuidelines, ADD to the existing guidelines rather than replacing them entirely
-4. For topicExamples, you can add new examples if the user wants different topic styles
-5. Keep changes minimal - don't overhaul everything for minor feedback
+3. For topicExamples, you can add new examples if the user wants different topic styles
+4. Keep changes minimal - don't overhaul everything for minor feedback
+5. The tone/voice is inferred from the topic examples, so suggest adding examples with the desired tone
 
 Return ONLY valid JSON in this exact format:
 {
@@ -93,14 +80,12 @@ Return ONLY valid JSON in this exact format:
   ],
   "themeConfig": {
     // Only include fields that should change
-    "contentGuidelines": "Updated guidelines if needed",
-    "brandVoice": "Updated voice if needed"
+    "accountNiche": "Updated niche if needed",
+    "topicExamples": ["new example 1", "new example 2"]
   },
   "formatConfig": {
     // Only include fields that should change
-    "textStyle": {
-      "tone": "new tone if needed"
-    }
+    "visualStyle": "new style if needed"
   }
 }
 

@@ -138,18 +138,6 @@ export default function StepPreview({ wizard, initialPreview }: StepPreviewProps
           updatedConfig.formatConfig = {
             ...wizard.data.formatConfig,
             ...result.suggestion.formatConfig,
-            // Handle nested textStyle
-            textStyle: {
-              ...wizard.data.formatConfig.textStyle,
-              ...(result.suggestion.formatConfig.textStyle || {}),
-            },
-            // Handle nested slideCount
-            slideCount: result.suggestion.formatConfig.slideCount
-              ? {
-                  ...wizard.data.formatConfig.slideCount,
-                  ...result.suggestion.formatConfig.slideCount,
-                }
-              : wizard.data.formatConfig.slideCount,
           };
         }
 
@@ -208,14 +196,12 @@ export default function StepPreview({ wizard, initialPreview }: StepPreviewProps
             <span style={{ fontWeight: 500 }}>{wizard.data.themeConfig.accountNiche}</span>
           </div>
           <div>
-            <span style={{ color: "#6b7280" }}>Slides:</span>{" "}
-            <span style={{ fontWeight: 500 }}>
-              {wizard.data.formatConfig.slideCount.min}-{wizard.data.formatConfig.slideCount.max}
-            </span>
-          </div>
-          <div>
             <span style={{ color: "#6b7280" }}>Visual Style:</span>{" "}
             <span style={{ fontWeight: 500 }}>{wizard.data.formatConfig.visualStyle}</span>
+          </div>
+          <div>
+            <span style={{ color: "#6b7280" }}>Aspect Ratio:</span>{" "}
+            <span style={{ fontWeight: 500 }}>{wizard.data.formatConfig.aspectRatio}</span>
           </div>
           <div>
             <span style={{ color: "#6b7280" }}>Posts per week:</span>{" "}

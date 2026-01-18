@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Id } from "../../../../convex/_generated/dataModel";
 
-export type WizardStep = "account" | "theme" | "format" | "schedule" | "preview";
+export type WizardStep = "account" | "content" | "schedule" | "preview";
 
 export interface WizardData {
   // Step 1: Account
@@ -9,27 +9,17 @@ export interface WizardData {
   accountId: Id<"accounts"> | null;
   contentType: "slideshow";
 
-  // Step 2: Theme
+  // Step 2: Content Setup (merged theme + format)
   themeConfig: {
     accountNiche: string;
-    targetAudience: string;
-    brandVoice: string;
-    contentGuidelines: string;
     topicExamples: string[];
   };
-
-  // Step 3: Format
   formatConfig: {
-    slideCount: { min: number; max: number };
-    textStyle: {
-      maxCharsPerSlide: number;
-      tone: string;
-    };
     visualStyle: string;
     aspectRatio: "1:1" | "4:5" | "9:16";
   };
 
-  // Step 4: Schedule
+  // Step 3: Schedule
   scheduleConfig: {
     timezone: string;
     postingTimes: Array<{ dayOfWeek: number; hour: number; minute: number }>;
@@ -46,17 +36,9 @@ const defaultWizardData: WizardData = {
   contentType: "slideshow",
   themeConfig: {
     accountNiche: "",
-    targetAudience: "",
-    brandVoice: "",
-    contentGuidelines: "",
     topicExamples: [],
   },
   formatConfig: {
-    slideCount: { min: 4, max: 6 },
-    textStyle: {
-      maxCharsPerSlide: 90,
-      tone: "punchy",
-    },
     visualStyle: "dark minimalist",
     aspectRatio: "4:5",
   },
@@ -70,7 +52,7 @@ const defaultWizardData: WizardData = {
   },
 };
 
-const STEPS: WizardStep[] = ["account", "theme", "format", "schedule", "preview"];
+const STEPS: WizardStep[] = ["account", "content", "schedule", "preview"];
 
 export interface UseAutomationWizardOptions {
   initialData?: Partial<WizardData>;
@@ -176,18 +158,9 @@ export function useAutomationWizard(options: UseAutomationWizardOptions = {}) {
         if (!data.accountId) errors.push("Please select a TikTok account");
         break;
 
-      case "theme":
+      case "content":
         if (!data.themeConfig.accountNiche.trim()) errors.push("Account niche is required");
-        if (!data.themeConfig.contentGuidelines.trim()) errors.push("Content guidelines are required");
         if (data.themeConfig.topicExamples.length < 3) errors.push("Add at least 3 topic examples");
-        break;
-
-      case "format":
-        if (data.formatConfig.slideCount.min < 2) errors.push("Minimum slides must be at least 2");
-        if (data.formatConfig.slideCount.max > 10) errors.push("Maximum slides cannot exceed 10");
-        if (data.formatConfig.slideCount.min > data.formatConfig.slideCount.max) {
-          errors.push("Minimum slides cannot be greater than maximum");
-        }
         break;
 
       case "schedule":

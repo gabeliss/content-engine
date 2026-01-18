@@ -15,24 +15,15 @@ import {
 
 export interface TopicGenerationResult {
   topic: string;
-  slideCount: number;
   caption: string;
 }
 
 export interface ThemeConfig {
   accountNiche: string;
-  targetAudience?: string;
-  brandVoice?: string;
-  contentGuidelines: string;
   topicExamples: string[];
 }
 
 export interface FormatConfig {
-  slideCount: { min: number; max: number };
-  textStyle?: {
-    maxCharsPerSlide?: number;
-    tone?: string;
-  };
   visualStyle?: string;
   aspectRatio: "1:1" | "4:5" | "9:16";
 }
@@ -42,56 +33,31 @@ export interface FormatConfig {
  * This uses AI to create a fresh, unique topic based on the theme configuration
  */
 export async function generateTopic(
-  themeConfig: ThemeConfig,
-  formatConfig: FormatConfig
+  themeConfig: ThemeConfig
 ): Promise<TopicGenerationResult> {
-  const { accountNiche, targetAudience, brandVoice, contentGuidelines, topicExamples } = themeConfig;
-  const { slideCount, textStyle } = formatConfig;
+  const { accountNiche, topicExamples } = themeConfig;
 
   // Build the prompt
   const examplesList = topicExamples.length > 0
     ? topicExamples.map((e, i) => `${i + 1}. ${e}`).join("\n")
     : "No examples provided.";
 
-  const audienceSection = targetAudience
-    ? `Target audience: ${targetAudience}`
-    : "";
-
-  const voiceSection = brandVoice
-    ? `Brand voice: ${brandVoice}`
-    : "";
-
-  const toneSection = textStyle?.tone
-    ? `Content tone: ${textStyle.tone}`
-    : "";
-
   const prompt = `You are a content strategist for a ${accountNiche} TikTok/Instagram account.
-
-${audienceSection}
-${voiceSection}
-
-Content guidelines:
-${contentGuidelines}
 
 Example topics that perform well for this account:
 ${examplesList}
 
-${toneSection}
-
 Generate ONE new carousel topic that:
-1. Fits perfectly with the account's niche and voice
-2. Follows the style and pattern of the example topics
+1. Fits perfectly with the account's niche
+2. Follows the style, tone, and pattern of the example topics
 3. Is NOT a direct copy of any example - be creative!
-4. Is specific, actionable, and valuable to the audience
+4. Is specific and valuable to the audience
 5. Would make viewers want to save and share
 6. Has a hook that stops the scroll
-
-The topic should work for a carousel with ${slideCount.min}-${slideCount.max} slides.
 
 Return ONLY valid JSON in this exact format:
 {
   "topic": "the complete topic/title for the carousel (this will be the hook slide text)",
-  "slideCount": ${Math.floor((slideCount.min + slideCount.max) / 2)},
   "caption": "engaging TikTok caption with relevant hashtags (2-3 sentences max)"
 }`;
 
@@ -107,13 +73,8 @@ Return ONLY valid JSON in this exact format:
 
   const parsed = JSON.parse(response.text);
 
-  // Validate and clamp slide count
-  let generatedSlideCount = parsed.slideCount || Math.floor((slideCount.min + slideCount.max) / 2);
-  generatedSlideCount = Math.max(slideCount.min, Math.min(slideCount.max, generatedSlideCount));
-
   return {
     topic: parsed.topic || "Untitled Topic",
-    slideCount: generatedSlideCount,
     caption: parsed.caption || "",
   };
 }
@@ -124,7 +85,6 @@ Return ONLY valid JSON in this exact format:
 export const testTopicGeneration = action({
   args: {
     themeConfig: themeConfigValidator,
-    formatConfig: formatConfigValidator,
   },
   handler: async (ctx, args): Promise<TopicGenerationResult> => {
     const identity = await ctx.auth.getUserIdentity();
@@ -132,7 +92,56 @@ export const testTopicGeneration = action({
       throw new Error("Not authenticated");
     }
 
-    return generateTopic(args.themeConfig, args.formatConfig);
+    return generateTopic(args.themeConfig);
+  },
+});
+
+/**
+ * Generate example topics based on account niche
+ * Used in the wizard to help users quickly populate topic examples
+ */
+export const generateTopicExamples = action({
+  args: {
+    accountNiche: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ topics: string[] }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const prompt = `You are a content strategist for TikTok/Instagram carousel posts.
+
+Account niche: "${args.accountNiche}"
+
+Generate 10 carousel topic ideas that would perform well for this niche. Each topic should:
+1. Be a complete, attention-grabbing title (the kind that makes people stop scrolling)
+2. Be specific and actionable, not vague
+3. Work well as a 4-7 slide carousel
+4. Vary in format (some with numbers like "5 ways...", some questions, some statements)
+5. Cover different angles within the niche
+
+Return ONLY valid JSON:
+{
+  "topics": [
+    "5 morning habits that actually changed my life",
+    "The productivity hack nobody talks about",
+    ...
+  ]
+}`;
+
+    const response = await generateText(
+      prompt,
+      "You are an expert at creating viral social media content. Your topics are specific, valuable, and scroll-stopping.",
+      {
+        model: "gemini-2.0-flash",
+        responseFormat: { type: "json_object" },
+        temperature: 0.9,
+      }
+    );
+
+    const parsed = JSON.parse(response.text);
+    return { topics: parsed.topics || [] };
   },
 });
 
@@ -172,7 +181,7 @@ export const generateForAutomation = internalAction({
         startedAt: Date.now(),
       });
 
-      const topicResult = await generateTopic(themeConfig, formatConfig);
+      const topicResult = await generateTopic(themeConfig);
 
       // Update run with generated topic
       await ctx.runMutation(internal.automations.internal.updateRunTopic, {
@@ -185,11 +194,9 @@ export const generateForAutomation = internalAction({
       // We call the slideshow generate action with the topic
       const generateResult = await ctx.runAction(api.slideshows.generate.generateWithConfig, {
         topic: topicResult.topic,
-        slideCount: topicResult.slideCount,
         formatConfig: {
           visualStyle: formatConfig.visualStyle,
           aspectRatio: formatConfig.aspectRatio,
-          textStyle: formatConfig.textStyle,
         },
       });
 
@@ -257,16 +264,14 @@ export const previewGeneration = action({
 
     try {
       // Step 1: Generate topic
-      const topicResult = await generateTopic(args.themeConfig, args.formatConfig);
+      const topicResult = await generateTopic(args.themeConfig);
 
       // Step 2: Generate slideshow
       const generateResult = await ctx.runAction(api.slideshows.generate.generateWithConfig, {
         topic: topicResult.topic,
-        slideCount: topicResult.slideCount,
         formatConfig: {
           visualStyle: args.formatConfig.visualStyle,
           aspectRatio: args.formatConfig.aspectRatio,
-          textStyle: args.formatConfig.textStyle,
         },
       });
 
