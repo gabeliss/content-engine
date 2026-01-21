@@ -25,8 +25,12 @@ export default function Analytics() {
 
   // Get accounts with their stats (for AccountStatsCard)
   const accounts = useQuery(api.accounts.list);
-  const selectedAccount = selectedAccountId
-    ? accounts?.find((a) => a._id === selectedAccountId)
+  const tiktokAccounts = accounts?.filter(a => a.platform === "tiktok") || [];
+
+  // Auto-select if there's only one account
+  const effectiveSelectedAccountId = selectedAccountId ?? (tiktokAccounts.length === 1 ? tiktokAccounts[0]._id : null);
+  const selectedAccount = effectiveSelectedAccountId
+    ? accounts?.find((a) => a._id === effectiveSelectedAccountId)
     : null;
 
   const handleRefresh = async () => {
