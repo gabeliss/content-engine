@@ -175,8 +175,6 @@ export default function Slideshows() {
           onGenerate={handleGenerate}
           selectedReferenceImages={generation.selectedReferenceImages}
           onReferenceImagesChange={generation.setSelectedReferenceImages}
-          contentStyle={generation.contentStyle}
-          onContentStyleChange={generation.setContentStyle}
         />
 
         {/* Right Column: Preview Panel */}

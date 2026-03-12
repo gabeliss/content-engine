@@ -24,6 +24,7 @@ import type * as providers_gemini from "../providers/gemini.js";
 import type * as referenceImages from "../referenceImages.js";
 import type * as scheduledPosts from "../scheduledPosts.js";
 import type * as slideshows_generate from "../slideshows/generate.js";
+import type * as slideshows_generateAgentic from "../slideshows/generateAgentic.js";
 import type * as storage from "../storage.js";
 import type * as tiktok from "../tiktok.js";
 import type * as tiktokAnalytics from "../tiktokAnalytics.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   referenceImages: typeof referenceImages;
   scheduledPosts: typeof scheduledPosts;
   "slideshows/generate": typeof slideshows_generate;
+  "slideshows/generateAgentic": typeof slideshows_generateAgentic;
   storage: typeof storage;
   tiktok: typeof tiktok;
   tiktokAnalytics: typeof tiktokAnalytics;

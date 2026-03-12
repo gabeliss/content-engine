@@ -1,8 +1,7 @@
-import { Play, Loader, Type, LayoutGrid } from "lucide-react";
+import { Play, Loader } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Product } from "../types";
 import { ReferenceImagePicker } from "../../../components/ReferenceImagePicker";
-import { ContentStyle } from "../hooks/useSlideshowGeneration";
 
 interface GenerationFormProps {
   products: Product[] | undefined;
@@ -15,8 +14,6 @@ interface GenerationFormProps {
   onGenerate: () => void;
   selectedReferenceImages?: Id<"referenceImages">[];
   onReferenceImagesChange?: (ids: Id<"referenceImages">[]) => void;
-  contentStyle?: ContentStyle;
-  onContentStyleChange?: (style: ContentStyle) => void;
 }
 
 export function GenerationForm({
@@ -30,8 +27,6 @@ export function GenerationForm({
   onGenerate,
   selectedReferenceImages = [],
   onReferenceImagesChange,
-  contentStyle = "overlay",
-  onContentStyleChange,
 }: GenerationFormProps) {
   return (
     <div className="card">
@@ -86,7 +81,13 @@ export function GenerationForm({
 
       <textarea
         className="textarea"
-        placeholder="I want 12 slides about personal growth and habit building. The first slide should say 'WAIT. you're giving up???' written in a conversational, motivational tone using second person perspective..."
+        placeholder="Describe what you want to create. The AI will design everything - layout, style, colors, text placement, and images.
+
+Examples:
+• 5 tricep exercises for bigger arms (infographic style with illustrations)
+• Morning routine tips with motivational quotes
+• Step-by-step guide to making perfect pasta
+• 7 habits that changed my life - dark minimalist aesthetic"
         value={prompt}
         onChange={(e) => onPromptChange(e.target.value)}
         disabled={isGenerating}
@@ -98,89 +99,6 @@ export function GenerationForm({
           marginBottom: "1rem",
         }}
       />
-
-      {/* Content Style Toggle */}
-      {onContentStyleChange && (
-        <div style={{ marginBottom: "1rem" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              marginBottom: "0.5rem",
-            }}
-          >
-            <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>Content Style:</span>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              gap: "0.5rem",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => onContentStyleChange("overlay")}
-              disabled={isGenerating}
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                padding: "0.5rem 0.75rem",
-                fontSize: "0.75rem",
-                fontWeight: 500,
-                border: contentStyle === "overlay" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
-                borderRadius: "6px",
-                background: contentStyle === "overlay" ? "#eff6ff" : "white",
-                color: contentStyle === "overlay" ? "#3b82f6" : "#6b7280",
-                cursor: isGenerating ? "not-allowed" : "pointer",
-                opacity: isGenerating ? 0.5 : 1,
-              }}
-            >
-              <Type size={14} />
-              Text Overlay
-            </button>
-            <button
-              type="button"
-              onClick={() => onContentStyleChange("infographic")}
-              disabled={isGenerating}
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                padding: "0.5rem 0.75rem",
-                fontSize: "0.75rem",
-                fontWeight: 500,
-                border: contentStyle === "infographic" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
-                borderRadius: "6px",
-                background: contentStyle === "infographic" ? "#eff6ff" : "white",
-                color: contentStyle === "infographic" ? "#3b82f6" : "#6b7280",
-                cursor: isGenerating ? "not-allowed" : "pointer",
-                opacity: isGenerating ? 0.5 : 1,
-              }}
-            >
-              <LayoutGrid size={14} />
-              Infographic
-            </button>
-          </div>
-          <p
-            style={{
-              fontSize: "0.65rem",
-              color: "#9ca3af",
-              marginTop: "0.5rem",
-              marginBottom: 0,
-            }}
-          >
-            {contentStyle === "overlay"
-              ? "Editable text layered over background images"
-              : "Text baked into AI-generated graphics (not editable)"}
-          </p>
-        </div>
-      )}
 
       {onReferenceImagesChange && (
         <ReferenceImagePicker

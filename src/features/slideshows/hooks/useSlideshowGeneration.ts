@@ -2,9 +2,6 @@ import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { extractSlideCountFromPrompt, clampSlideCount } from "../utils";
-
-export type ContentStyle = "overlay" | "infographic";
 
 interface UseSlideshowGenerationOptions {
   onSuccess?: () => void;
@@ -15,9 +12,9 @@ export function useSlideshowGeneration(options?: UseSlideshowGenerationOptions) 
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<Id<"referenceImages">[]>([]);
-  const [contentStyle, setContentStyle] = useState<ContentStyle>("overlay");
 
-  const generateWithConfig = useAction(api.slideshows.generate.generateWithConfig);
+  // Use the new agentic generation
+  const generateAgentic = useAction(api.slideshows.generateAgentic.generate);
 
   const generate = async (productId?: Id<"products">) => {
     if (!prompt.trim()) {
@@ -29,17 +26,16 @@ export function useSlideshowGeneration(options?: UseSlideshowGenerationOptions) 
     setError(null);
 
     try {
-      const slideCount = clampSlideCount(extractSlideCountFromPrompt(prompt));
-
-      await generateWithConfig({
+      // Agentic generation - the AI decides everything
+      const result = await generateAgentic({
+        prompt: prompt.trim(),
         productId: productId || undefined,
-        topic: prompt.trim(),
-        slideCount,
         referenceImageIds: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
-        formatConfig: {
-          contentStyle,
-        },
       });
+
+      if (!result.success) {
+        throw new Error(result.error || "Generation failed");
+      }
 
       setPrompt("");
       options?.onSuccess?.();
@@ -62,7 +58,5 @@ export function useSlideshowGeneration(options?: UseSlideshowGenerationOptions) 
     clearError,
     selectedReferenceImages,
     setSelectedReferenceImages,
-    contentStyle,
-    setContentStyle,
   };
 }
