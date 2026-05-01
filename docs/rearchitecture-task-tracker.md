@@ -479,7 +479,8 @@ Goal: Produce provider-ready rendered images from slideshow artifacts.
 
 Acceptance criteria:
 
-- Rendered slide records are saved as artifacts.
+- Rendered slide image files are saved as artifacts.
+- SVG renderer creates reviewable slide files before final PNG/video export.
 - Rendered outputs include text overlays.
 - Output dimensions match platform requirements.
 - Distribution plan references rendered artifacts.

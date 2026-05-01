@@ -558,6 +558,123 @@ function getSlideIndexFromImageArtifact(artifact: Doc<"artifacts">): number | un
   return typeof index === "number" ? index : undefined;
 }
 
+function getSlideDimensions(aspectRatio: string): { width: number; height: number } {
+  if (aspectRatio === "1:1") return { width: 1080, height: 1080 };
+  if (aspectRatio === "4:5") return { width: 1080, height: 1350 };
+  if (aspectRatio === "16:9") return { width: 1920, height: 1080 };
+
+  return { width: 1080, height: 1920 };
+}
+
+function escapeXml(value: unknown): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function wrapText(value: string | undefined, maxChars: number): string[] {
+  if (!value?.trim()) return [];
+
+  const words = value.trim().split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const nextLine = currentLine ? `${currentLine} ${word}` : word;
+    if (nextLine.length > maxChars && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = nextLine;
+    }
+  }
+
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+async function fetchImageDataUri(url: string | undefined): Promise<string | undefined> {
+  if (!url) return undefined;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return undefined;
+
+    const contentType = response.headers.get("content-type") ?? "image/png";
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = "";
+    const chunkSize = 8192;
+
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
+    }
+
+    return `data:${contentType};base64,${btoa(binary)}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function renderSlideSvg(args: {
+  dimensions: { width: number; height: number };
+  backgroundImageDataUri?: string;
+  headline?: string;
+  body?: string;
+  role?: string;
+  slideIndex: number;
+}): string {
+  const { width, height } = args.dimensions;
+  const margin = Math.round(width * 0.075);
+  const panelHeight = Math.round(height * 0.36);
+  const panelY = height - panelHeight;
+  const headlineSize = Math.round(width * 0.065);
+  const bodySize = Math.round(width * 0.036);
+  const eyebrowSize = Math.round(width * 0.026);
+  const maxHeadlineChars = width > height ? 34 : 21;
+  const maxBodyChars = width > height ? 72 : 42;
+  const headlineLines = wrapText(args.headline, maxHeadlineChars).slice(0, 4);
+  const bodyLines = wrapText(args.body, maxBodyChars).slice(0, 4);
+  const background = args.backgroundImageDataUri
+    ? `<image href="${args.backgroundImageDataUri}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" />`
+    : `<linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#203428" />
+        <stop offset="48%" stop-color="#877c5e" />
+        <stop offset="100%" stop-color="#f2bd5f" />
+      </linearGradient>
+      <rect width="${width}" height="${height}" fill="url(#background)" />`;
+  const headlineText = headlineLines
+    .map(
+      (line, index) =>
+        `<tspan x="${margin}" dy="${index === 0 ? 0 : headlineSize * 1.08}">${escapeXml(line)}</tspan>`
+    )
+    .join("");
+  const bodyText = bodyLines
+    .map(
+      (line, index) =>
+        `<tspan x="${margin}" dy="${index === 0 ? 0 : bodySize * 1.35}">${escapeXml(line)}</tspan>`
+    )
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Rendered slide ${args.slideIndex}">
+    <defs>
+      <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#101712" stop-opacity="0" />
+        <stop offset="38%" stop-color="#101712" stop-opacity="0.74" />
+        <stop offset="100%" stop-color="#101712" stop-opacity="0.96" />
+      </linearGradient>
+    </defs>
+    ${background}
+    <rect width="${width}" height="${height}" fill="#101712" opacity="${args.backgroundImageDataUri ? 0.18 : 0}" />
+    <rect y="${panelY}" width="${width}" height="${panelHeight}" fill="url(#panel)" />
+    <text x="${margin}" y="${panelY + margin * 0.9}" fill="#f8f3e7" font-family="Georgia, 'Times New Roman', serif" font-size="${eyebrowSize}" font-weight="700" letter-spacing="${Math.round(width * 0.004)}">${escapeXml(args.role ?? `Slide ${args.slideIndex}`)}</text>
+    <text x="${margin}" y="${panelY + margin * 1.72}" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="${headlineSize}" font-weight="800" letter-spacing="-2">${headlineText}</text>
+    <text x="${margin}" y="${panelY + margin * 1.95 + headlineLines.length * headlineSize * 1.08}" fill="#f2eee3" font-family="Arial, sans-serif" font-size="${bodySize}" font-weight="500">${bodyText}</text>
+  </svg>`;
+}
+
 async function executeRenderSlideshowStep(
   ctx: ActionCtx,
   context: ExecutionContext,
@@ -580,29 +697,41 @@ async function executeRenderSlideshowStep(
     if (!isSlideshowSpec(slideSpecArtifact.data)) continue;
 
     const aspectRatio = slideSpecArtifact.data.aspectRatio ?? "9:16";
-    const dimensions =
-      aspectRatio === "1:1"
-        ? { width: 1080, height: 1080 }
-        : aspectRatio === "4:5"
-          ? { width: 1080, height: 1350 }
-          : { width: 1080, height: 1920 };
+    const dimensions = getSlideDimensions(aspectRatio);
 
     for (const slide of slideSpecArtifact.data.slides ?? []) {
       const slideIndex = slide.index ?? artifactIds.length + 1;
       const image = imageBySlideIndex.get(slideIndex);
       const imageUrl = image ? getArtifactUrl(image) : undefined;
+      const backgroundImageDataUri = await fetchImageDataUri(imageUrl);
+      const svg = renderSlideSvg({
+        dimensions,
+        backgroundImageDataUri,
+        headline: slide.headline,
+        body: slide.body,
+        role: slide.role,
+        slideIndex,
+      });
+      const storageId = await ctx.storage.store(
+        new Blob([svg], { type: "image/svg+xml" })
+      );
+      const renderedImageUrl = (await ctx.storage.getUrl(storageId)) ?? undefined;
 
       artifactIds.push(
         await createArtifact(ctx, context, step, {
           type: "rendered_slide",
           title: `Rendered slide ${slideIndex}`,
-          storageUrl: imageUrl,
+          storageUrl: renderedImageUrl,
           data: {
             format: "rendered_slide",
+            mimeType: "image/svg+xml",
             slideIndex,
             aspectRatio,
             dimensions,
+            renderedImageUrl,
+            storageId,
             backgroundImageUrl: imageUrl,
+            backgroundEmbedded: Boolean(backgroundImageDataUri),
             headline: slide.headline,
             body: slide.body,
             role: slide.role,

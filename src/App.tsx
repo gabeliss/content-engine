@@ -630,9 +630,10 @@ function artifactSummary(artifact: ArtifactDoc): string {
     const data = artifact.data as {
       headline?: string;
       body?: string;
+      renderedImageUrl?: string;
       backgroundImageUrl?: string;
     };
-    return data.headline || data.body || data.backgroundImageUrl || "Rendered slide";
+    return data.headline || data.body || data.renderedImageUrl || data.backgroundImageUrl || "Rendered slide";
   }
 
   if (artifact.type === "image_prompt" && artifact.data && typeof artifact.data === "object") {
@@ -677,8 +678,24 @@ function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
     const data = artifact.data as {
       headline?: string;
       body?: string;
+      renderedImageUrl?: string;
       backgroundImageUrl?: string;
     };
+    const renderedImageUrl =
+      typeof artifact.storageUrl === "string"
+        ? artifact.storageUrl
+        : typeof data.renderedImageUrl === "string"
+          ? data.renderedImageUrl
+          : undefined;
+
+    if (renderedImageUrl) {
+      return (
+        <div className="artifact-preview image-preview">
+          <img src={renderedImageUrl} alt={artifact.title || "Rendered slide"} />
+        </div>
+      );
+    }
+
     return (
       <div className="artifact-preview rendered-slide-preview">
         {data.backgroundImageUrl && <img src={data.backgroundImageUrl} alt="" />}
