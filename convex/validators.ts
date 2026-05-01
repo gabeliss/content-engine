@@ -69,6 +69,7 @@ export const workflowRunEventTypeValidator = v.union(
   v.literal("artifact_created"),
   v.literal("approval_requested"),
   v.literal("approval_resolved"),
+  v.literal("revision_requested"),
   v.literal("publish_requested"),
   v.literal("publish_completed"),
   v.literal("metric_synced"),

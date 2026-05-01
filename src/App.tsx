@@ -499,15 +499,18 @@ function LibraryPage() {
   const workflows = useQuery(api.workflows.list);
   const plans = useQuery(api.distributionPlans.list);
   const setReviewStatus = useMutation(api.artifacts.setReviewStatus);
+  const requestArtifactRevision = useMutation(api.artifacts.requestRevision);
   const publishPlan = useAction(api.distributionPlans.publish);
   const syncPlanStatus = useAction(api.distributionPlans.syncStatus);
   const syncPlanMetrics = useAction(api.distributionPlans.syncMetrics);
   const [planStatus, setPlanStatus] = useState("");
+  const [reviewStatus, setReviewStatusMessage] = useState("");
   const [brandFilter, setBrandFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
   const [formatFilter, setFormatFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [revisionNotes, setRevisionNotes] = useState<Record<string, string>>({});
 
   const filteredArtifacts = useMemo(() => {
     if (!artifacts) return undefined;
@@ -541,6 +544,37 @@ function LibraryPage() {
     reviewFilter,
     typeFilter,
   ].filter(Boolean).length;
+
+  const approveArtifact = async (artifactId: ArtifactDoc["_id"]) => {
+    setReviewStatusMessage("Approving artifact");
+    try {
+      await setReviewStatus({
+        id: artifactId,
+        reviewStatus: "approved",
+      });
+      setReviewStatusMessage("Artifact approved");
+    } catch (error) {
+      setReviewStatusMessage(error instanceof Error ? error.message : "Approval failed");
+    }
+  };
+
+  const requestRevision = async (artifactId: ArtifactDoc["_id"]) => {
+    const note = revisionNotes[artifactId]?.trim();
+    setReviewStatusMessage("Requesting revision");
+    try {
+      await requestArtifactRevision({
+        id: artifactId,
+        note: note || undefined,
+      });
+      setRevisionNotes((current) => ({
+        ...current,
+        [artifactId]: "",
+      }));
+      setReviewStatusMessage("Revision request saved");
+    } catch (error) {
+      setReviewStatusMessage(error instanceof Error ? error.message : "Revision request failed");
+    }
+  };
 
   const runPlanAction = async (
     action: () => Promise<unknown>,
@@ -690,6 +724,7 @@ function LibraryPage() {
         {plans?.length === 0 && <div className="empty-state">No distribution plans yet.</div>}
       </Panel>
       <Panel title="Review Queue">
+        {reviewStatus && <p className="muted">{reviewStatus}</p>}
         {!filteredArtifacts && <div className="empty-state">Loading...</div>}
         {filteredArtifacts?.length === 0 && (
           <div className="empty-state">
@@ -704,18 +739,30 @@ function LibraryPage() {
                 <div className="entity-eyebrow">{artifact.type}</div>
                 <h3>{artifact.title || artifact.type}</h3>
                 <p>{artifactSummary(artifact)}</p>
+                {latestRevisionNote(artifact) && (
+                  <p className="revision-note">Latest revision note: {latestRevisionNote(artifact)}</p>
+                )}
                 <span>{artifact.reviewStatus}</span>
               </div>
+              <label className="revision-field">
+                <span>Revision note</span>
+                <textarea
+                  value={revisionNotes[artifact._id] ?? ""}
+                  onChange={(event) =>
+                    setRevisionNotes((current) => ({
+                      ...current,
+                      [artifact._id]: event.target.value,
+                    }))
+                  }
+                  placeholder="What should the agent change next time?"
+                  rows={3}
+                />
+              </label>
               <div className="button-row">
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={() =>
-                    void setReviewStatus({
-                      id: artifact._id,
-                      reviewStatus: "approved",
-                    })
-                  }
+                  onClick={() => void approveArtifact(artifact._id)}
                 >
                   <Check size={16} />
                   Approve
@@ -723,15 +770,10 @@ function LibraryPage() {
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={() =>
-                    void setReviewStatus({
-                      id: artifact._id,
-                      reviewStatus: "needs_revision",
-                    })
-                  }
+                  onClick={() => void requestRevision(artifact._id)}
                 >
                   <X size={16} />
-                  Revise
+                  Request revision
                 </button>
               </div>
             </article>
@@ -777,6 +819,18 @@ function artifactSummary(artifact: ArtifactDoc): string {
   }
 
   return artifact.prompt || "Artifact metadata will appear here as workflows run.";
+}
+
+function latestRevisionNote(artifact: ArtifactDoc): string | undefined {
+  if (!artifact.data || typeof artifact.data !== "object") return undefined;
+
+  const data = artifact.data as {
+    latestRevisionNote?: string;
+    revisionRequests?: Array<{ note?: string }>;
+  };
+  if (data.latestRevisionNote?.trim()) return data.latestRevisionNote;
+
+  return data.revisionRequests?.at(-1)?.note;
 }
 
 function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {

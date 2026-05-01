@@ -34,6 +34,32 @@ function reviewResolution(
   return "pending";
 }
 
+function appendRevisionRequest(
+  artifact: Doc<"artifacts">,
+  args: { note?: string; requestedBy: string; requestedAt: number }
+) {
+  const data =
+    artifact.data && typeof artifact.data === "object" && !Array.isArray(artifact.data)
+      ? (artifact.data as Record<string, unknown>)
+      : {};
+  const existingRequests = Array.isArray(data.revisionRequests)
+    ? data.revisionRequests
+    : [];
+  const note = args.note?.trim();
+  const revisionRequest = {
+    note: note || "Needs revision.",
+    requestedBy: args.requestedBy,
+    requestedAt: args.requestedAt,
+  };
+
+  return {
+    ...data,
+    latestRevisionNote: revisionRequest.note,
+    revisionRequestCount: existingRequests.length + 1,
+    revisionRequests: [...existingRequests, revisionRequest],
+  };
+}
+
 async function reconcileApprovalForArtifact(
   ctx: MutationCtx,
   artifact: Doc<"artifacts">
@@ -269,6 +295,57 @@ export const setReviewStatus = mutation({
       ...artifact,
       reviewStatus: args.reviewStatus,
       updatedAt: Date.now(),
+    });
+  },
+});
+
+export const requestRevision = mutation({
+  args: {
+    id: v.id("artifacts"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const artifact = await ctx.db.get(args.id);
+    if (!artifact || artifact.userId !== identity.subject) {
+      throw new Error("Artifact not found");
+    }
+
+    const now = Date.now();
+    const data = appendRevisionRequest(artifact, {
+      note: args.note,
+      requestedBy: identity.subject,
+      requestedAt: now,
+    });
+
+    await ctx.db.patch(args.id, {
+      reviewStatus: "needs_revision",
+      data,
+      updatedAt: now,
+    });
+
+    if (artifact.workflowRunId && artifact.workflowId) {
+      await ctx.db.insert("workflowRunEvents", {
+        userId: artifact.userId,
+        workflowRunId: artifact.workflowRunId,
+        workflowId: artifact.workflowId,
+        type: "revision_requested",
+        message: `Revision requested for ${artifact.title || artifact.type}.`,
+        data: {
+          artifactId: artifact._id,
+          note: data.latestRevisionNote,
+        },
+        createdAt: now,
+      });
+    }
+
+    await reconcileApprovalForArtifact(ctx, {
+      ...artifact,
+      reviewStatus: "needs_revision",
+      data,
+      updatedAt: now,
     });
   },
 });

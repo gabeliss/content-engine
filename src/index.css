@@ -14,7 +14,8 @@
 
   button,
   input,
-  select {
+  select,
+  textarea {
     font: inherit;
   }
 }
@@ -404,27 +405,58 @@
   gap: 6px;
 }
 
+.revision-field {
+  display: grid;
+  gap: 7px;
+}
+
 .field span {
   color: #4e5a51;
   font-size: 13px;
   font-weight: 750;
 }
 
+.revision-field span {
+  color: #4e5a51;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .field input,
-.field select {
+.field select,
+.revision-field textarea {
   width: 100%;
-  min-height: 40px;
   border: 1px solid #cfc9bc;
   border-radius: 8px;
   background: #ffffff;
   color: #17201b;
+}
+
+.field input,
+.field select {
+  min-height: 40px;
   padding: 0 11px;
 }
 
+.revision-field textarea {
+  min-height: 78px;
+  resize: vertical;
+  padding: 10px 11px;
+  line-height: 1.35;
+}
+
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.revision-field textarea:focus {
   border-color: #5d7b48;
   outline: 3px solid #dcebb9;
+}
+
+.revision-note {
+  border-left: 3px solid #d7f36b;
+  padding-left: 10px;
+  color: #3d4b40;
+  font-size: 13px;
 }
 
 .primary-button {
