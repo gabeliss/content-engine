@@ -44,7 +44,7 @@ type FalQueueStatusResponse = {
 
 const FAL_PROVIDER: ModelProviderName = "fal";
 const DEFAULT_FAL_QUEUE_BASE_URL = "https://queue.fal.run";
-const DEFAULT_FAL_IMAGE_MODEL = "fal-ai/flux/schnell";
+const DEFAULT_FAL_IMAGE_MODEL = "fal-ai/flux-1/schnell";
 const DEFAULT_FAL_VIDEO_MODEL = "fal-ai/ltx-video";
 
 function isFalDryRunEnabled(): boolean {
@@ -220,6 +220,18 @@ function getRequiredFalModel(
   return input.model;
 }
 
+function metadataUrl(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function withLogs(url: string): string {
+  return url.includes("?") ? `${url}&logs=1` : `${url}?logs=1`;
+}
+
 async function submitFalJob(
   operation: string,
   model: string,
@@ -367,9 +379,11 @@ async function getFalJobStatus(
   }
 
   try {
+    const statusUrl = metadataUrl(input.metadata, "statusUrl");
+    const metadataResponseUrl = metadataUrl(input.metadata, "responseUrl");
     const statusResponse = await falRequest<FalQueueStatusResponse>(
       "get_job_status",
-      `${getFalQueueBaseUrl()}/${model}/requests/${input.jobId}/status?logs=1`,
+      withLogs(statusUrl ?? `${getFalQueueBaseUrl()}/${model}/requests/${input.jobId}/status`),
       { method: "GET" }
     );
 
@@ -393,6 +407,7 @@ async function getFalJobStatus(
 
     const responseUrl =
       statusResponse.response_url ||
+      metadataResponseUrl ||
       `${getFalQueueBaseUrl()}/${model}/requests/${input.jobId}`;
     const result = await falRequest<Record<string, unknown>>(
       "get_job_result",

@@ -200,6 +200,7 @@ function getJobInfo(artifact: Doc<"artifacts">):
       provider: ModelProviderName;
       model: string;
       prompt?: string;
+      metadata?: Record<string, unknown>;
     }
   | null {
   if (!artifact.data || typeof artifact.data !== "object") return null;
@@ -218,6 +219,20 @@ function getJobInfo(artifact: Doc<"artifacts">):
     provider: artifact.provider,
     model: artifact.model,
     prompt: artifact.prompt,
+    metadata: data,
+  };
+}
+
+function queueMetadata(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") return {};
+
+  const data = raw as Record<string, unknown>;
+  return {
+    statusUrl: typeof data.status_url === "string" ? data.status_url : undefined,
+    responseUrl: typeof data.response_url === "string" ? data.response_url : undefined,
+    cancelUrl: typeof data.cancel_url === "string" ? data.cancel_url : undefined,
+    queuePosition:
+      typeof data.queue_position === "number" ? data.queue_position : undefined,
   };
 }
 
@@ -268,6 +283,7 @@ async function executeResolveModelJobStep(
       result = await provider.getJobStatus({
         jobId: job.jobId,
         model: job.model,
+        metadata: job.metadata,
       });
     } catch (error) {
       const providerError = providerErrorData(error);
@@ -535,6 +551,7 @@ async function executeModelStep(
             data: {
               jobId: response.jobId,
               status: response.status,
+              ...queueMetadata(response.raw),
             },
             provider: response.metadata.provider,
             model: response.metadata.model,
@@ -573,6 +590,7 @@ async function executeModelStep(
       data: {
         jobId: response.jobId,
         status: response.status,
+        ...queueMetadata(response.raw),
       },
       provider: response.metadata.provider,
       model: response.metadata.model,
