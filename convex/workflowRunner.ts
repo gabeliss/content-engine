@@ -9,6 +9,7 @@ import {
   type ArtifactType,
 } from "./contentFormatContracts";
 import { getModelProvider } from "./providers";
+import { isProviderError } from "./providers/errors";
 import type { ModelProviderName } from "./providers/model";
 
 type WorkflowStep = Doc<"workflowVersions">["steps"][number];
@@ -28,6 +29,16 @@ type SlideshowSpec = {
     visualPrompt?: string;
     layout?: unknown;
   }>;
+};
+type SerializedProviderError = {
+  name?: string;
+  message: string;
+  provider?: string;
+  operation?: string;
+  code?: string;
+  statusCode?: number;
+  retryable?: boolean;
+  details?: unknown;
 };
 
 async function getRunExecutionContext(
@@ -210,6 +221,33 @@ function getJobInfo(artifact: Doc<"artifacts">):
   };
 }
 
+function providerErrorData(error: unknown): SerializedProviderError {
+  if (isProviderError(error)) {
+    return {
+      name: error.name,
+      message: error.message,
+      provider: error.provider,
+      operation: error.operation,
+      code: error.code,
+      statusCode: error.statusCode,
+      retryable: error.retryable,
+      details: error.details,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: "Unknown provider error",
+    details: error,
+  };
+}
+
 async function executeResolveModelJobStep(
   ctx: ActionCtx,
   context: ExecutionContext,
@@ -224,10 +262,49 @@ async function executeResolveModelJobStep(
     if (!job) continue;
 
     const provider = getModelProvider(job.provider);
-    const result = await provider.getJobStatus({
-      jobId: job.jobId,
-      model: job.model,
-    });
+    let result: Awaited<ReturnType<typeof provider.getJobStatus>>;
+
+    try {
+      result = await provider.getJobStatus({
+        jobId: job.jobId,
+        model: job.model,
+      });
+    } catch (error) {
+      const providerError = providerErrorData(error);
+      const keepRetryable =
+        Boolean(providerError.retryable) ||
+        providerError.statusCode === 404;
+
+      await ctx.runMutation(internal.artifacts.updateFromRunner, {
+        artifactId: jobArtifact._id,
+        userId: context.run.userId,
+        data: {
+          ...(jobArtifact.data && typeof jobArtifact.data === "object"
+            ? (jobArtifact.data as Record<string, unknown>)
+            : {}),
+          status: keepRetryable ? "queued" : "failed",
+          providerError,
+          lastStatusPollAt: Date.now(),
+        },
+      });
+      await recordEvent(
+        ctx,
+        context,
+        step,
+        keepRetryable ? "model_call" : "error",
+        keepRetryable
+          ? "Model job status poll failed; job kept for retry."
+          : "Model job status poll failed.",
+        {
+          artifactId: jobArtifact._id,
+          jobId: job.jobId,
+          ...providerError,
+        }
+      );
+
+      resolvedArtifactIds.push(jobArtifact._id);
+      continue;
+    }
 
     await recordEvent(ctx, context, step, "model_call", "Polled model job.", result.metadata);
 

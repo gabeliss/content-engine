@@ -85,15 +85,19 @@ function createFalHttpError(
   statusCode: number,
   details: string
 ): ProviderError {
-  return new ProviderError(`fal API error during ${operation}`, {
+  const summary = details.trim().slice(0, 240);
+  return new ProviderError(
+    `fal API error during ${operation}: ${statusCode}${summary ? ` ${summary}` : ""}`,
+    {
     kind: "model",
     provider: FAL_PROVIDER,
     operation,
     code: mapFalStatusCode(statusCode),
     statusCode,
-    retryable: statusCode === 429 || statusCode >= 500,
+    retryable: statusCode === 404 || statusCode === 408 || statusCode === 429 || statusCode >= 500,
     details,
-  });
+    }
+  );
 }
 
 async function falRequest<T>(
