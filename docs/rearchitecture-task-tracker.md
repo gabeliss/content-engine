@@ -642,7 +642,7 @@ Acceptance criteria:
 - User can preview images, slides, captions, and videos.
 - User can approve/reject artifacts.
 - User can request revision with artifact-level feedback notes.
-- User can request regeneration where supported.
+- User can request regeneration for revised image prompts and image artifacts.
 - Approval state feeds back into workflow runner.
 
 ### CE-0706: Update navigation

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as artifactRegeneration from "../artifactRegeneration.js";
 import type * as artifacts from "../artifacts.js";
 import type * as brands from "../brands.js";
 import type * as contentFormatContracts from "../contentFormatContracts.js";
@@ -37,6 +38,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  artifactRegeneration: typeof artifactRegeneration;
   artifacts: typeof artifacts;
   brands: typeof brands;
   contentFormatContracts: typeof contentFormatContracts;

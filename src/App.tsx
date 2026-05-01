@@ -500,6 +500,7 @@ function LibraryPage() {
   const plans = useQuery(api.distributionPlans.list);
   const setReviewStatus = useMutation(api.artifacts.setReviewStatus);
   const requestArtifactRevision = useMutation(api.artifacts.requestRevision);
+  const regenerateArtifact = useAction(api.artifactRegeneration.regenerate);
   const publishPlan = useAction(api.distributionPlans.publish);
   const syncPlanStatus = useAction(api.distributionPlans.syncStatus);
   const syncPlanMetrics = useAction(api.distributionPlans.syncMetrics);
@@ -573,6 +574,16 @@ function LibraryPage() {
       setReviewStatusMessage("Revision request saved");
     } catch (error) {
       setReviewStatusMessage(error instanceof Error ? error.message : "Revision request failed");
+    }
+  };
+
+  const regenerateReviewedArtifact = async (artifact: ArtifactDoc) => {
+    setReviewStatusMessage("Regenerating artifact");
+    try {
+      const result = await regenerateArtifact({ id: artifact._id });
+      setReviewStatusMessage(`Created ${result.artifactIds.length} regenerated artifacts`);
+    } catch (error) {
+      setReviewStatusMessage(error instanceof Error ? error.message : "Regeneration failed");
     }
   };
 
@@ -775,6 +786,18 @@ function LibraryPage() {
                   <X size={16} />
                   Request revision
                 </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={
+                    artifact.reviewStatus !== "needs_revision" ||
+                    !supportsRegeneration(artifact)
+                  }
+                  onClick={() => void regenerateReviewedArtifact(artifact)}
+                >
+                  <RefreshCw size={16} />
+                  Regenerate
+                </button>
               </div>
             </article>
           ))}
@@ -831,6 +854,10 @@ function latestRevisionNote(artifact: ArtifactDoc): string | undefined {
   if (data.latestRevisionNote?.trim()) return data.latestRevisionNote;
 
   return data.revisionRequests?.at(-1)?.note;
+}
+
+function supportsRegeneration(artifact: ArtifactDoc): boolean {
+  return artifact.type === "image_prompt" || artifact.type === "image";
 }
 
 function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {

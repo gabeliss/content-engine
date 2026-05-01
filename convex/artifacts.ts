@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import {
   artifactTypeValidator,
@@ -189,6 +195,39 @@ export const getForRunner = internalQuery({
   args: { artifactId: v.id("artifacts") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.artifactId);
+  },
+});
+
+export const getRegenerationContext = internalQuery({
+  args: {
+    artifactId: v.id("artifacts"),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const artifact = await ctx.db.get(args.artifactId);
+    if (!artifact || artifact.userId !== args.userId) return null;
+
+    const parentArtifacts = await Promise.all(
+      (artifact.parentArtifactIds ?? []).map((parentArtifactId) =>
+        ctx.db.get(parentArtifactId)
+      )
+    );
+    const workflow = artifact.workflowId
+      ? await ctx.db.get(artifact.workflowId)
+      : null;
+    const workflowVersion = workflow?.activeVersionId
+      ? await ctx.db.get(workflow.activeVersionId)
+      : null;
+
+    return {
+      artifact,
+      parentArtifacts: parentArtifacts.filter(
+        (parentArtifact): parentArtifact is Doc<"artifacts"> =>
+          Boolean(parentArtifact && parentArtifact.userId === args.userId)
+      ),
+      workflow,
+      workflowVersion,
+    };
   },
 });
 
