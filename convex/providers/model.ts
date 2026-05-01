@@ -93,6 +93,8 @@ export interface GeneratedAsset {
 
 export interface GenerateImageResult {
   images: GeneratedAsset[];
+  jobId?: string;
+  status?: AsyncJobStatus;
   metadata: ModelInvocationMetadata;
   raw?: unknown;
 }

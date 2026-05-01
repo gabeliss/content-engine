@@ -1,7 +1,9 @@
 import { SignInButton, SignOutButton, useAuth, useUser } from "@clerk/clerk-react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   BarChart3,
+  CalendarClock,
+  Check,
   Boxes,
   Bot,
   BrainCircuit,
@@ -12,10 +14,13 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
+  Megaphone,
   Play,
   Plus,
   Radio,
+  RefreshCw,
   Settings,
+  X,
 } from "lucide-react";
 import { FormEvent, ReactNode, useMemo, useState } from "react";
 import {
@@ -31,6 +36,7 @@ import { Id } from "../convex/_generated/dataModel";
 type BrandId = Id<"brands">;
 type SocialAccountId = Id<"socialAccounts">;
 type WorkflowId = Id<"workflows">;
+type DistributionPlanId = Id<"distributionPlans">;
 type PublishingProvider = "postiz" | "post_bridge" | "reel_farm" | "manual";
 type Platform = "tiktok" | "instagram" | "youtube" | "x" | "linkedin";
 type ContentFormat = "slideshow" | "hook_demo_video" | "ai_ugc_video";
@@ -219,10 +225,12 @@ function AccountsPage() {
   const brands = useQuery(api.brands.list);
   const accounts = useQuery(api.socialAccounts.list);
   const upsertAccount = useMutation(api.socialAccounts.upsertManual);
+  const syncProviderAccounts = useAction(api.socialAccounts.syncProviderAccounts);
   const [brandId, setBrandId] = useState("");
   const [provider, setProvider] = useState<PublishingProvider>("postiz");
   const [platform, setPlatform] = useState<Platform>("tiktok");
   const [username, setUsername] = useState("");
+  const [syncStatus, setSyncStatus] = useState("");
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -237,6 +245,19 @@ function AccountsPage() {
       capabilities: ["publish", "schedule", "analytics"],
     });
     setUsername("");
+  };
+
+  const handleSync = async () => {
+    setSyncStatus("Syncing");
+    try {
+      const result = await syncProviderAccounts({
+        provider: "postiz",
+        brandId: brandId ? (brandId as BrandId) : undefined,
+      });
+      setSyncStatus(`Synced ${result.synced} accounts`);
+    } catch (error) {
+      setSyncStatus(error instanceof Error ? error.message : "Sync failed");
+    }
   };
 
   return (
@@ -276,6 +297,11 @@ function AccountsPage() {
           <Plus size={16} />
           Add account
         </button>
+        <button className="secondary-button" type="button" onClick={() => void handleSync()}>
+          <RefreshCw size={16} />
+          Sync Postiz
+        </button>
+        {syncStatus && <p className="muted">{syncStatus}</p>}
       </FormPanel>
 
       <EntityGrid
@@ -326,16 +352,40 @@ function WorkflowsPage() {
       },
       steps: [
         {
-          id: "generate-outline",
-          name: "Generate outline",
-          type: "generate_text",
-          outputRef: "outline",
+          id: "generate-content-spec",
+          name: "Generate content spec",
+          type: "generate_structured",
+          outputRef: "content_spec",
+          config: {
+            artifactType: contentFormat === "slideshow" ? "slide_spec" : "scene_spec",
+          },
+        },
+        {
+          id: "create-image-prompts",
+          name: "Create image prompts",
+          type: "create_image_prompts",
+          inputRefs: ["content_spec"],
+          outputRef: "image_prompts",
+        },
+        {
+          id: "generate-images",
+          name: "Generate images",
+          type: "generate_image",
+          inputRefs: ["image_prompts"],
+          outputRef: "image_jobs",
+        },
+        {
+          id: "resolve-image-jobs",
+          name: "Resolve image jobs",
+          type: "resolve_model_job",
+          inputRefs: ["image_jobs"],
+          outputRef: "images",
         },
         {
           id: "create-distribution-plan",
           name: "Create distribution plan",
           type: "create_distribution_plan",
-          inputRefs: ["outline"],
+          inputRefs: ["content_spec", "images"],
         },
       ],
     });
@@ -431,20 +481,203 @@ function RunsPage() {
 
 function LibraryPage() {
   const artifacts = useQuery(api.artifacts.list, {});
+  const plans = useQuery(api.distributionPlans.list);
+  const setReviewStatus = useMutation(api.artifacts.setReviewStatus);
+  const publishPlan = useAction(api.distributionPlans.publish);
+  const syncPlanStatus = useAction(api.distributionPlans.syncStatus);
+  const syncPlanMetrics = useAction(api.distributionPlans.syncMetrics);
+  const [planStatus, setPlanStatus] = useState("");
+
+  const runPlanAction = async (
+    action: () => Promise<unknown>,
+    successMessage: string
+  ) => {
+    setPlanStatus("Working");
+    try {
+      await action();
+      setPlanStatus(successMessage);
+    } catch (error) {
+      setPlanStatus(error instanceof Error ? error.message : "Action failed");
+    }
+  };
 
   return (
     <Page title="Artifact Library" description="Generated prompts, captions, images, slides, videos, and publish payloads.">
-      <EntityGrid
-        empty="No artifacts yet."
-        items={artifacts?.map((artifact) => ({
-          id: artifact._id,
-          title: artifact.title || artifact.type,
-          eyebrow: artifact.type,
-          body: artifact.prompt || "Artifact metadata will appear here as workflows run.",
-          meta: artifact.reviewStatus,
-        }))}
-      />
+      <Panel title="Distribution Plans">
+        {planStatus && <p className="muted">{planStatus}</p>}
+        <div className="entity-grid">
+          {plans?.map((plan) => (
+            <article className="entity-card" key={plan._id}>
+              <div className="entity-eyebrow">{plan.provider}</div>
+              <h3>{plan.caption || "Distribution plan"}</h3>
+              <p>{plan.errorMessage || `${plan.artifactIds.length} artifacts to ${plan.socialAccountIds.length} accounts.`}</p>
+              <span>{plan.status}</span>
+              <div className="button-row">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void runPlanAction(
+                      () =>
+                        publishPlan({
+                          id: plan._id as DistributionPlanId,
+                          mode: plan.scheduledFor ? "schedule" : "now",
+                        }),
+                      plan.scheduledFor ? "Plan scheduled" : "Plan published"
+                    )
+                  }
+                >
+                  {plan.scheduledFor ? <CalendarClock size={16} /> : <Megaphone size={16} />}
+                  {plan.scheduledFor ? "Schedule" : "Publish"}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void runPlanAction(
+                      () => syncPlanStatus({ id: plan._id as DistributionPlanId }),
+                      "Status synced"
+                    )
+                  }
+                >
+                  <RefreshCw size={16} />
+                  Status
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void runPlanAction(
+                      () => syncPlanMetrics({ id: plan._id as DistributionPlanId }),
+                      "Metrics synced"
+                    )
+                  }
+                >
+                  <BarChart3 size={16} />
+                  Metrics
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        {plans?.length === 0 && <div className="empty-state">No distribution plans yet.</div>}
+      </Panel>
+      <Panel title="Review Queue">
+        {!artifacts && <div className="empty-state">Loading...</div>}
+        {artifacts?.length === 0 && <div className="empty-state">No artifacts yet.</div>}
+        <div className="artifact-grid">
+          {artifacts?.map((artifact) => (
+            <article className="artifact-card" key={artifact._id}>
+              <ArtifactPreview artifact={artifact} />
+              <div className="artifact-copy">
+                <div className="entity-eyebrow">{artifact.type}</div>
+                <h3>{artifact.title || artifact.type}</h3>
+                <p>{artifactSummary(artifact)}</p>
+                <span>{artifact.reviewStatus}</span>
+              </div>
+              <div className="button-row">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void setReviewStatus({
+                      id: artifact._id,
+                      reviewStatus: "approved",
+                    })
+                  }
+                >
+                  <Check size={16} />
+                  Approve
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void setReviewStatus({
+                      id: artifact._id,
+                      reviewStatus: "needs_revision",
+                    })
+                  }
+                >
+                  <X size={16} />
+                  Revise
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </Panel>
     </Page>
+  );
+}
+
+type ArtifactDoc = NonNullable<ReturnType<typeof useQuery<typeof api.artifacts.list>>>[number];
+
+function artifactSummary(artifact: ArtifactDoc): string {
+  if (artifact.type === "slide_spec" && artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as { hook?: string; slides?: unknown[] };
+    return `${data.hook ?? "Slideshow spec"}${data.slides ? ` · ${data.slides.length} slides` : ""}`;
+  }
+
+  if (artifact.type === "image_prompt" && artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as { prompt?: string };
+    return data.prompt ?? artifact.prompt ?? "Image prompt";
+  }
+
+  if ((artifact.type === "image" || artifact.type === "video") && artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as { status?: string; jobId?: string; url?: string };
+    if (data.status || data.jobId) return `${data.status ?? "job"} · ${data.jobId ?? ""}`.trim();
+    if (data.url) return data.url;
+  }
+
+  if (artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as { text?: string };
+    if (data.text) return data.text;
+  }
+
+  return artifact.prompt || "Artifact metadata will appear here as workflows run.";
+}
+
+function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
+  const data = artifact.data && typeof artifact.data === "object"
+    ? (artifact.data as Record<string, unknown>)
+    : {};
+  const imageUrl =
+    typeof artifact.storageUrl === "string"
+      ? artifact.storageUrl
+      : typeof data.url === "string"
+        ? data.url
+        : undefined;
+
+  if (artifact.type === "image" && imageUrl) {
+    return (
+      <div className="artifact-preview image-preview">
+        <img src={imageUrl} alt={artifact.title || "Generated image"} />
+      </div>
+    );
+  }
+
+  if (artifact.type === "slide_spec" && artifact.data && typeof artifact.data === "object") {
+    const spec = artifact.data as {
+      hook?: string;
+      slides?: Array<{ headline?: string; body?: string }>;
+    };
+    return (
+      <div className="artifact-preview spec-preview">
+        <strong>{spec.hook || "Slide spec"}</strong>
+        {spec.slides?.slice(0, 3).map((slide, index) => (
+          <span key={`${slide.headline ?? "slide"}-${index}`}>
+            {slide.headline || slide.body || `Slide ${index + 1}`}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="artifact-preview text-preview">
+      <span>{artifact.type}</span>
+    </div>
   );
 }
 

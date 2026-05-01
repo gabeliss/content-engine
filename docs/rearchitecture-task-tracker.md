@@ -46,9 +46,47 @@ Acceptance criteria:
 
 ## Milestone 1: Provider Research and Technical Spikes
 
-### CE-0101: Spike Postiz publishing API
+### CE-0050: Manual provider account and API key setup
 
 Status: `Not Started`
+
+Goal: Track the external setup work that requires owner action before live provider calls can be tested.
+
+Recommended timing:
+
+- Do not block content creation pipeline work on this.
+- Complete OpenRouter/Gemini/fal.ai setup when we are ready to run real generation calls instead of dry-run/error-path validation.
+- Complete Postiz setup after the content creation pipeline produces usable artifacts worth publishing.
+
+Acceptance criteria:
+
+- Create or confirm OpenRouter account and API key.
+- Create or confirm Google Gemini API key if Gemini remains in the generation mix.
+- Create or confirm fal.ai account and API key.
+- Create or confirm Postiz account and API key.
+- Connect at least one real social account inside Postiz.
+- Add required environment variables to the Convex deployment/dev environment.
+- Run one provider smoke test per configured service.
+
+Manual variables to collect:
+
+- `OPENROUTER_API_KEY`
+- `GEMINI_API_KEY`
+- `FAL_API_KEY`
+- `POSTIZ_API_KEY`
+- Optional: `OPENROUTER_SITE_URL`
+- Optional: `OPENROUTER_APP_NAME`
+- Optional: `POSTIZ_BASE_URL`
+- Optional: `FAL_QUEUE_BASE_URL`
+
+Notes:
+
+- Local dry-run toggles exist for provider-path testing without credentials: `POSTIZ_DRY_RUN`, `FAL_DRY_RUN`, and `OPENROUTER_DRY_RUN`.
+- Live publishing should be one of the last provider checks, after artifact generation, review, and rendering are working well.
+
+### CE-0101: Spike Postiz publishing API
+
+Status: `Done`
 
 Goal: Validate that Postiz can handle account integrations, media uploads, post creation, scheduling, and analytics for the platforms we care about.
 
@@ -96,7 +134,7 @@ Acceptance criteria:
 
 ### CE-0104: Spike fal.ai media model provider
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Validate fal.ai as the primary provider for fast-moving image/video/audio generation models.
 
@@ -112,7 +150,7 @@ Acceptance criteria:
 
 ### CE-0105: Spike OpenRouter LLM provider
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Validate OpenRouter as the primary LLM routing provider.
 
@@ -256,7 +294,7 @@ Acceptance criteria:
 
 ### CE-0302: Implement Postiz publishing adapter
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Make Postiz the first concrete publishing provider.
 
@@ -299,7 +337,7 @@ Acceptance criteria:
 
 ### CE-0305: Implement fal.ai provider adapter
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Add fal.ai as a media generation provider.
 
@@ -313,7 +351,7 @@ Acceptance criteria:
 
 ### CE-0306: Implement OpenRouter provider adapter
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Add OpenRouter as the primary LLM routing provider.
 
@@ -329,7 +367,7 @@ Acceptance criteria:
 
 ### CE-0401: Define workflow step schema
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Create a structured representation for repeatable workflow steps.
 
@@ -342,7 +380,7 @@ Acceptance criteria:
 
 ### CE-0402: Build workflow runner skeleton
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Execute workflow runs step by step with durable state.
 
@@ -356,7 +394,7 @@ Acceptance criteria:
 
 ### CE-0403: Add manual workflow trigger
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Let a user trigger a workflow run manually from the app.
 
@@ -397,18 +435,26 @@ Acceptance criteria:
 
 ## Milestone 5: Slideshow Rebuild
 
+User testing checkpoint:
+
+- Ask Gabe to test when CE-0501, CE-0503, CE-0504, and CE-0705 are complete enough to create, inspect, review, and render several slideshow styles end to end.
+- Suggested tests: educational slideshow, product/offer slideshow, contrarian hook slideshow, and visual story slideshow.
+- Capture feedback on hook quality, slide sequence, visual prompt quality, image relevance, text readability, review ergonomics, and export/publish readiness.
+
 ### CE-0501: Convert slideshow generation into workflow steps
 
-Status: `Not Started`
+Status: `In Progress`
 
 Goal: Make slideshows the first native content format in the workflow system.
 
 Acceptance criteria:
 
-- Useful prompt-to-slides behavior is reintroduced from the old prototype where it still fits.
+- Structured slideshow spec generation exists as a workflow step.
+- Slide visual prompts are extracted into `image_prompt` artifacts.
 - Text and image generation become logged workflow steps.
 - Slide specs are stored as artifacts.
 - Generated images are stored as artifacts.
+- Async image jobs can resolve into final image artifacts.
 - Generated slideshow content links to workflow run.
 
 ### CE-0502: Preserve slideshow editor
@@ -451,9 +497,13 @@ Acceptance criteria:
 
 ## Milestone 6: Publishing and Scheduling
 
+Milestone note:
+
+Publishing infrastructure exists early so distribution plans can be shaped correctly, but live posting should be validated after the content creation pipeline produces provider-ready artifacts.
+
 ### CE-0601: Add provider-backed scheduling path
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Schedule posts through the publishing provider abstraction.
 
@@ -466,7 +516,7 @@ Acceptance criteria:
 
 ### CE-0602: Add provider-backed immediate publish path
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Publish immediately through the provider abstraction.
 
@@ -479,7 +529,7 @@ Acceptance criteria:
 
 ### CE-0603: Sync provider accounts
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Pull connected accounts/integrations from the publishing provider into Content Engine.
 
@@ -492,7 +542,7 @@ Acceptance criteria:
 
 ### CE-0604: Sync post metrics
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Import performance metrics from provider/platform APIs.
 
@@ -561,7 +611,7 @@ Acceptance criteria:
 
 ### CE-0705: Add Artifact Review UI
 
-Status: `Not Started`
+Status: `In Progress`
 
 Goal: Let users review generated content before publishing.
 

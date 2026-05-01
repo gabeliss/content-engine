@@ -1,5 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import {
+  workflowRunEventTypeValidator,
+  workflowRunStatusValidator,
+} from "./validators";
 
 export const list = query({
   args: { workflowId: v.optional(v.id("workflows")) },
@@ -78,6 +83,72 @@ export const createManualRun = mutation({
       createdAt: now,
     });
 
+    await ctx.scheduler.runAfter(0, internal.workflowRunner.executeRun, { runId });
+
     return runId;
+  },
+});
+
+export const getExecutionContext = internalQuery({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) return null;
+
+    const workflow = await ctx.db.get(run.workflowId);
+    const version = await ctx.db.get(run.workflowVersionId);
+    const brand = await ctx.db.get(run.brandId);
+    const socialAccount = run.socialAccountId
+      ? await ctx.db.get(run.socialAccountId)
+      : null;
+
+    if (!workflow || !version || !brand) return null;
+
+    return { run, workflow, version, brand, socialAccount };
+  },
+});
+
+export const transitionRun = internalMutation({
+  args: {
+    runId: v.id("workflowRuns"),
+    status: workflowRunStatusValidator,
+    currentStepId: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    costUsd: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    errorStepId: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.patch(args.runId, {
+      status: args.status,
+      currentStepId: args.currentStepId,
+      summary: args.summary,
+      costUsd: args.costUsd,
+      errorMessage: args.errorMessage,
+      errorStepId: args.errorStepId,
+      startedAt: args.status === "running" ? now : undefined,
+      completedAt: args.completedAt,
+      updatedAt: now,
+    });
+  },
+});
+
+export const recordEvent = internalMutation({
+  args: {
+    userId: v.string(),
+    workflowRunId: v.id("workflowRuns"),
+    workflowId: v.id("workflows"),
+    type: workflowRunEventTypeValidator,
+    stepId: v.optional(v.string()),
+    message: v.string(),
+    data: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("workflowRunEvents", {
+      ...args,
+      createdAt: Date.now(),
+    });
   },
 });

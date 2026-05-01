@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
   artifactTypeValidator,
   modelProviderValidator,
@@ -39,6 +39,13 @@ export const list = query({
   },
 });
 
+export const getForRunner = internalQuery({
+  args: { artifactId: v.id("artifacts") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.artifactId);
+  },
+});
+
 export const create = mutation({
   args: {
     brandId: v.optional(v.id("brands")),
@@ -65,6 +72,56 @@ export const create = mutation({
       reviewStatus: args.reviewStatus ?? "not_required",
       createdAt: now,
       updatedAt: now,
+    });
+  },
+});
+
+export const createFromRunner = internalMutation({
+  args: {
+    userId: v.string(),
+    brandId: v.optional(v.id("brands")),
+    workflowId: v.optional(v.id("workflows")),
+    workflowRunId: v.optional(v.id("workflowRuns")),
+    parentArtifactIds: v.optional(v.array(v.id("artifacts"))),
+    type: artifactTypeValidator,
+    title: v.optional(v.string()),
+    storageUrl: v.optional(v.string()),
+    data: v.optional(v.any()),
+    provider: v.optional(modelProviderValidator),
+    model: v.optional(v.string()),
+    prompt: v.optional(v.string()),
+    reviewStatus: v.optional(reviewStatusValidator),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db.insert("artifacts", {
+      ...args,
+      reviewStatus: args.reviewStatus ?? "not_required",
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const updateFromRunner = internalMutation({
+  args: {
+    artifactId: v.id("artifacts"),
+    userId: v.string(),
+    storageUrl: v.optional(v.string()),
+    data: v.optional(v.any()),
+    reviewStatus: v.optional(reviewStatusValidator),
+  },
+  handler: async (ctx, args) => {
+    const artifact = await ctx.db.get(args.artifactId);
+    if (!artifact || artifact.userId !== args.userId) {
+      throw new Error("Artifact not found");
+    }
+
+    await ctx.db.patch(args.artifactId, {
+      storageUrl: args.storageUrl,
+      data: args.data,
+      reviewStatus: args.reviewStatus,
+      updatedAt: Date.now(),
     });
   },
 });

@@ -1,5 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { getPublishingProvider } from "./providers";
 import {
   platformValidator,
   publishingProviderValidator,
@@ -32,6 +34,80 @@ export const listByBrand = query({
       .query("socialAccounts")
       .withIndex("by_brand", (q) => q.eq("brandId", args.brandId))
       .collect();
+  },
+});
+
+function normalizePlatform(platform: string):
+  | "tiktok"
+  | "instagram"
+  | "youtube"
+  | "x"
+  | "linkedin"
+  | "facebook"
+  | "threads"
+  | "pinterest"
+  | null {
+  if (platform === "instagram-standalone") return "instagram";
+  if (platform === "linkedin-page") return "linkedin";
+  if (
+    platform === "tiktok" ||
+    platform === "instagram" ||
+    platform === "youtube" ||
+    platform === "x" ||
+    platform === "linkedin" ||
+    platform === "facebook" ||
+    platform === "threads" ||
+    platform === "pinterest"
+  ) {
+    return platform;
+  }
+
+  return null;
+}
+
+export const syncProviderAccounts = action({
+  args: {
+    provider: publishingProviderValidator,
+    brandId: v.optional(v.id("brands")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const provider = getPublishingProvider(args.provider);
+    const synced = await provider.listAccounts({});
+    const accounts = synced.accounts
+      .map((account) => {
+        const platform = normalizePlatform(account.platform);
+        if (!platform) return null;
+
+        return {
+          externalAccountId: account.externalAccountId,
+          platform,
+          username: account.username,
+          displayName: account.displayName,
+          avatarUrl: account.avatarUrl,
+          status: account.status,
+          capabilities: account.capabilities,
+          metadata: account.metadata,
+        };
+      })
+      .filter((account): account is NonNullable<typeof account> => account !== null);
+
+    await ctx.runMutation(internal.socialAccounts.upsertSyncedAccounts, {
+      userId: identity.subject,
+      brandId: args.brandId,
+      provider: args.provider,
+      accounts,
+      syncedAt: synced.syncedAt,
+    });
+
+    return {
+      synced: accounts.length,
+      skipped: synced.accounts.length - accounts.length,
+      provider: args.provider,
+      syncedAt: synced.syncedAt,
+    };
   },
 });
 
@@ -93,6 +169,83 @@ export const upsertManual = mutation({
       ...accountFields,
       createdAt: now,
     });
+  },
+});
+
+export const upsertSyncedAccounts = internalMutation({
+  args: {
+    userId: v.string(),
+    brandId: v.optional(v.id("brands")),
+    provider: publishingProviderValidator,
+    syncedAt: v.number(),
+    accounts: v.array(
+      v.object({
+        externalAccountId: v.string(),
+        platform: platformValidator,
+        username: v.string(),
+        displayName: v.optional(v.string()),
+        avatarUrl: v.optional(v.string()),
+        status: socialAccountStatusValidator,
+        capabilities: v.optional(v.array(v.string())),
+        metadata: v.optional(v.any()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    if (args.brandId) {
+      const brand = await ctx.db.get(args.brandId);
+      if (!brand || brand.userId !== args.userId) {
+        throw new Error("Brand not found");
+      }
+    }
+
+    const existingAccounts = await ctx.db
+      .query("socialAccounts")
+      .withIndex("by_user_provider", (q) =>
+        q.eq("userId", args.userId).eq("provider", args.provider)
+      )
+      .collect();
+    const existingByExternalId = new Map(
+      existingAccounts.map((account) => [account.externalAccountId, account])
+    );
+    const syncedExternalIds = new Set(args.accounts.map((account) => account.externalAccountId));
+
+    for (const account of args.accounts) {
+      const existing = existingByExternalId.get(account.externalAccountId);
+      const fields = {
+        brandId: args.brandId ?? existing?.brandId,
+        provider: args.provider,
+        platform: account.platform,
+        externalAccountId: account.externalAccountId,
+        username: account.username,
+        displayName: account.displayName,
+        avatarUrl: account.avatarUrl,
+        status: account.status,
+        capabilities: account.capabilities,
+        metadata: account.metadata,
+        lastSyncedAt: args.syncedAt,
+        updatedAt: Date.now(),
+      };
+
+      if (existing) {
+        await ctx.db.patch(existing._id, fields);
+      } else {
+        await ctx.db.insert("socialAccounts", {
+          userId: args.userId,
+          ...fields,
+          createdAt: Date.now(),
+        });
+      }
+    }
+
+    for (const existing of existingAccounts) {
+      if (syncedExternalIds.has(existing.externalAccountId)) continue;
+      await ctx.db.patch(existing._id, {
+        status: "disconnected",
+        lastSyncedAt: args.syncedAt,
+        updatedAt: Date.now(),
+      });
+    }
   },
 });
 

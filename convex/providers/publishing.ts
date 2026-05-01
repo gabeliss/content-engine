@@ -52,6 +52,7 @@ export interface UploadMediaInput {
   filename: string;
   mimeType: string;
   data: string | Uint8Array | ArrayBuffer;
+  encoding?: "base64" | "utf8";
   metadata?: Record<string, unknown>;
 }
 
@@ -62,13 +63,24 @@ export interface UploadedMedia {
   metadata?: unknown;
 }
 
+export interface PublishingTarget {
+  accountId: string;
+  platform?: string;
+  content?: string;
+  media?: UploadedMedia[];
+  settings?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
 export interface PublishContentInput {
-  accountIds: string[];
+  targets: PublishingTarget[];
   text?: string;
   media: UploadedMedia[];
   publishAt?: number;
   timezone?: string;
   idempotencyKey?: string;
+  shortLink?: boolean;
+  tags?: string[];
   metadata?: Record<string, unknown>;
 }
 

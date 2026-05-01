@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { metricsValidator, platformValidator } from "./validators";
 
 export const list = query({
@@ -49,6 +49,34 @@ export const record = mutation({
       userId: identity.subject,
       ...args,
       capturedAt: args.capturedAt ?? now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const recordFromProvider = internalMutation({
+  args: {
+    userId: v.string(),
+    brandId: v.optional(v.id("brands")),
+    workflowId: v.optional(v.id("workflows")),
+    workflowRunId: v.optional(v.id("workflowRuns")),
+    distributionPlanId: v.optional(v.id("distributionPlans")),
+    socialAccountId: v.id("socialAccounts"),
+    platform: platformValidator,
+    externalPostId: v.string(),
+    metrics: metricsValidator,
+    capturedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.socialAccountId);
+    if (!account || account.userId !== args.userId) {
+      throw new Error("Social account not found");
+    }
+
+    const now = Date.now();
+    return await ctx.db.insert("postMetrics", {
+      ...args,
       createdAt: now,
       updatedAt: now,
     });

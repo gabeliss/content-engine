@@ -78,9 +78,14 @@ export const artifactTypeValidator = v.union(
   v.literal("prompt"),
   v.literal("text_draft"),
   v.literal("caption"),
+  v.literal("script"),
+  v.literal("scene_spec"),
+  v.literal("shot_list"),
   v.literal("image"),
+  v.literal("image_prompt"),
   v.literal("slide_spec"),
   v.literal("rendered_slide"),
+  v.literal("rendered_asset"),
   v.literal("video"),
   v.literal("thumbnail"),
   v.literal("publish_payload")
@@ -106,9 +111,13 @@ export const distributionStatusValidator = v.union(
 
 export const workflowStepTypeValidator = v.union(
   v.literal("generate_text"),
+  v.literal("generate_structured"),
+  v.literal("create_image_prompts"),
   v.literal("generate_image"),
   v.literal("generate_video"),
+  v.literal("resolve_model_job"),
   v.literal("render_slideshow"),
+  v.literal("render_asset"),
   v.literal("create_caption"),
   v.literal("create_distribution_plan"),
   v.literal("request_approval"),
