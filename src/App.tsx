@@ -488,12 +488,53 @@ function RunsPage() {
 
 function LibraryPage() {
   const artifacts = useQuery(api.artifacts.list, {});
+  const brands = useQuery(api.brands.list);
+  const accounts = useQuery(api.socialAccounts.list);
+  const workflows = useQuery(api.workflows.list);
   const plans = useQuery(api.distributionPlans.list);
   const setReviewStatus = useMutation(api.artifacts.setReviewStatus);
   const publishPlan = useAction(api.distributionPlans.publish);
   const syncPlanStatus = useAction(api.distributionPlans.syncStatus);
   const syncPlanMetrics = useAction(api.distributionPlans.syncMetrics);
   const [planStatus, setPlanStatus] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
+  const [formatFilter, setFormatFilter] = useState("");
+  const [reviewFilter, setReviewFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+
+  const filteredArtifacts = useMemo(() => {
+    if (!artifacts) return undefined;
+
+    const workflowsById = new Map(workflows?.map((workflow) => [workflow._id, workflow]));
+
+    return artifacts.filter((artifact) => {
+      const workflow = artifact.workflowId
+        ? workflowsById.get(artifact.workflowId)
+        : undefined;
+
+      if (brandFilter && artifact.brandId !== brandFilter) return false;
+      if (accountFilter && workflow?.socialAccountId !== accountFilter) return false;
+      if (formatFilter && workflow?.contentFormat !== formatFilter) return false;
+      if (reviewFilter && artifact.reviewStatus !== reviewFilter) return false;
+      if (typeFilter && artifact.type !== typeFilter) return false;
+
+      return true;
+    });
+  }, [accountFilter, artifacts, brandFilter, formatFilter, reviewFilter, typeFilter, workflows]);
+
+  const artifactTypes = useMemo(
+    () => Array.from(new Set((artifacts ?? []).map((artifact) => artifact.type))).sort(),
+    [artifacts]
+  );
+
+  const activeFilterCount = [
+    brandFilter,
+    accountFilter,
+    formatFilter,
+    reviewFilter,
+    typeFilter,
+  ].filter(Boolean).length;
 
   const runPlanAction = async (
     action: () => Promise<unknown>,
@@ -510,6 +551,64 @@ function LibraryPage() {
 
   return (
     <Page title="Artifact Library" description="Generated prompts, captions, images, slides, videos, and publish payloads.">
+      <Panel title="Library Filters">
+        <div className="filter-grid">
+          <Select label="Brand" value={brandFilter} onChange={setBrandFilter}>
+            <option value="">All brands</option>
+            {brands?.map((brand) => (
+              <option key={brand._id} value={brand._id}>
+                {brand.name}
+              </option>
+            ))}
+          </Select>
+          <Select label="Account" value={accountFilter} onChange={setAccountFilter}>
+            <option value="">All accounts</option>
+            {accounts?.map((account) => (
+              <option key={account._id} value={account._id}>
+                {account.username}
+              </option>
+            ))}
+          </Select>
+          <Select label="Format" value={formatFilter} onChange={setFormatFilter}>
+            <option value="">All formats</option>
+            <option value="slideshow">Slideshow</option>
+            <option value="hook_demo_video">Hook/demo video</option>
+            <option value="ai_ugc_video">AI UGC video</option>
+          </Select>
+          <Select label="Review" value={reviewFilter} onChange={setReviewFilter}>
+            <option value="">All review states</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="needs_revision">Needs revision</option>
+            <option value="not_required">Not required</option>
+          </Select>
+          <Select label="Type" value={typeFilter} onChange={setTypeFilter}>
+            <option value="">All artifact types</option>
+            {artifactTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </Select>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              setBrandFilter("");
+              setAccountFilter("");
+              setFormatFilter("");
+              setReviewFilter("");
+              setTypeFilter("");
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
+        <p className="muted">
+          Showing {filteredArtifacts?.length ?? 0} of {artifacts?.length ?? 0} artifacts
+          {activeFilterCount ? ` across ${activeFilterCount} active filters.` : "."}
+        </p>
+      </Panel>
       <Panel title="Distribution Plans">
         {planStatus && <p className="muted">{planStatus}</p>}
         <div className="entity-grid">
@@ -570,10 +669,14 @@ function LibraryPage() {
         {plans?.length === 0 && <div className="empty-state">No distribution plans yet.</div>}
       </Panel>
       <Panel title="Review Queue">
-        {!artifacts && <div className="empty-state">Loading...</div>}
-        {artifacts?.length === 0 && <div className="empty-state">No artifacts yet.</div>}
+        {!filteredArtifacts && <div className="empty-state">Loading...</div>}
+        {filteredArtifacts?.length === 0 && (
+          <div className="empty-state">
+            {artifacts?.length === 0 ? "No artifacts yet." : "No artifacts match these filters."}
+          </div>
+        )}
         <div className="artifact-grid">
-          {artifacts?.map((artifact) => (
+          {filteredArtifacts?.map((artifact) => (
             <article className="artifact-card" key={artifact._id}>
               <ArtifactPreview artifact={artifact} />
               <div className="artifact-copy">

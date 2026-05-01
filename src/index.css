@@ -196,6 +196,14 @@
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
 
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .panel,
 .metric-card,
 .entity-card,
@@ -521,7 +529,8 @@
 
   .metric-grid,
   .two-column,
-  .form-grid {
+  .form-grid,
+  .filter-grid {
     grid-template-columns: 1fr;
   }
 

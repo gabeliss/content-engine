@@ -363,6 +363,25 @@ Acceptance criteria:
 - Adapter captures model/cost metadata where available.
 - Fallback behavior is documented.
 
+### CE-0307: Add asset storage provider abstraction
+
+Status: `Not Started`
+
+Goal: Let generated media move from Convex file storage to R2/S3-compatible object storage when asset scale, cost, or CDN behavior requires it.
+
+Timing note:
+
+- Keep Convex file storage during workflow and content-quality validation.
+- Introduce this before large video output, durable export archives, or high-volume provider-ready media delivery.
+
+Acceptance criteria:
+
+- Workflow renderer and provider adapters write files through an internal storage interface.
+- Convex storage remains a supported development/default adapter.
+- R2 or S3-compatible storage can be configured for production assets.
+- Artifact records preserve storage provider, object key, MIME type, public/private URL, and source metadata.
+- Publishing adapters can consume stored assets without knowing the backing storage provider.
+
 ## Milestone 4: Workflow Runner
 
 ### CE-0401: Define workflow step schema
@@ -487,7 +506,7 @@ Acceptance criteria:
 
 ### CE-0504: Build artifact library behavior
 
-Status: `Not Started`
+Status: `Done`
 
 Goal: Make the library show artifact/workflow-backed content.
 
