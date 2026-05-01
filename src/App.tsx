@@ -382,10 +382,17 @@ function WorkflowsPage() {
           outputRef: "images",
         },
         {
+          id: "render-slides",
+          name: "Render slides",
+          type: "render_slideshow",
+          inputRefs: ["content_spec", "images"],
+          outputRef: "rendered_slides",
+        },
+        {
           id: "create-distribution-plan",
           name: "Create distribution plan",
           type: "create_distribution_plan",
-          inputRefs: ["content_spec", "images"],
+          inputRefs: ["rendered_slides"],
         },
       ],
     });
@@ -619,6 +626,15 @@ function artifactSummary(artifact: ArtifactDoc): string {
     return `${data.hook ?? "Slideshow spec"}${data.slides ? ` · ${data.slides.length} slides` : ""}`;
   }
 
+  if (artifact.type === "rendered_slide" && artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as {
+      headline?: string;
+      body?: string;
+      backgroundImageUrl?: string;
+    };
+    return data.headline || data.body || data.backgroundImageUrl || "Rendered slide";
+  }
+
   if (artifact.type === "image_prompt" && artifact.data && typeof artifact.data === "object") {
     const data = artifact.data as { prompt?: string };
     return data.prompt ?? artifact.prompt ?? "Image prompt";
@@ -653,6 +669,23 @@ function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
     return (
       <div className="artifact-preview image-preview">
         <img src={imageUrl} alt={artifact.title || "Generated image"} />
+      </div>
+    );
+  }
+
+  if (artifact.type === "rendered_slide" && artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as {
+      headline?: string;
+      body?: string;
+      backgroundImageUrl?: string;
+    };
+    return (
+      <div className="artifact-preview rendered-slide-preview">
+        {data.backgroundImageUrl && <img src={data.backgroundImageUrl} alt="" />}
+        <div>
+          <strong>{data.headline || "Rendered slide"}</strong>
+          {data.body && <span>{data.body}</span>}
+        </div>
       </div>
     );
   }

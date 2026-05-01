@@ -473,13 +473,13 @@ Acceptance criteria:
 
 ### CE-0503: Render final slideshow assets for publishing
 
-Status: `Not Started`
+Status: `In Progress`
 
 Goal: Produce provider-ready rendered images from slideshow artifacts.
 
 Acceptance criteria:
 
-- Rendered slide images are saved as artifacts.
+- Rendered slide records are saved as artifacts.
 - Rendered outputs include text overlays.
 - Output dimensions match platform requirements.
 - Distribution plan references rendered artifacts.

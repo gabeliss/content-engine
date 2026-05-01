@@ -536,6 +536,94 @@ function isSlideshowSpec(value: unknown): value is SlideshowSpec {
   );
 }
 
+function getArtifactUrl(artifact: Doc<"artifacts">): string | undefined {
+  if (artifact.storageUrl) return artifact.storageUrl;
+  if (!artifact.data || typeof artifact.data !== "object") return undefined;
+
+  const data = artifact.data as Record<string, unknown>;
+  return typeof data.url === "string" ? data.url : undefined;
+}
+
+function getSlideIndexFromImageArtifact(artifact: Doc<"artifacts">): number | undefined {
+  const parentTitle = artifact.title ?? "";
+  const match = parentTitle.match(/Slide\s+(\d+)/i);
+  if (match?.[1]) return Number(match[1]);
+
+  if (!artifact.data || typeof artifact.data !== "object") return undefined;
+  const data = artifact.data as Record<string, unknown>;
+  const slide = data.slide;
+  if (!slide || typeof slide !== "object") return undefined;
+
+  const index = (slide as Record<string, unknown>).index;
+  return typeof index === "number" ? index : undefined;
+}
+
+async function executeRenderSlideshowStep(
+  ctx: ActionCtx,
+  context: ExecutionContext,
+  step: WorkflowStep,
+  outputs: Record<string, Id<"artifacts">[]>
+): Promise<Id<"artifacts">[]> {
+  const slideSpecs = await getArtifactsForRefs(ctx, outputs, step.inputRefs, "slide_spec");
+  const images = await getArtifactsForRefs(ctx, outputs, step.inputRefs, "image");
+  const imageBySlideIndex = new Map<number, Doc<"artifacts">>();
+
+  for (const image of images) {
+    const slideIndex = getSlideIndexFromImageArtifact(image);
+    if (slideIndex && !imageBySlideIndex.has(slideIndex)) {
+      imageBySlideIndex.set(slideIndex, image);
+    }
+  }
+
+  const artifactIds: Id<"artifacts">[] = [];
+  for (const slideSpecArtifact of slideSpecs) {
+    if (!isSlideshowSpec(slideSpecArtifact.data)) continue;
+
+    const aspectRatio = slideSpecArtifact.data.aspectRatio ?? "9:16";
+    const dimensions =
+      aspectRatio === "1:1"
+        ? { width: 1080, height: 1080 }
+        : aspectRatio === "4:5"
+          ? { width: 1080, height: 1350 }
+          : { width: 1080, height: 1920 };
+
+    for (const slide of slideSpecArtifact.data.slides ?? []) {
+      const slideIndex = slide.index ?? artifactIds.length + 1;
+      const image = imageBySlideIndex.get(slideIndex);
+      const imageUrl = image ? getArtifactUrl(image) : undefined;
+
+      artifactIds.push(
+        await createArtifact(ctx, context, step, {
+          type: "rendered_slide",
+          title: `Rendered slide ${slideIndex}`,
+          storageUrl: imageUrl,
+          data: {
+            format: "rendered_slide",
+            slideIndex,
+            aspectRatio,
+            dimensions,
+            backgroundImageUrl: imageUrl,
+            headline: slide.headline,
+            body: slide.body,
+            role: slide.role,
+            visualPrompt: slide.visualPrompt,
+            layout: slide.layout,
+            sourceSlideSpecArtifactId: slideSpecArtifact._id,
+            sourceImageArtifactId: image?._id,
+          },
+          parentArtifactIds: [
+            slideSpecArtifact._id,
+            ...(image ? [image._id] : []),
+          ],
+          reviewStatus: context.workflow.approvalPolicy.mode === "never" ? "not_required" : "pending",
+        })
+      );
+    }
+  }
+
+  return artifactIds;
+}
+
 async function executeImagePromptStep(
   ctx: ActionCtx,
   context: ExecutionContext,
@@ -662,6 +750,8 @@ export const executeRun = internalAction({
           artifactIds = await executeImagePromptStep(ctx, context, step, outputs);
         } else if (step.type === "resolve_model_job") {
           artifactIds = await executeResolveModelJobStep(ctx, context, step, outputs);
+        } else if (step.type === "render_slideshow") {
+          artifactIds = await executeRenderSlideshowStep(ctx, context, step, outputs);
         } else if (step.type === "request_approval") {
           await recordEvent(ctx, context, step, "approval_requested", "Workflow is waiting for approval.");
           await ctx.runMutation(internal.workflowRuns.transitionRun, {
