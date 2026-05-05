@@ -13,16 +13,14 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { buildPlannerPrompt, inferSlideCount, normalizePlan } from "./planning";
 import {
+  type CanonicalSlideshowSlide,
+  type CanonicalSlideshowSpec,
   slideshowPlanSchema,
   type SlideshowPlannerOutput,
   type SlideshowPlan,
   type SlideshowTextBlock,
 } from "./types";
-import {
-  fetchImageDataUri,
-  getSlideDimensions,
-  renderSlideSvg,
-} from "./slideshowRenderer";
+import { getSlideDimensions } from "./slideshowRenderer";
 import { getModelProvider } from "../providers/index";
 import type {
   GeneratedAsset,
@@ -105,6 +103,118 @@ async function waitForImageResult(
   return undefined;
 }
 
+function buildCanonicalSlideshowSpec(args: {
+  plan: SlideshowPlan;
+  dimensions: { width: number; height: number };
+  imageBySlideIndex: Map<number, { artifactId: Id<"artifacts">; url?: string }>;
+}): CanonicalSlideshowSpec {
+  const now = Date.now();
+  return {
+    format: "slideshow",
+    title: args.plan.title,
+    caption: args.plan.caption,
+    aspectRatio: args.plan.aspectRatio,
+    dimensions: args.dimensions,
+    exportSettings: {
+      previewMimeType: "image/png",
+      publishMimeType: "image/jpeg",
+      width: args.dimensions.width,
+      height: args.dimensions.height,
+    },
+    creativeBrief: args.plan.creativeBrief,
+    strategy: args.plan.strategy,
+    slides: args.plan.slides.map((slide): CanonicalSlideshowSlide => {
+      const image = args.imageBySlideIndex.get(slide.index);
+      return {
+        ...slide,
+        status: "active",
+        dimensions: args.dimensions,
+        backgroundImageUrl: image?.url,
+        sourceImageArtifactId: image?.artifactId ? String(image.artifactId) : undefined,
+        renderVersion: 1,
+        renderStatus: "pending",
+        updatedAt: now,
+      };
+    }),
+  };
+}
+
+function normalizeCanonicalSpec(value: unknown): CanonicalSlideshowSpec {
+  if (!value || typeof value !== "object") {
+    throw new Error("Slideshow spec is missing");
+  }
+  return value as CanonicalSlideshowSpec;
+}
+
+function getArtifactData(artifact: Doc<"artifacts">): Record<string, unknown> {
+  return artifact.data && typeof artifact.data === "object" && !Array.isArray(artifact.data)
+    ? artifact.data as Record<string, unknown>
+    : {};
+}
+
+function getSlideshowArtifactRefs(artifact: Doc<"artifacts">): {
+  slideshowId: Id<"slideshows">;
+  slideId: string;
+} {
+  const data = getArtifactData(artifact);
+  if (typeof data.sourceSlideshowId !== "string" || typeof data.sourceSlideId !== "string") {
+    throw new Error("Rendered slide image is not linked to a slideshow spec");
+  }
+
+  return {
+    slideshowId: data.sourceSlideshowId as Id<"slideshows">,
+    slideId: data.sourceSlideId,
+  };
+}
+
+function appendRevision(
+  slideshow: Doc<"slideshows">,
+  event: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const existing = Array.isArray(slideshow.revisionHistory)
+    ? slideshow.revisionHistory as Array<Record<string, unknown>>
+    : [];
+  return [
+    ...existing,
+    {
+      ...event,
+      at: Date.now(),
+    },
+  ];
+}
+
+function reindexActiveSlides(spec: CanonicalSlideshowSpec): CanonicalSlideshowSpec {
+  let activeIndex = 1;
+  return {
+    ...spec,
+    slides: spec.slides.map((slide) => {
+      if (slide.status === "deleted") return slide;
+      const nextSlide = {
+        ...slide,
+        index: activeIndex,
+        updatedAt: Date.now(),
+      };
+      activeIndex += 1;
+      return nextSlide;
+    }),
+  };
+}
+
+async function cleanupArtifactStorage(ctx: MutationCtx, artifact: Doc<"artifacts">) {
+  const data = getArtifactData(artifact);
+  const storageIds = [data.storageId, data.publishStorageId].filter(
+    (value): value is Id<"_storage"> => typeof value === "string"
+  );
+
+  for (const storageId of storageIds) {
+    try {
+      await ctx.storage.delete(storageId);
+    } catch {
+      // Storage cleanup is best-effort; rows are still the durable state.
+    }
+  }
+}
+
 async function deleteArtifactsForRequest(
   ctx: MutationCtx,
   args: { requestId: Id<"contentRequests">; userId: string }
@@ -116,17 +226,7 @@ async function deleteArtifactsForRequest(
 
   for (const artifact of artifacts) {
     if (artifact.userId !== args.userId) continue;
-    const data = artifact.data && typeof artifact.data === "object"
-      ? artifact.data as Record<string, unknown>
-      : {};
-    const storageId = typeof data.storageId === "string" ? data.storageId as Id<"_storage"> : undefined;
-    if (storageId) {
-      try {
-        await ctx.storage.delete(storageId);
-      } catch {
-        // Storage cleanup is best-effort; artifact rows are still the source of truth for the UI.
-      }
-    }
+    await cleanupArtifactStorage(ctx, artifact);
     await ctx.db.delete(artifact._id);
   }
 }
@@ -225,6 +325,19 @@ export const save = mutation({
       });
     }
 
+    const slideshows = await ctx.db
+      .query("slideshows")
+      .withIndex("by_content_request", (q) => q.eq("contentRequestId", args.id))
+      .collect();
+    for (const slideshow of slideshows) {
+      if (slideshow.userId !== userId) continue;
+      await ctx.db.patch(slideshow._id, {
+        status: "saved",
+        savedAt: now,
+        updatedAt: now,
+      });
+    }
+
     await ctx.db.patch(args.id, {
       status: "saved",
       savedAt: now,
@@ -241,6 +354,17 @@ export const discard = mutation({
     if (!request || request.userId !== userId) throw new Error("Content request not found");
 
     await deleteArtifactsForRequest(ctx, { requestId: args.id, userId });
+    const slideshows = await ctx.db
+      .query("slideshows")
+      .withIndex("by_content_request", (q) => q.eq("contentRequestId", args.id))
+      .collect();
+    for (const slideshow of slideshows) {
+      if (slideshow.userId !== userId) continue;
+      await ctx.db.patch(slideshow._id, {
+        status: "discarded",
+        updatedAt: Date.now(),
+      });
+    }
     await ctx.db.patch(args.id, {
       status: "discarded",
       updatedAt: Date.now(),
@@ -324,50 +448,38 @@ function textBlocksFromEdit(args: {
   return blocks;
 }
 
-function slideFromArtifactData(data: Record<string, unknown>, textBlocks: SlideshowTextBlock[]) {
-  const layout = data.layout && typeof data.layout === "object"
-    ? data.layout as SlideshowPlan["slides"][number]["layout"]
-    : {
-        intent: "Readable mobile social slide with clear text hierarchy.",
-        template: "center_punch" as const,
-        textZone: "center" as const,
-        density: "medium" as const,
-        contrast: "gradient_scrim" as const,
-        stylePreset: "dark_minimal_tiktok" as const,
-      };
-
-  return {
-    slideId: typeof data.slideId === "string" ? data.slideId : `slide-${String(data.slideIndex ?? 1)}`,
-    index: typeof data.slideIndex === "number" ? data.slideIndex : 1,
-    role: typeof data.role === "string" ? data.role as SlideshowPlan["slides"][number]["role"] : "insight" as const,
-    purpose: typeof data.purpose === "string" ? data.purpose : "Edited slide",
-    visualPrompt: typeof data.visualPrompt === "string" ? data.visualPrompt : "",
-    textBlocks,
-    layout,
-  };
-}
-
 export const deleteSlide = mutation({
   args: { artifactId: v.id("artifacts") },
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const artifact = await ctx.db.get(args.artifactId);
-    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide") {
+    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide_image") {
       throw new Error("Rendered slide not found");
     }
-
-    const data = artifact.data && typeof artifact.data === "object"
-      ? artifact.data as Record<string, unknown>
-      : {};
-    const storageId = typeof data.storageId === "string" ? data.storageId as Id<"_storage"> : undefined;
-    if (storageId) {
-      try {
-        await ctx.storage.delete(storageId);
-      } catch {
-        // Best-effort cleanup; deleting the artifact row is the durable state change.
-      }
+    const refs = getSlideshowArtifactRefs(artifact);
+    const slideshow = await ctx.db.get(refs.slideshowId);
+    if (!slideshow || slideshow.userId !== userId) {
+      throw new Error("Slideshow not found");
     }
+    const spec = normalizeCanonicalSpec(slideshow.spec);
+    const nextSpec = reindexActiveSlides({
+      ...spec,
+      slides: spec.slides.map((slide) =>
+        slide.slideId === refs.slideId
+          ? { ...slide, status: "deleted", updatedAt: Date.now() }
+          : slide
+      ),
+    });
 
+    await ctx.db.patch(slideshow._id, {
+      spec: nextSpec,
+      revisionHistory: appendRevision(slideshow, {
+        type: "delete_slide",
+        slideId: refs.slideId,
+      }),
+      updatedAt: Date.now(),
+    });
+    await cleanupArtifactStorage(ctx, artifact);
     await ctx.db.delete(args.artifactId);
   },
 });
@@ -379,65 +491,76 @@ export const duplicateSlide = action({
     const artifact: Doc<"artifacts"> | null = await ctx.runQuery(internal.artifacts.records.getForRunner, {
       artifactId: args.artifactId,
     });
-    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide") {
+    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide_image") {
       throw new Error("Rendered slide not found");
     }
-
-    const siblings: Doc<"artifacts">[] = artifact.contentRequestId
-      ? await ctx.runQuery(internal.artifacts.records.listForContentRequest, {
-          requestId: artifact.contentRequestId,
-          userId,
-        })
-      : [];
-    const slideIndexes: number[] = siblings
-      .filter((item: Doc<"artifacts">) => item.type === "rendered_slide")
-      .map((item: Doc<"artifacts">) => {
-        const data = item.data && typeof item.data === "object" ? item.data as Record<string, unknown> : {};
-        return typeof data.slideIndex === "number" ? data.slideIndex : 0;
-      });
-    const nextSlideIndex: number = Math.max(0, ...slideIndexes) + 1;
-    const data = artifact.data && typeof artifact.data === "object"
-      ? artifact.data as Record<string, unknown>
-      : {};
-    const textBlocks = Array.isArray(data.textBlocks)
-      ? data.textBlocks as SlideshowTextBlock[]
-      : textBlocksFromEdit({ primaryText: artifact.title || "Duplicated slide" });
-    const dimensions = getSlideDimensions(typeof data.aspectRatio === "string" ? data.aspectRatio : "9:16");
-    const backgroundImageUrl =
-      typeof data.backgroundImageUrl === "string" ? data.backgroundImageUrl : undefined;
-    const backgroundImageDataUri = await fetchImageDataUri(backgroundImageUrl);
-    const slide = slideFromArtifactData({
-      ...data,
-      slideIndex: nextSlideIndex,
-      slideId: `slide-${nextSlideIndex}-copy-${Date.now()}`,
-    }, textBlocks);
-    const svg = renderSlideSvg({ dimensions, backgroundImageDataUri, slide });
-    const storageId = await ctx.storage.store(new Blob([svg], { type: "image/svg+xml" }));
-    const renderedImageUrl = await ctx.storage.getUrl(storageId) ?? undefined;
-    return await ctx.runMutation(internal.artifacts.records.createFromRunner, {
-      userId,
-      brandId: artifact.brandId,
-      contentRequestId: artifact.contentRequestId,
-      workflowId: artifact.workflowId,
-      workflowRunId: artifact.workflowRunId,
-      parentArtifactIds: [artifact._id],
-      type: "rendered_slide",
-      title: `Slide ${nextSlideIndex}`,
-      storageUrl: renderedImageUrl,
-      data: {
-        ...data,
-        slideIndex: nextSlideIndex,
-        slideId: slide.slideId,
-        storageId,
-        renderedImageUrl,
-        backgroundEmbedded: Boolean(backgroundImageDataUri),
-        duplicatedFromArtifactId: artifact._id,
-      },
-      provider: "manual",
-      prompt: artifact.prompt,
-      lifecycle: artifact.lifecycle,
-      reviewStatus: "pending",
+    if (!artifact.contentRequestId) {
+      throw new Error("Only one-off slideshow slides can be duplicated here");
+    }
+    const refs = getSlideshowArtifactRefs(artifact);
+    const slideshow = await ctx.runQuery(internal.content.slideshows.getForRunner, {
+      slideshowId: refs.slideshowId,
     });
+    if (!slideshow || slideshow.userId !== userId) throw new Error("Slideshow not found");
+    const context = await ctx.runQuery(internal.content.requests.getExecutionContext, {
+      requestId: artifact.contentRequestId,
+    });
+    if (!context || context.request.userId !== userId) throw new Error("Content request not found");
+
+    const spec = normalizeCanonicalSpec(slideshow.spec);
+    const sourceSlide = spec.slides.find((slide) => slide.slideId === refs.slideId);
+    if (!sourceSlide || sourceSlide.status === "deleted") throw new Error("Slide not found");
+
+    const activeSlides = spec.slides.filter((slide) => slide.status !== "deleted");
+    const duplicatedSlide: CanonicalSlideshowSlide = {
+      ...sourceSlide,
+      slideId: `${sourceSlide.slideId}-copy-${Date.now()}`,
+      index: activeSlides.length + 1,
+      renderVersion: 1,
+      renderStatus: "pending",
+      renderDurationMs: undefined,
+      failedRenderReason: undefined,
+      outputFileSize: undefined,
+      publishFileSize: undefined,
+      updatedAt: Date.now(),
+    };
+    const nextSpec = reindexActiveSlides({
+      ...spec,
+      slides: [...spec.slides, duplicatedSlide],
+    });
+
+    await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+      slideshowId: slideshow._id,
+      userId,
+      spec: nextSpec,
+      revisionHistory: appendRevision(slideshow, {
+        type: "duplicate_slide",
+        sourceSlideId: refs.slideId,
+        newSlideId: duplicatedSlide.slideId,
+      }),
+    });
+
+    const renderedArtifactId: Id<"artifacts"> = await ctx.runAction(internal.content.rendering.renderSlideForContentRequest, {
+      requestId: context.request._id,
+      slideshowId: slideshow._id,
+      parentArtifactIds: [artifact._id],
+      slideId: duplicatedSlide.slideId,
+    });
+
+    await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+      slideshowId: slideshow._id,
+      userId,
+      spec: {
+        ...nextSpec,
+        slides: nextSpec.slides.map((slide) =>
+          slide.slideId === duplicatedSlide.slideId
+            ? { ...slide, renderStatus: "succeeded" as const, updatedAt: Date.now() }
+            : slide
+        ),
+      },
+    });
+
+    return renderedArtifactId;
   },
 });
 
@@ -449,8 +572,13 @@ export const moveSlide = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const artifact = await ctx.db.get(args.artifactId);
-    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide" || !artifact.contentRequestId) {
+    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide_image" || !artifact.contentRequestId) {
       throw new Error("Rendered slide not found");
+    }
+    const refs = getSlideshowArtifactRefs(artifact);
+    const slideshow = await ctx.db.get(refs.slideshowId);
+    if (!slideshow || slideshow.userId !== userId) {
+      throw new Error("Slideshow not found");
     }
 
     const siblings = await ctx.db
@@ -458,7 +586,7 @@ export const moveSlide = mutation({
       .withIndex("by_content_request", (q) => q.eq("contentRequestId", artifact.contentRequestId!))
       .collect();
     const slides = siblings
-      .filter((item) => item.type === "rendered_slide" && item.userId === userId)
+      .filter((item) => item.type === "rendered_slide_image" && item.userId === userId)
       .sort((first, second) => {
         const firstData = first.data && typeof first.data === "object" ? first.data as Record<string, unknown> : {};
         const secondData = second.data && typeof second.data === "object" ? second.data as Record<string, unknown> : {};
@@ -472,11 +600,36 @@ export const moveSlide = mutation({
 
     const current = slides[currentIndex];
     const target = slides[targetIndex];
+    const currentRefs = getSlideshowArtifactRefs(current);
+    const targetRefs = getSlideshowArtifactRefs(target);
     const currentData = current.data && typeof current.data === "object" ? current.data as Record<string, unknown> : {};
     const targetData = target.data && typeof target.data === "object" ? target.data as Record<string, unknown> : {};
     const currentSlideIndex = typeof currentData.slideIndex === "number" ? currentData.slideIndex : currentIndex + 1;
     const targetSlideIndex = typeof targetData.slideIndex === "number" ? targetData.slideIndex : targetIndex + 1;
     const now = Date.now();
+    const spec = normalizeCanonicalSpec(slideshow.spec);
+    const nextSpec = {
+      ...spec,
+      slides: spec.slides.map((slide) => {
+        if (slide.slideId === currentRefs.slideId) {
+          return { ...slide, index: targetSlideIndex, updatedAt: now };
+        }
+        if (slide.slideId === targetRefs.slideId) {
+          return { ...slide, index: currentSlideIndex, updatedAt: now };
+        }
+        return slide;
+      }),
+    };
+
+    await ctx.db.patch(slideshow._id, {
+      spec: nextSpec,
+      revisionHistory: appendRevision(slideshow, {
+        type: "move_slide",
+        slideId: currentRefs.slideId,
+        direction: args.direction,
+      }),
+      updatedAt: now,
+    });
 
     await ctx.db.patch(current._id, {
       title: `Slide ${targetSlideIndex}`,
@@ -498,58 +651,92 @@ export const updateSlideText = action({
     secondaryText: v.optional(v.string()),
     bullets: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    renderedImageUrl?: string;
+    publishImageUrl?: string;
+    renderDurationMs: number;
+    outputFileSize: number;
+    publishFileSize: number;
+  }> => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
-    const artifact = await ctx.runQuery(internal.artifacts.records.getForRunner, {
+    const artifact: Doc<"artifacts"> | null = await ctx.runQuery(internal.artifacts.records.getForRunner, {
       artifactId: args.artifactId,
     });
-    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide") {
+    if (!artifact || artifact.userId !== userId || artifact.type !== "rendered_slide_image") {
       throw new Error("Rendered slide not found");
     }
     const primaryText = args.primaryText.trim();
     if (!primaryText) throw new Error("Primary text is required");
 
-    const data = artifact.data && typeof artifact.data === "object"
-      ? artifact.data as Record<string, unknown>
-      : {};
+    const refs = getSlideshowArtifactRefs(artifact);
+    const slideshow: Doc<"slideshows"> | null = await ctx.runQuery(internal.content.slideshows.getForRunner, {
+      slideshowId: refs.slideshowId,
+    });
+    if (!slideshow || slideshow.userId !== userId) throw new Error("Slideshow not found");
+    const spec = normalizeCanonicalSpec(slideshow.spec);
+    const slide = spec.slides.find((item) => item.slideId === refs.slideId);
+    if (!slide || slide.status === "deleted") throw new Error("Slide not found");
     const textBlocks = textBlocksFromEdit({
       primaryText,
       secondaryText: args.secondaryText,
       bullets: args.bullets,
     });
-    const dimensions = getSlideDimensions(typeof data.aspectRatio === "string" ? data.aspectRatio : "9:16");
-    const backgroundImageUrl =
-      typeof data.backgroundImageUrl === "string" ? data.backgroundImageUrl : undefined;
-    const backgroundImageDataUri = await fetchImageDataUri(backgroundImageUrl);
-    const slide = slideFromArtifactData(data, textBlocks);
-    const svg = renderSlideSvg({ dimensions, backgroundImageDataUri, slide });
-    const storageId = await ctx.storage.store(new Blob([svg], { type: "image/svg+xml" }));
-    const renderedImageUrl = await ctx.storage.getUrl(storageId) ?? undefined;
-    const previousStorageId = typeof data.storageId === "string" ? data.storageId as Id<"_storage"> : undefined;
-    if (previousStorageId) {
-      try {
-        await ctx.storage.delete(previousStorageId);
-      } catch {
-        // Best-effort cleanup; the artifact now points at the new render.
-      }
-    }
-
-    await ctx.runMutation(internal.artifacts.records.updateFromRunner, {
-      artifactId: args.artifactId,
+    const nextSlide: CanonicalSlideshowSlide = {
+      ...slide,
+      textBlocks,
+      renderVersion: slide.renderVersion + 1,
+      renderStatus: "rendering",
+      failedRenderReason: undefined,
+      updatedAt: Date.now(),
+    };
+    const renderingSpec = {
+      ...spec,
+      slides: spec.slides.map((item) =>
+        item.slideId === refs.slideId ? nextSlide : item
+      ),
+    };
+    await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+      slideshowId: slideshow._id,
       userId,
-      storageUrl: renderedImageUrl,
-      data: {
-        ...data,
-        textBlocks,
-        renderedImageUrl,
-        storageId,
-        backgroundEmbedded: Boolean(backgroundImageDataUri),
-        editedAt: Date.now(),
+      spec: renderingSpec,
+      revisionHistory: appendRevision(slideshow, {
+        type: "update_slide_text",
+        slideId: refs.slideId,
+      }),
+    });
+    const rendered: {
+      renderedImageUrl?: string;
+      publishImageUrl?: string;
+      renderDurationMs: number;
+      outputFileSize: number;
+      publishFileSize: number;
+    } = await ctx.runAction(
+      internal.content.rendering.rerenderSlideArtifact,
+      {
+        artifactId: artifact._id,
+        userId,
+      }
+    );
+    await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+      slideshowId: slideshow._id,
+      userId,
+      spec: {
+        ...renderingSpec,
+        slides: renderingSpec.slides.map((item) =>
+          item.slideId === refs.slideId
+            ? {
+                ...item,
+                renderStatus: "succeeded" as const,
+                renderDurationMs: rendered.renderDurationMs,
+                outputFileSize: rendered.outputFileSize,
+                publishFileSize: rendered.publishFileSize,
+              }
+            : item
+        ),
       },
-      reviewStatus: "pending",
     });
 
-    return { renderedImageUrl };
+    return rendered;
   },
 });
 
@@ -680,47 +867,56 @@ export const execute = internalAction({
       });
 
       const dimensions = getSlideDimensions(plan.aspectRatio);
-      for (const slide of plan.slides) {
-        const image = imageBySlideIndex.get(slide.index);
-        const backgroundImageDataUri = await fetchImageDataUri(image?.url);
-        const svg = renderSlideSvg({
-          dimensions,
-          backgroundImageDataUri,
-          slide,
-        });
-        const storageId = await ctx.storage.store(new Blob([svg], { type: "image/svg+xml" }));
-        const renderedImageUrl = await ctx.storage.getUrl(storageId) ?? undefined;
-
-        await createRequestArtifact(ctx, {
-          request: context.request,
-          type: "rendered_slide",
-          title: `Slide ${slide.index}`,
-          storageUrl: renderedImageUrl,
-          data: {
-            format: "rendered_slide",
-            mimeType: "image/svg+xml",
-            slideIndex: slide.index,
-            aspectRatio: plan.aspectRatio,
-            dimensions,
-            renderedImageUrl,
-            storageId,
-            backgroundImageUrl: image?.url,
-            backgroundEmbedded: Boolean(backgroundImageDataUri),
-            slideId: slide.slideId,
-            purpose: slide.purpose,
-            textBlocks: slide.textBlocks,
-            visualPrompt: slide.visualPrompt,
-            layout: slide.layout,
+      const canonicalSpec = buildCanonicalSlideshowSpec({
+        plan,
+        dimensions,
+        imageBySlideIndex,
+      });
+      const slideshowId = await ctx.runMutation(internal.content.slideshows.createFromRunner, {
+        userId: context.request.userId,
+        brandId: context.request.brandId,
+        socialAccountId: context.request.socialAccountId,
+        contentRequestId: context.request._id,
+        title: canonicalSpec.title,
+        caption: canonicalSpec.caption,
+        status: "preview",
+        spec: canonicalSpec,
+        renderVersion: 1,
+        revisionHistory: [
+          {
+            type: "create",
+            at: Date.now(),
             sourceSlideSpecArtifactId: specArtifactId,
-            sourceImageArtifactId: image?.artifactId,
           },
-          provider: "manual",
+        ],
+      });
+
+      for (const slide of canonicalSpec.slides) {
+        const imageArtifactId =
+          slide.sourceImageArtifactId ? (slide.sourceImageArtifactId as Id<"artifacts">) : undefined;
+        await ctx.runAction(internal.content.rendering.renderSlideForContentRequest, {
+          requestId: context.request._id,
+          slideshowId,
+          slideId: slide.slideId,
+          specArtifactId,
           parentArtifactIds: [
             specArtifactId,
-            ...(image?.artifactId ? [image.artifactId] : []),
+            ...(imageArtifactId ? [imageArtifactId] : []),
           ],
         });
       }
+
+      await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+        slideshowId,
+        userId: context.request.userId,
+        spec: {
+          ...canonicalSpec,
+          slides: canonicalSpec.slides.map((slide) => ({
+            ...slide,
+            renderStatus: "succeeded" as const,
+          })),
+        },
+      });
 
       await ctx.runMutation(internal.content.requests.transition, {
         requestId: args.requestId,

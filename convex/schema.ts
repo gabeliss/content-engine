@@ -14,6 +14,7 @@ import {
   publishingProviderValidator,
   reviewStatusValidator,
   scheduleConfigValidator,
+  slideshowStatusValidator,
   socialAccountStatusValidator,
   workflowRunEventTypeValidator,
   workflowRunStatusValidator,
@@ -228,6 +229,28 @@ export default defineSchema({
     .index("by_content_request", ["contentRequestId"])
     .index("by_workflow_run", ["workflowRunId"])
     .index("by_type", ["type"]),
+
+  slideshows: defineTable({
+    userId: v.string(),
+    brandId: v.id("brands"),
+    socialAccountId: v.optional(v.id("socialAccounts")),
+    contentRequestId: v.optional(v.id("contentRequests")),
+    workflowId: v.optional(v.id("workflows")),
+    workflowRunId: v.optional(v.id("workflowRuns")),
+    title: v.string(),
+    caption: v.optional(v.string()),
+    status: slideshowStatusValidator,
+    spec: v.any(),
+    renderVersion: v.number(),
+    revisionHistory: v.optional(v.array(v.any())),
+    savedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_brand", ["brandId"])
+    .index("by_content_request", ["contentRequestId"])
+    .index("by_workflow_run", ["workflowRunId"]),
 
   distributionPlans: defineTable({
     userId: v.string(),

@@ -97,7 +97,7 @@ export const artifactTypeValidator = v.union(
   v.literal("image"),
   v.literal("image_prompt"),
   v.literal("slide_spec"),
-  v.literal("rendered_slide"),
+  v.literal("rendered_slide_image"),
   v.literal("rendered_asset"),
   v.literal("video"),
   v.literal("thumbnail"),
@@ -113,6 +113,12 @@ export const reviewStatusValidator = v.union(
 );
 
 export const artifactLifecycleValidator = v.union(
+  v.literal("preview"),
+  v.literal("saved"),
+  v.literal("discarded")
+);
+
+export const slideshowStatusValidator = v.union(
   v.literal("preview"),
   v.literal("saved"),
   v.literal("discarded")

@@ -20,7 +20,7 @@ export function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
     );
   }
 
-  if (artifact.type === "rendered_slide" && artifact.data && typeof artifact.data === "object") {
+  if (artifact.type === "rendered_slide_image" && artifact.data && typeof artifact.data === "object") {
     const slideData = artifact.data as {
       headline?: string;
       body?: string;

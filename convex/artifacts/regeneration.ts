@@ -2,14 +2,7 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import {
-  getRenderedSlideDimensions,
-  slideFromCopy,
-} from "../content/slideshowAdapter";
-import {
-  fetchImageDataUri,
-  renderSlideSvg,
-} from "../content/slideshowRenderer";
+import type { CanonicalSlideshowSpec, CanonicalSlideshowSlide, SlideshowTextBlock } from "../content/types";
 import { getModelProvider } from "../providers";
 import type { ModelProviderName } from "../providers/model";
 
@@ -107,6 +100,51 @@ function renderedSlideCopy(data: Record<string, unknown>): {
     headline: blockText(["headline", "cta"]),
     body: blockText(["body", "bullet_list"]),
   };
+}
+
+function getArtifactData(artifact: Doc<"artifacts">): Record<string, unknown> {
+  return artifact.data && typeof artifact.data === "object" && !Array.isArray(artifact.data)
+    ? artifact.data as Record<string, unknown>
+    : {};
+}
+
+function renderedSlideRefs(artifact: Doc<"artifacts">): {
+  slideshowId: Id<"slideshows">;
+  slideId: string;
+} {
+  const data = getArtifactData(artifact);
+  if (typeof data.sourceSlideshowId !== "string" || typeof data.sourceSlideId !== "string") {
+    throw new Error("Rendered slide image is not linked to a slideshow spec");
+  }
+  return {
+    slideshowId: data.sourceSlideshowId as Id<"slideshows">,
+    slideId: data.sourceSlideId,
+  };
+}
+
+function textBlocksFromCopy(args: {
+  role: CanonicalSlideshowSlide["role"];
+  headline?: string;
+  body?: string;
+}): SlideshowTextBlock[] {
+  const blocks: SlideshowTextBlock[] = [];
+  if (args.headline?.trim()) {
+    blocks.push({
+      role: args.role === "cta" ? "cta" : "headline",
+      text: args.headline.trim(),
+      items: [],
+      emphasis: "primary",
+    });
+  }
+  if (args.body?.trim()) {
+    blocks.push({
+      role: "body",
+      text: args.body.trim(),
+      items: [],
+      emphasis: "secondary",
+    });
+  }
+  return blocks.length ? blocks : [{ role: "headline", text: "Updated slide", items: [], emphasis: "primary" }];
 }
 
 export const regenerate = action({
@@ -321,11 +359,8 @@ export const regenerate = action({
       return { artifactIds };
     }
 
-    if (artifact.type === "rendered_slide") {
-      const sourceData =
-        artifact.data && typeof artifact.data === "object" && !Array.isArray(artifact.data)
-          ? (artifact.data as Record<string, unknown>)
-          : {};
+    if (artifact.type === "rendered_slide_image") {
+      const sourceData = getArtifactData(artifact);
       const currentCopy = renderedSlideCopy(sourceData);
       const response = await textProvider.generateText({
         systemPrompt:
@@ -346,64 +381,85 @@ export const regenerate = action({
         headline: currentCopy.headline,
         body: currentCopy.body,
       });
-      const dimensions = getRenderedSlideDimensions(sourceData);
-      const backgroundImageUrl =
-        typeof sourceData.backgroundImageUrl === "string"
-          ? sourceData.backgroundImageUrl
-          : undefined;
-      const backgroundImageDataUri = await fetchImageDataUri(backgroundImageUrl);
-      const slideIndex =
-        typeof sourceData.slideIndex === "number" ? sourceData.slideIndex : 1;
-      const role = typeof sourceData.role === "string" ? sourceData.role : undefined;
-      const renderableSlide = slideFromCopy({
-        index: slideIndex,
-        role,
-        headline: revisedCopy.headline,
-        body: revisedCopy.body,
-        visualPrompt: typeof sourceData.visualPrompt === "string" ? sourceData.visualPrompt : undefined,
-        layout: sourceData.layout,
+      const refs = renderedSlideRefs(artifact);
+      const slideshow = await ctx.runQuery(internal.content.slideshows.getForRunner, {
+        slideshowId: refs.slideshowId,
       });
-      const svg = renderSlideSvg({
-        dimensions,
-        backgroundImageDataUri,
-        slide: renderableSlide,
-      });
-      const storageId = await ctx.storage.store(
-        new Blob([svg], { type: "image/svg+xml" })
-      );
-      const renderedImageUrl = (await ctx.storage.getUrl(storageId)) ?? undefined;
-      const artifactId = await ctx.runMutation(internal.artifacts.records.createFromRunner, {
-        userId: identity.subject,
-        brandId: artifact.brandId,
-        workflowId: artifact.workflowId,
-        workflowRunId: artifact.workflowRunId,
-        parentArtifactIds: [artifact._id],
-        type: "rendered_slide",
-        title: `${artifact.title || "Rendered slide"} revision`,
-        storageUrl: renderedImageUrl,
-        data: {
-          ...sourceData,
+      if (!slideshow || slideshow.userId !== identity.subject) {
+        throw new Error("Slideshow not found");
+      }
+      const spec = slideshow.spec as CanonicalSlideshowSpec;
+      const sourceSlide = spec.slides.find((slide) => slide.slideId === refs.slideId);
+      if (!sourceSlide || sourceSlide.status === "deleted") {
+        throw new Error("Slide not found");
+      }
+      const nextSlide: CanonicalSlideshowSlide = {
+        ...sourceSlide,
+        textBlocks: textBlocksFromCopy({
+          role: sourceSlide.role,
           headline: revisedCopy.headline,
           body: revisedCopy.body,
-          role: renderableSlide.role,
-          textBlocks: renderableSlide.textBlocks,
-          layout: renderableSlide.layout,
-          renderedImageUrl,
-          storageId,
-          backgroundEmbedded: Boolean(backgroundImageDataUri),
-          sourceArtifactId: artifact._id,
-          regeneration: {
-            requestedFromArtifactId: artifact._id,
-            note,
-            regeneratedAt: Date.now(),
-            provider: response.metadata.provider,
-            model: response.metadata.model,
-          },
+        }),
+        renderVersion: sourceSlide.renderVersion + 1,
+        renderStatus: "rendering",
+        failedRenderReason: undefined,
+        updatedAt: Date.now(),
+      };
+      await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+        slideshowId: refs.slideshowId,
+        userId: identity.subject,
+        spec: {
+          ...spec,
+          slides: spec.slides.map((slide) =>
+            slide.slideId === refs.slideId ? nextSlide : slide
+          ),
         },
-        provider: response.metadata.provider,
-        model: response.metadata.model,
-        prompt: response.text,
-        reviewStatus: "pending",
+        revisionHistory: [
+          ...(Array.isArray(slideshow.revisionHistory) ? slideshow.revisionHistory : []),
+          {
+            type: "regenerate_slide_copy",
+            slideId: refs.slideId,
+            sourceArtifactId: artifact._id,
+            note,
+            at: Date.now(),
+          },
+        ],
+      });
+      const artifactId = artifact.contentRequestId
+        ? await ctx.runAction(internal.content.rendering.renderSlideForContentRequest, {
+            requestId: artifact.contentRequestId,
+            slideshowId: refs.slideshowId,
+            slideId: refs.slideId,
+            parentArtifactIds: [artifact._id],
+          })
+        : artifact.workflowId && artifact.workflowRunId && artifact.brandId
+          ? await ctx.runAction(internal.content.rendering.renderSlideForWorkflow, {
+              userId: identity.subject,
+              brandId: artifact.brandId,
+              workflowId: artifact.workflowId,
+              workflowRunId: artifact.workflowRunId,
+              slideshowId: refs.slideshowId,
+              slideId: refs.slideId,
+              specArtifactId:
+                typeof sourceData.sourceSlideSpecArtifactId === "string"
+                  ? sourceData.sourceSlideSpecArtifactId as Id<"artifacts">
+                  : artifact._id,
+              parentArtifactIds: [artifact._id],
+              reviewStatus: "pending",
+            })
+          : undefined;
+      if (!artifactId) throw new Error("Rendered slide cannot be regenerated without source context");
+      await ctx.runMutation(internal.content.slideshows.updateFromRunner, {
+        slideshowId: refs.slideshowId,
+        userId: identity.subject,
+        spec: {
+          ...spec,
+          slides: spec.slides.map((slide) =>
+            slide.slideId === refs.slideId
+              ? { ...nextSlide, renderStatus: "succeeded" as const }
+              : slide
+          ),
+        },
       });
 
       if (artifact.workflowRunId && artifact.workflowId) {

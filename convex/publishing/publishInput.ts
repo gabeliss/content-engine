@@ -31,7 +31,7 @@ function inferMimeType(artifact: Doc<"artifacts">): string {
     if (typeof data.mimeType === "string") return data.mimeType;
   }
   if (artifact.type === "video") return "video/mp4";
-  if (artifact.type === "rendered_slide") return "image/svg+xml";
+  if (artifact.type === "rendered_slide_image") return "image/png";
   if (!artifact.storageUrl) return "image/png";
   if (artifact.storageUrl.endsWith(".jpg") || artifact.storageUrl.endsWith(".jpeg")) {
     return "image/jpeg";
@@ -47,7 +47,7 @@ async function mediaFromArtifact(
   if (
     artifact.type !== "image" &&
     artifact.type !== "video" &&
-    artifact.type !== "rendered_slide" &&
+    artifact.type !== "rendered_slide_image" &&
     artifact.type !== "rendered_asset" &&
     artifact.type !== "thumbnail"
   ) {
@@ -66,11 +66,23 @@ async function mediaFromArtifact(
     };
   }
 
-  const source = typeof data.url === "string" ? data.url : artifact.storageUrl;
+  const source =
+    artifact.type === "rendered_slide_image" && typeof data.publishImageUrl === "string"
+      ? data.publishImageUrl
+      : typeof data.url === "string"
+        ? data.url
+        : artifact.storageUrl;
   if (!source) return null;
 
   const mimeType =
-    typeof data.mimeType === "string" ? data.mimeType : inferMimeType(artifact);
+    artifact.type === "rendered_slide_image" && typeof data.publishMimeType === "string"
+      ? data.publishMimeType
+      : typeof data.mimeType === "string"
+        ? data.mimeType
+        : inferMimeType(artifact);
+  if (mimeType === "image/svg+xml") {
+    throw new Error("SVG slideshow renders cannot be published. Render raster slide images first.");
+  }
 
   if (source.startsWith("data:")) {
     return await provider.uploadMedia({
@@ -88,7 +100,7 @@ async function mediaFromArtifact(
 
   return await provider.uploadMedia({
     filename: `${artifact._id}.${mimeType.split("/").pop() ?? "bin"}`,
-    mimeType: response.headers.get("content-type") ?? mimeType,
+    mimeType,
     data: await response.arrayBuffer(),
   });
 }
@@ -141,9 +153,41 @@ export async function loadPublishInput(
   context: DistributionPublishContext
 ): Promise<PublishContentInput> {
   const text = context.plan.caption ?? extractArtifactText(context.artifacts);
+  const orderedArtifacts = [...context.artifacts].sort((first, second) => {
+    const firstData = first.data && typeof first.data === "object" ? first.data as Record<string, unknown> : {};
+    const secondData = second.data && typeof second.data === "object" ? second.data as Record<string, unknown> : {};
+    const firstIndex = typeof firstData.slideIndex === "number" ? firstData.slideIndex : first.createdAt;
+    const secondIndex = typeof secondData.slideIndex === "number" ? secondData.slideIndex : second.createdAt;
+    return firstIndex - secondIndex;
+  });
+  const hasTikTokTarget = context.socialAccounts.some((account) => account.platform === "tiktok");
+  const renderedSlideArtifacts = orderedArtifacts.filter((artifact) => artifact.type === "rendered_slide_image");
+  const mediaArtifacts =
+    hasTikTokTarget || renderedSlideArtifacts.length > 0
+      ? renderedSlideArtifacts
+      : orderedArtifacts;
+  if (hasTikTokTarget) {
+    if (renderedSlideArtifacts.length === 0) {
+      throw new Error("TikTok photo carousel publishing requires rendered raster slide image artifacts.");
+    }
+    const invalidCarouselArtifact = renderedSlideArtifacts.find((artifact) => {
+      const data = artifact.data && typeof artifact.data === "object"
+        ? artifact.data as Record<string, unknown>
+        : {};
+      const mimeType = typeof data.publishMimeType === "string"
+        ? data.publishMimeType
+        : typeof data.mimeType === "string"
+          ? data.mimeType
+          : inferMimeType(artifact);
+      return mimeType === "image/svg+xml" || !mimeType.startsWith("image/");
+    });
+    if (invalidCarouselArtifact) {
+      throw new Error("TikTok photo carousel publishing requires raster slide image artifacts.");
+    }
+  }
   const media = (
     await Promise.all(
-      context.artifacts.map((artifact) => mediaFromArtifact(provider, artifact))
+      mediaArtifacts.map((artifact) => mediaFromArtifact(provider, artifact))
     )
   ).filter((item): item is UploadedMedia => item !== null);
 

@@ -6,7 +6,7 @@ import {
   query,
   type MutationCtx,
 } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   artifactLifecycleValidator,
   artifactTypeValidator,
@@ -458,6 +458,21 @@ export const remove = mutation({
             updatedAt: Date.now(),
           });
         }
+      }
+    }
+
+    const data =
+      artifact.data && typeof artifact.data === "object" && !Array.isArray(artifact.data)
+        ? artifact.data as Record<string, unknown>
+        : {};
+    const storageIds = [data.storageId, data.publishStorageId].filter(
+      (value): value is Id<"_storage"> => typeof value === "string"
+    );
+    for (const storageId of storageIds) {
+      try {
+        await ctx.storage.delete(storageId);
+      } catch {
+        // Storage cleanup is best-effort; deleting the artifact row is the durable state.
       }
     }
 

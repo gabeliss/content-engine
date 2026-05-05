@@ -21,7 +21,7 @@ export function buildSlideshowBundles(
   const groups = new Map<string, ArtifactDoc[]>();
 
   for (const artifact of artifacts) {
-    if (artifact.type !== "rendered_slide") continue;
+    if (artifact.type !== "rendered_slide_image") continue;
     if (artifact.lifecycle === "preview" || artifact.lifecycle === "discarded") continue;
     const ownerId = artifact.workflowRunId ?? artifact.contentRequestId;
     if (!ownerId) continue;
@@ -110,7 +110,7 @@ export function isPrimaryReviewArtifact(artifact: ArtifactDoc): boolean {
   return (
     artifact.type === "caption" ||
     artifact.type === "script" ||
-    artifact.type === "rendered_slide" ||
+    artifact.type === "rendered_slide_image" ||
     artifact.type === "rendered_asset" ||
     artifact.type === "thumbnail" ||
     artifact.type === "video"
@@ -123,7 +123,7 @@ export function artifactSummary(artifact: ArtifactDoc): string {
     return `${data.hook ?? "Slideshow spec"}${data.slides ? ` · ${data.slides.length} slides` : ""}`;
   }
 
-  if (artifact.type === "rendered_slide" && artifact.data && typeof artifact.data === "object") {
+  if (artifact.type === "rendered_slide_image" && artifact.data && typeof artifact.data === "object") {
     const data = artifact.data as {
       headline?: string;
       body?: string;
@@ -197,7 +197,7 @@ export function supportsRegeneration(artifact: ArtifactDoc): boolean {
   return (
     artifact.type === "image_prompt" ||
     artifact.type === "image" ||
-    artifact.type === "rendered_slide"
+    artifact.type === "rendered_slide_image"
   );
 }
 
@@ -225,7 +225,7 @@ export function findPromotablePlanTarget(
   artifact: ArtifactDoc,
   plans: DistributionPlanDoc[]
 ): { planId: DistributionPlanId; oldArtifactId: ArtifactDoc["_id"] } | undefined {
-  if (artifact.type !== "rendered_slide") return undefined;
+  if (artifact.type !== "rendered_slide_image") return undefined;
   if (artifact.reviewStatus === "needs_revision") return undefined;
 
   const sourceIds = replacementSourceIds(artifact);

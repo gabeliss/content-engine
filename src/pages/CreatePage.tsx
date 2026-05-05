@@ -50,7 +50,7 @@ export function CreatePage() {
   const renderedSlides = useMemo(
     () =>
       requestArtifacts
-        .filter((artifact) => artifact.type === "rendered_slide")
+        .filter((artifact) => artifact.type === "rendered_slide_image")
         .sort((first, second) => slideNumber(first) - slideNumber(second)),
     [requestArtifacts]
   );
