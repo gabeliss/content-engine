@@ -11,12 +11,17 @@
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .sidebar {
-    position: static;
-    height: auto;
+    overflow-y: visible;
     padding: var(--space-3);
+  }
+
+  .workspace {
+    overflow-y: visible;
   }
 
   .brand-mark {

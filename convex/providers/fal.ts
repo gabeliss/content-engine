@@ -154,9 +154,11 @@ function falImageModelForInput(model: string, input: GenerateImageInput): string
 
 function falReferenceImageUrls(input: GenerateImageInput): string[] | undefined {
   if (!input.referenceImages?.length) return undefined;
-  return input.referenceImages.map((image) =>
-    `data:${image.mimeType};base64,${image.base64Data}`
-  );
+  return input.referenceImages.flatMap((image) => {
+    if (image.url) return [image.url];
+    if (image.base64Data) return [`data:${image.mimeType};base64,${image.base64Data}`];
+    return [];
+  });
 }
 
 function mapFalQueueStatus(status: string, hasError: boolean): AsyncJobStatus {

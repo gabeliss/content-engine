@@ -1,15 +1,15 @@
 .app-shell {
   display: grid;
   grid-template-columns: 13.5rem minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-width: 0;
+  overflow-y: auto;
   padding: var(--space-4) var(--space-3);
   border-right: 1px solid var(--color-sidebar-border);
   background:
@@ -150,15 +150,16 @@
 }
 
 .workspace {
-  width: 100%;
   min-width: 0;
+  overflow-y: auto;
   padding: clamp(1.25rem, 2.5vw, 2.75rem);
 }
 
 .workspace > section {
   display: grid;
+  width: min(100%, 92rem);
+  min-width: 0;
   gap: var(--space-5);
-  max-width: 92rem;
 }
 
 .page-header {
@@ -193,11 +194,11 @@
 }
 
 .metric-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
 }
 
 .two-column {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(28rem, 100%), 1fr));
   align-items: start;
 }
 

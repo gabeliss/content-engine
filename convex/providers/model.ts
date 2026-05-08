@@ -72,7 +72,8 @@ export interface GenerateStructuredResult<T = unknown> {
 }
 
 export interface ReferenceAsset {
-  base64Data: string;
+  base64Data?: string;
+  url?: string;
   mimeType: string;
   description?: string;
 }

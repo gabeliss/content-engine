@@ -18,16 +18,16 @@ export function ReferenceAssetsPanel({
     "!border-[var(--color-primary)] !bg-[var(--color-primary-soft)] !text-[var(--color-primary-strong)]";
 
   return (
-    <div className="col-span-full grid gap-[var(--space-3)] border-t border-[var(--color-border)] pt-[var(--space-4)]">
-      <div className="flex flex-col gap-[var(--space-3)] min-[901px]:flex-row min-[901px]:items-center min-[901px]:justify-between">
-        <div>
+    <div className="col-span-full grid min-w-0 gap-[var(--space-3)] border-t border-[var(--color-border)] pt-[var(--space-4)]">
+      <div className="flex min-w-0 flex-col gap-[var(--space-3)] min-[901px]:flex-row min-[901px]:items-center min-[901px]:justify-between">
+        <div className="min-w-0">
           <div className="entity-eyebrow">References</div>
           <p className="muted mt-[var(--space-1)]">
             Add reusable images only when the prompt needs a character, product, persona,
             or visual style anchor.
           </p>
         </div>
-        <div className="flex flex-wrap gap-[var(--space-2)]">
+        <div className="flex min-w-0 flex-wrap gap-[var(--space-2)]">
           <button
             className={`secondary-button ${
               form.referenceComposer === "upload" ? activeComposerClass : ""
@@ -58,8 +58,8 @@ export function ReferenceAssetsPanel({
       </div>
 
       {form.referenceComposer === "upload" && (
-        <div className="grid items-start gap-[var(--space-4)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-4)] min-[901px]:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
-          <div className="grid content-start gap-[var(--space-3)]">
+        <div className="grid min-w-0 items-start gap-[var(--space-4)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-4)] min-[901px]:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
+          <div className="grid min-w-0 content-start gap-[var(--space-3)]">
             <Field
               label="Asset name"
               value={form.assetName}
@@ -84,8 +84,8 @@ export function ReferenceAssetsPanel({
       )}
 
       {form.referenceComposer === "ai" && (
-        <div className="grid items-start gap-[var(--space-4)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-4)] min-[901px]:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
-          <div className="grid content-start gap-[var(--space-3)]">
+        <div className="grid min-w-0 items-start gap-[var(--space-4)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-4)] min-[901px]:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
+          <div className="grid min-w-0 content-start gap-[var(--space-3)]">
             <Field
               label="Asset name"
               value={form.aiAssetName}
@@ -140,18 +140,18 @@ export function ReferenceAssetsPanel({
         </div>
       )}
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(8.75rem,1fr))] gap-[var(--space-3)]">
+      <div className="flex min-w-0 max-w-full gap-[var(--space-3)] overflow-x-auto pb-[var(--space-1)] [scrollbar-gutter:stable]">
         {!brandAssets && form.selectedBrandId && (
-          <p className="muted col-span-full">Loading references...</p>
+          <p className="muted flex-none">Loading references...</p>
         )}
         {brandAssets?.length === 0 && (
-          <p className="muted col-span-full">No reference assets for this brand yet.</p>
+          <p className="muted flex-none">No reference assets for this brand yet.</p>
         )}
         {brandAssets?.map((asset) => {
           const selected = form.selectedReferenceIds.includes(String(asset._id));
           return (
             <article
-              className="grid min-w-0 gap-[var(--space-3)]"
+              className="grid w-[8.75rem] flex-none gap-[var(--space-3)]"
               key={asset._id}
             >
               <button

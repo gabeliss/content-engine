@@ -28,6 +28,9 @@ export type PlannerReference = {
 
 export type RequestedRenderingMode = SlideshowRenderingMode;
 
+export const IMAGE_PROMPT_WRITER_SYSTEM_PROMPT =
+  "You are a specialist image prompt writer for short-form social visuals. You write natural, concrete image generation prompts that faithfully expand the user's creative brief without turning it into a rigid template.";
+
 type PromptArgs = {
   prompt: string;
   revisionPrompt?: string;
@@ -270,23 +273,22 @@ function validateImagePromptSections(
   renderingMode: RequestedRenderingMode,
   slideId: string
 ) {
-  const requiredSections = renderingMode === "full_graphic_generation"
-    ? [
-        "### Create",
-        "### Shared style",
-        "### Visible text exact line breaks",
-        "### Typography",
-        "### Scene",
-        "### Camera and framing",
-        "### Style consistency",
-      ]
-    : [
-        "### Create",
-        "### Scene",
-        "### Camera and framing",
-        "### Visual style",
-        "### Reference usage",
-      ];
+  if (renderingMode === "background_plus_overlay") {
+    if (!imagePrompt.trim()) {
+      failPlanning(`image prompt for ${slideId} cannot be empty`);
+    }
+    return;
+  }
+
+  const requiredSections = [
+    "### Create",
+    "### Shared style",
+    "### Visible text exact line breaks",
+    "### Typography",
+    "### Scene",
+    "### Camera and framing",
+    "### Style consistency",
+  ];
   const missingSection = requiredSections.find((section) => !imagePrompt.includes(section));
   if (missingSection) {
     failPlanning(`image prompt for ${slideId} must include section ${missingSection}`);
@@ -490,6 +492,7 @@ function sharedPromptLines(args: PromptArgs): Array<string | undefined> {
     "- Set useReferenceImage true for a slide when selected reference assets are part of that slide image.",
     "- For a selected person or character reference, useReferenceImage true applies when that person or character appears as the subject, reflection, visible face, visible body, or visible body part.",
     "- Selfie, mirror selfie, portrait, and creator-in-frame scenes are person-visible scenes for selected person references.",
+    "- Do not turn object closeups, POV shots, food, phone/app, sink, or routine detail scenes into person-visible scenes just because a person reference is selected.",
     "- Set useReferenceImage false for a slide when selected reference assets are background context for the slideshow.",
     "",
     "BRAND CONTEXT:",
@@ -511,6 +514,9 @@ export function buildOverlayPlannerPrompt(args: PromptArgs): string {
     "PRODUCTION MODE:",
     "- Use renderingMode exactly: background_plus_overlay.",
     "- Plan on-screen copy and one visual purpose per slide.",
+    "- Each slide purpose should preserve the paired scene cue from the user prompt, including subject, setting, action, camera/framing, and reference visibility when specified.",
+    "- Preserve object/detail scenes as object/detail scenes unless the user explicitly says a person, reflection, body, hand, or selfie is visible.",
+    "- Do not add hands, faces, bodies, or reflections to object/detail scenes when the user only names the object or place.",
     "- visualSystem summarizes the image style requested by the user.",
     "",
     "SLIDE COPY:",
@@ -575,10 +581,9 @@ export function buildImagePromptWriterPrompt(args: ImagePromptWriterArgs): strin
     ...referenceLines,
     "- useReferenceImage true means selected reference assets are attached to that slide generation.",
     "- useReferenceImage false means visual continuity comes from the written prompt, visualSystem, scene, objects, and style.",
-    "- The Reference usage section contains exactly one sentence.",
-    "- For useReferenceImage true, use this sentence pattern: Use selected reference assets for [subject, character, identity, or style].",
-    "- For useReferenceImage false, use this sentence pattern: Visual continuity comes from [style, scene, object, or camera sources].",
-    "- For useReferenceImage false, that sentence names the style, scene, object, or camera sources guiding the slide.",
+    "- For useReferenceImage true, write as if the selected reference assets are the visible subject, character, or style source; avoid weak wording like 'resembling the reference'.",
+    "- For useReferenceImage false, do not mention selected reference assets in the image prompt.",
+    "- For useReferenceImage false object/detail scenes, do not add a creator, person, face, body, hand, or reflection unless the current slide purpose explicitly includes one.",
     "",
     "BRAND CONTEXT:",
     `Brand: ${args.brand.name}`,
@@ -594,8 +599,12 @@ export function buildImagePromptWriterPrompt(args: ImagePromptWriterArgs): strin
     "PROMPT WRITING:",
     "- Treat the user prompt and slideshow plan as the source material.",
     "- Preserve concrete user-specified style, subjects, camera angles, text, colors, references, and examples.",
-    "- Add only the visual details needed to make the slide render clearly.",
-    "- Write direct prompts with concrete subjects, setting, objects, composition, lighting, camera/framing, style, and reference usage.",
+    "- Faithfully expand compact scene cues into plausible visual specifics that match the user's stated aesthetic.",
+    "- Prefer concrete visible details over abstract labels like motivating, premium, cinematic, or professional.",
+    "- Name setting-specific objects, materials, textures, and spatial relationships instead of broad categories.",
+    "- Add grounded details for setting, objects, composition, lighting, camera/framing, style, and reference usage when they help the image render clearly.",
+    "- Avoid adding inferred emotions, body transformations, or narrative labels when concrete camera-visible details would be more useful.",
+    "- Avoid generic stock-photo staging unless the user asked for it.",
   ];
 
   const modeLines = args.requestedRenderingMode === "full_graphic_generation"
@@ -616,9 +625,14 @@ export function buildImagePromptWriterPrompt(args: ImagePromptWriterArgs): strin
         "BACKGROUND PROMPTS:",
         "- Use renderingMode exactly: background_plus_overlay.",
         "- Return visualBrief and one backgroundPrompt for each slideId in the slideshow plan.",
-        "- backgroundPrompt describes the generated picture: scene, subject, setting, action, objects, lighting, palette, mood, camera/framing, style, and reference usage.",
+        "- backgroundPrompt describes only the generated picture: scene, subject, setting, action, objects, lighting, palette, mood, camera/framing, style, and reference usage.",
         "- On-screen copy belongs to textBlocks; backgroundPrompt focuses on the photo or illustration content.",
-        "- Write backgroundPrompt as one plain text prompt using markdown-style section headings in this exact order: ### Create, ### Scene, ### Camera and framing, ### Visual style, ### Reference usage.",
+        "- Write backgroundPrompt as natural plain text, usually one or two concise paragraphs. Do not use markdown headings or production checklist labels.",
+        "- For candid, UGC, camera-roll, selfie, POV, or phone-photo requests, expand with lived-in details such as imperfect crop, mundane surroundings, visible clutter, reflections, motion blur, low light, phone-camera grain, and non-centered handheld framing when appropriate.",
+        "- For realistic public spaces, include incidental background activity when it fits the user's brief.",
+        "- Do not over-constrain identity visibility; let normal phone-photo framing apply unless the user asks for a clear portrait.",
+        "- Do not request slide headlines, captions, typography, labels, or designed text overlays in overlay background images.",
+        "- Fixed app, phone, screenshot, or CTA placeholder scenes may include realistic UI text only inside the photographed/screenshot content.",
       ];
 
   return [
@@ -670,10 +684,9 @@ export function buildSingleImagePromptWriterPrompt(args: SingleImagePromptWriter
     ...referenceLines,
     "- useReferenceImage true means selected reference assets are attached to this slide generation.",
     "- useReferenceImage false means visual continuity comes from the written prompt, visualSystem, scene, objects, and style.",
-    "- The Reference usage section contains exactly one sentence.",
-    "- For useReferenceImage true, use this sentence pattern: Use selected reference assets for [subject, character, identity, or style].",
-    "- For useReferenceImage false, use this sentence pattern: Visual continuity comes from [style, scene, object, or camera sources].",
-    "- For useReferenceImage false, that sentence names the style, scene, object, or camera sources guiding the slide.",
+    "- For useReferenceImage true, write as if the selected reference assets are the visible subject, character, or style source; avoid weak wording like 'resembling the reference'.",
+    "- For useReferenceImage false, do not mention selected reference assets in the image prompt.",
+    "- For useReferenceImage false object/detail scenes, do not add a creator, person, face, body, hand, or reflection unless the current slide purpose explicitly includes one.",
     "",
     "BRAND CONTEXT:",
     `Brand: ${args.brand.name}`,
@@ -692,8 +705,12 @@ export function buildSingleImagePromptWriterPrompt(args: SingleImagePromptWriter
     "PROMPT WRITING:",
     "- Treat the user prompt, slideshow plan, and current slide as the source material.",
     "- Preserve concrete user-specified style, subjects, camera angles, text, colors, references, and examples.",
-    "- Add only the visual details needed to make the slide render clearly.",
-    "- Write a direct prompt with concrete subjects, setting, objects, composition, lighting, camera/framing, style, and reference usage.",
+    "- Faithfully expand compact scene cues into plausible visual specifics that match the user's stated aesthetic.",
+    "- Prefer concrete visible details over abstract labels like motivating, premium, cinematic, or professional.",
+    "- Name setting-specific objects, materials, textures, and spatial relationships instead of broad categories.",
+    "- Add grounded details for setting, objects, composition, lighting, camera/framing, style, and reference usage when they help the image render clearly.",
+    "- Avoid adding inferred emotions, body transformations, or narrative labels when concrete camera-visible details would be more useful.",
+    "- Avoid generic stock-photo staging unless the user asked for it.",
   ];
 
   const modeLines = args.requestedRenderingMode === "full_graphic_generation"
@@ -712,9 +729,14 @@ export function buildSingleImagePromptWriterPrompt(args: SingleImagePromptWriter
         "",
         "BACKGROUND PROMPT:",
         "- Return visualBrief and one backgroundPrompt for the current slideId.",
-        "- backgroundPrompt describes the generated picture: scene, subject, setting, action, objects, lighting, palette, mood, camera/framing, style, and reference usage.",
+        "- backgroundPrompt describes only the generated picture: scene, subject, setting, action, objects, lighting, palette, mood, camera/framing, style, and reference usage.",
         "- On-screen copy belongs to textBlocks; backgroundPrompt focuses on the photo or illustration content.",
-        "- Write backgroundPrompt as one plain text prompt using markdown-style section headings in this exact order: ### Create, ### Scene, ### Camera and framing, ### Visual style, ### Reference usage.",
+        "- Write backgroundPrompt as natural plain text, usually one or two concise paragraphs. Do not use markdown headings or production checklist labels.",
+        "- For candid, UGC, camera-roll, selfie, POV, or phone-photo requests, expand with lived-in details such as imperfect crop, mundane surroundings, visible clutter, reflections, motion blur, low light, phone-camera grain, and non-centered handheld framing when appropriate.",
+        "- For realistic public spaces, include incidental background activity when it fits the user's brief.",
+        "- Do not over-constrain identity visibility; let normal phone-photo framing apply unless the user asks for a clear portrait.",
+        "- Do not request slide headlines, captions, typography, labels, or designed text overlays in overlay background images.",
+        "- Fixed app, phone, screenshot, or CTA placeholder scenes may include realistic UI text only inside the photographed/screenshot content.",
       ];
 
   return [

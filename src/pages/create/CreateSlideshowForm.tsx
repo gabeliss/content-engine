@@ -21,8 +21,8 @@ export function CreateSlideshowForm({
 }: CreateSlideshowFormProps) {
   return (
     <FormPanel title="Generate Slideshow Preview" onSubmit={actions.handleSubmit}>
-      <div className="col-span-full grid items-stretch gap-[var(--space-4)] min-[901px]:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
-        <div className="grid content-start gap-[var(--space-3)]">
+      <div className="col-span-full grid min-w-0 items-stretch gap-[var(--space-4)] min-[901px]:grid-cols-[minmax(14rem,22rem)_minmax(0,1fr)]">
+        <div className="grid min-w-0 content-start gap-[var(--space-3)]">
           <Select label="Brand" value={form.selectedBrandId} onChange={actions.setBrandId}>
             <option value="">Select brand</option>
             {brands?.map((brand) => (

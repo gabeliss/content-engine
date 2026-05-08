@@ -14,6 +14,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { storeGeneratedAsset } from "./assetStorage";
 import {
   buildFullGraphicPlannerPrompt,
+  IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
   buildOverlayPlannerPrompt,
   buildSingleImagePromptWriterPrompt,
   normalizePlan,
@@ -149,29 +150,13 @@ function plannerReferenceFromAsset(
 async function referenceImagesFromAssets(
   assets: Doc<"brandAssets">[]
 ): Promise<ReferenceAsset[]> {
-  const references: ReferenceAsset[] = [];
-
-  for (const asset of assets) {
-    try {
-      const response = await fetch(asset.storageUrl);
-      if (!response.ok) continue;
-      const arrayBuffer = await response.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let index = 0; index < bytes.length; index += 1) {
-        binary += String.fromCharCode(bytes[index]);
-      }
-      references.push({
-        base64Data: btoa(binary),
-        mimeType: response.headers.get("content-type") || "image/png",
-        description: asset.description || asset.name,
-      });
-    } catch {
-      // A missing reference should not fail the whole generation request.
-    }
-  }
-
-  return references;
+  return assets
+    .filter((asset) => asset.storageUrl.trim())
+    .map((asset) => ({
+      url: asset.storageUrl,
+      mimeType: "image/png",
+      description: asset.description || asset.name,
+    }));
 }
 
 async function createRequestArtifact(
@@ -997,7 +982,7 @@ export const execute = internalAction({
         : [];
       const imagePromptSlides = await Promise.all(rawSlides.map(async (slide) => {
         const imagePrompt = await textProvider.generateStructured<SingleImagePromptWriterOutput>({
-          systemPrompt: "You are a specialist image prompt writer for short-form social visuals. You write plain-text image generation prompts with markdown section headings inside JSON string fields.",
+          systemPrompt: IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
           prompt: buildSingleImagePromptWriterPrompt({
             prompt: context.request.prompt,
             revisionPrompt: context.request.revisionPrompt,

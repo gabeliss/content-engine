@@ -542,15 +542,12 @@ Reason:
 
 ## Next Recommended Steps
 
-1. Run the UI test for the camera-roll gym girl prompt above.
-2. Inspect `contentRequests -> plan`.
-3. Confirm `useReferenceImage` values match visible subject usage.
-4. Confirm overlay background prompts do not ask the image model for rendered text.
-5. Generate images and compare authenticity against the viral TikTok examples.
-6. Regenerate individual object slides with reference unchecked.
-7. Regenerate individual creator-visible slides with reference checked.
-8. If the plan is good but image output is still too AI-like, improve the user prompt rather than expanding the system prompt.
-9. Consider building a prompt-assistant workflow before starting video generation, because better prompt authoring will improve every downstream generation mode.
+1. Keep testing prompt-driven slideshow creation across more niches before adding niche-specific logic.
+2. Add a prompt-assistant workflow that can turn vague slideshow ideas, screenshots, or references into explicit per-slide creative briefs.
+3. Add first-class CTA/fixed-media slide support instead of making the image model invent app screenshot slides.
+4. Improve individual slide regeneration UX, because selective slide iteration is now the expected path from good first draft to postable output.
+5. Consider showing a pre-generation mode summary/warning so users do not confuse background+overlay with full graphic generation.
+6. Keep full-graphic exercise tests around as regression tests for typography, character consistency, and concrete exercise mechanics.
 
 ## Big Picture Direction
 
@@ -566,3 +563,100 @@ The platform should become a general content generation engine where:
 
 The main risk to avoid is turning the planner into a hidden template system. The planner should understand the user's prompt, keep what is specified, and fill missing pieces conservatively.
 
+## Latest Image Prompt Writer Update
+
+After reviewing the first camera-roll UI output, we concluded that overlay image prompts were still too rigid and checklist-like. The prompt writer has now been adjusted so `background_plus_overlay` prompts are natural plain-text image descriptions instead of mandatory `### Create / ### Scene / ### Camera...` sections.
+
+Key changes:
+
+- Overlay prompt section-heading validation was removed; full-graphic prompt section validation remains.
+- The image-prompt writer system prompt now asks for natural, concrete, faithful expansion of the user brief instead of rigid templates.
+- Overlay background prompts now preserve app-rendered text separation while describing lived-in visual details such as imperfect crop, clutter, reflections, grain, lighting, and handheld framing when the user asks for camera-roll/UGC style.
+- Planner instructions now preserve paired scene cues in each slide `purpose` and avoid turning object/detail scenes into person/reference scenes just because a person reference is selected.
+- Fixed app/phone/screenshot/CTA placeholder prompts can include UI text inside the screen content without using the generic "No text or graphic overlays" ending.
+
+Latest dry run against the 7-slide gym girl camera-roll prompt produced the target planning behavior:
+
+- 7 slides.
+- Primary text preserved exactly.
+- No invented secondary text or bullets.
+- Slide 1 and 2 use the gym girl reference.
+- Slides 3-7 do not use the gym girl reference.
+- Overlay background prompts are natural prose, not markdown-section checklists.
+- Slide 5 remains a bathroom sink/toothbrush scene rather than a selected-person reference scene.
+
+## Latest UI Test Results
+
+### Camera-Roll Overlay Test
+
+The 7-slide fitness camera-roll prompt was run in `background_plus_overlay` mode with the generated `Gym Girl v2` reference selected.
+
+Result:
+
+- The output was a meaningful improvement over earlier polished/staged generations.
+- Slide sequence read like a real camera roll: gym mirror selfie, outdoor run selfie, fruit bowl, app/phone, bathroom sink, meal prep, treadmill.
+- Reference usage worked as intended: creator-visible slides used the person reference, while object/detail slides did not.
+- Object/detail slides were stronger and more believable after the natural prose prompt-writer update.
+- Remaining issues were normal per-slide quality issues rather than architecture issues: slide 2 had some identity drift, and slide 7 leaned toward phone/app tracking instead of pure treadmill POV.
+
+Conclusion:
+
+- `background_plus_overlay` is now viable for UGC/camera-roll style slideshows when the user prompt gives clear scene sequencing.
+- The next product improvement is selective slide regeneration and prompt-assistant support, not expanding system prompts.
+
+### Full Graphic Yellow Mascot Test
+
+The yellow mascot wide-back exercise slideshow was rerun in `full_graphic_generation` mode with the yellow mascot reference selected. The prompt removed the old "Save for later" badge requirement and instead focused on:
+
+- Complete vertical 9:16 comic fitness posters.
+- Consistent yellow superhero mascot as the main character.
+- Clean light gray background.
+- Chunky black typography with yellow highlight words.
+- Concrete exercise mechanics for pull-ups, lat pulldowns, seated cable rows, single-arm dumbbell rows, and chest-supported dumbbell rows.
+
+Result:
+
+- The output looked solid and usable.
+- Mascot consistency was good enough across slides.
+- The poster system was coherent.
+- Slide 3 seated cable rows was especially strong: clear equipment, clear body mechanics, readable text.
+- Slide 4 single-arm dumbbell rows and slide 5 chest-supported rows were much closer than earlier attempts.
+- Typography still varied somewhat, and side-card carousel dimming makes final inspection slide-by-slide important.
+
+Conclusion:
+
+- Full graphic mode is viable when the user prompt gives explicit visual system details and concrete subject/equipment mechanics.
+- The old badge instruction should not be included by default; it distracts from the actual content unless the user asks for it.
+
+## Latest Technical Fixes
+
+### Reference Image Memory Fix
+
+We hit this Convex error during generation:
+
+```text
+JavaScript execution ran out of memory (maximum memory usage: 64 MB)
+```
+
+Root cause:
+
+- `content/requests:execute` fetched selected reference assets and converted them to base64 strings inside the Convex action.
+- Large reference/source images can exceed Convex's 64 MB action memory limit.
+
+Fix:
+
+- `ReferenceAsset` now supports URL references.
+- Slideshow execution now passes Convex storage URLs to fal.ai instead of materializing reference images as base64 in Convex.
+- fal reference image handling now prefers URLs and only falls back to base64 data URLs when provided.
+- Gemini still requires base64 reference images and now fails explicitly if URL-only references are sent to it.
+
+### Create Page Layout Fix
+
+The create/dashboard pages briefly had horizontal overflow and clipped content after reference assets were added and layout tweaks were attempted.
+
+Current intent:
+
+- The app shell uses normal sidebar + shrinkable workspace grid behavior.
+- Top-level grids use shrink-safe/autofit columns where needed.
+- Reference cards are small fixed-width cards inside an internal horizontal scroll strip, rather than stretching to fill the whole row.
+- The whole page should not rely on hidden horizontal overflow to mask layout bugs.

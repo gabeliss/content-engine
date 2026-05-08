@@ -57,12 +57,14 @@
 
   html {
     min-width: 320px;
+    overflow-x: hidden;
     text-size-adjust: 100%;
   }
 
   body {
     margin: 0;
     min-width: 320px;
+    overflow-x: hidden;
     background:
       linear-gradient(180deg, var(--color-page) 0%, var(--color-page-quiet) 100%);
     color: var(--color-ink);

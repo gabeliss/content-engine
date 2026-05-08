@@ -228,7 +228,10 @@ export const overlaySlideshowPlanSchema = {
         required: ["slideId", "purpose", "useReferenceImage", "primaryText", "secondaryText", "bullets", "layout"],
         properties: {
           slideId: { type: "string" },
-          purpose: { type: "string" },
+          purpose: {
+            type: "string",
+            description: "The paired visual scene for this slide, preserving user-specified subject, setting, action, camera/framing, and reference visibility.",
+          },
           useReferenceImage: {
             type: "boolean",
             description: "True when selected reference assets are part of this slide image generation.",
@@ -305,7 +308,7 @@ export const overlayImagePromptWriterSchema = {
           },
           backgroundPrompt: {
             type: "string",
-            description: "A direct image generation prompt for the slide picture with scene, subject, setting, objects, composition, lighting, camera/framing, style, and reference usage.",
+            description: "A natural plain-text image generation prompt for the slide picture with concrete scene, subject, setting, objects, composition, lighting, camera/framing, style, and reference usage. Do not require markdown headings.",
           },
         },
       },
@@ -355,7 +358,7 @@ export const singleOverlayImagePromptWriterSchema = {
     },
     backgroundPrompt: {
       type: "string",
-      description: "A direct image generation prompt for the slide picture. Write as one plain text prompt using markdown-style section headings: ### Create, ### Scene, ### Camera and framing, ### Visual style, ### Reference usage.",
+      description: "A natural plain-text image generation prompt for the slide picture with concrete scene, subject, setting, objects, composition, lighting, camera/framing, style, and reference usage. Do not use markdown headings or production checklist labels.",
     },
   },
 };

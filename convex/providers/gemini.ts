@@ -196,6 +196,9 @@ async function generateGeminiImage(
         > = [];
 
         for (const referenceImage of input.referenceImages ?? []) {
+          if (!referenceImage.base64Data) {
+            throw new Error("Gemini reference images must include base64Data");
+          }
           parts.push({
             inlineData: {
               mimeType: referenceImage.mimeType,

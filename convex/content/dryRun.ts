@@ -4,6 +4,7 @@ import type { Doc } from "../_generated/dataModel";
 import { getModelProvider } from "../providers/index";
 import {
   buildFullGraphicPlannerPrompt,
+  IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
   buildOverlayPlannerPrompt,
   buildSingleImagePromptWriterPrompt,
   normalizePlan,
@@ -109,7 +110,7 @@ export const slideshowPromptPlan = action({
       : [];
     const imagePromptResults = await Promise.all(rawSlides.map(async (slide) => {
       return await textProvider.generateStructured<SingleImagePromptWriterOutput>({
-        systemPrompt: "You are a specialist image prompt writer for short-form social visuals. You write plain-text image generation prompts with markdown section headings inside JSON string fields.",
+        systemPrompt: IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
         prompt: buildSingleImagePromptWriterPrompt({
           prompt: args.prompt,
           revisionPrompt: args.revisionPrompt,
