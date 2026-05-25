@@ -299,6 +299,18 @@ Retention settings should support:
 MCP should be designed as a first-class external integration surface. It should
 use the same backend APIs and domain model as the app.
 
+Auth and access model:
+
+- The canonical auth plan is documented in
+  [MCP Auth And Access Model](./mcp-auth-access-model.md).
+- V1 MCP access should use user-owned API keys sent as bearer tokens.
+- Clerk/OAuth bearer tokens can be added later for delegated HTTP MCP clients.
+- Server-side app tokens should not be used for user-facing MCP access.
+- Every MCP request must resolve to one Content Engine user and enforce scopes
+  plus entity ownership before reading or mutating data.
+- Publishing through MCP must require an explicit publishing scope and continue
+  to respect workflow approval/publishing policies.
+
 Initial MCP resources:
 
 - Product architecture guide.
@@ -1522,7 +1534,7 @@ Goal: let external AI agents create, edit, run, and inspect workflows.
 
 #### SW-0801: Define MCP auth and access model
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1533,6 +1545,16 @@ Acceptance criteria:
 
 - MCP can be used as a real external integration surface.
 - Security model is documented before tools mutate data.
+
+Implementation notes:
+
+- Added `docs/mcp-auth-access-model.md` with the chosen credential model,
+  identity mapping, scopes, access classes, authorization checks, audit
+  requirements, local development behavior, and implementation implications.
+- Decided that v1 MCP should use user-owned API keys, with Clerk/OAuth bearer
+  tokens later for clients that support delegated HTTP auth.
+- Rejected server-side app tokens for user-facing MCP because they bypass the
+  user boundary unless every tool recreates identity scoping manually.
 
 #### SW-0802: Add MCP resources
 
