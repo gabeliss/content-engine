@@ -965,7 +965,7 @@ Implementation notes:
 
 #### SW-0503: LLM node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -976,6 +976,21 @@ Deliverables:
 Acceptance criteria:
 
 - LLM node can produce text artifacts for downstream nodes.
+
+Implementation notes:
+
+- The workflow runner now treats `llm` as a real executable node instead of a
+  placeholder.
+- LLM execution resolves provider/model from the graph node, then calls the
+  registered model provider adapter for text or structured JSON generation.
+- Prompt execution supports `systemPrompt`, `prompt`, and upstream `context`
+  inputs, including prompt-from-input style bindings through the shared input
+  resolver.
+- LLM outputs are saved as retained `text_draft` artifacts according to the
+  workflow/node retention policy and emit `text`, `prompt`, and optional `json`
+  output refs for downstream nodes.
+- Runner events now record model-call metadata, generated artifact IDs, output
+  ports, and provider cost where returned.
 
 #### SW-0504: AI Agent node
 

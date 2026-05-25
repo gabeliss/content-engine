@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { getModelProvider } from "../providers";
+import type { ModelProviderName } from "../providers/model";
 import { artifactLifecycleValidator, workflowGraphValidator } from "../validators";
 
 type WorkflowGraphForRun = typeof workflowGraphValidator.type;
@@ -150,6 +152,14 @@ function isMediaNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "media";
 }
 
+function isLlmNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "llm";
+}
+
+function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
+  return isMediaNode(node) || isLlmNode(node);
+}
+
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -167,6 +177,125 @@ function stringFromValue(value: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+function textFromInputValue(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const text = value.flatMap((item) => {
+      const itemText = textFromInputValue(item);
+      return itemText ? [itemText] : [];
+    }).join("\n\n");
+    return text.trim() || undefined;
+  }
+  if (!value || typeof value !== "object") return undefined;
+
+  const data = value as Record<string, unknown>;
+  for (const key of ["prompt", "text", "content", "caption", "script"]) {
+    const candidate = textFromInputValue(data[key]);
+    if (candidate) return candidate;
+  }
+
+  if (data.data && typeof data.data === "object") {
+    const nestedText = textFromInputValue(data.data);
+    if (nestedText) return nestedText;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+function numberFromInputValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function modelProviderNameForNode(node: WorkflowGraphNodeForRun): ModelProviderName {
+  switch (node.provider) {
+    case "bulkapis":
+    case "gemini":
+    case "fal":
+    case "openrouter":
+    case "manual":
+      return node.provider;
+    default:
+      return "bulkapis";
+  }
+}
+
+function llmResponseFormat(value: unknown): "text" | "json" {
+  return value === "json" ||
+    value === "json_object" ||
+    value === "structured" ||
+    value === "schema"
+    ? "json"
+    : "text";
+}
+
+function providerOverridesFromConfig(config: Record<string, unknown>) {
+  const overrides = {
+    ...objectValue(config.bulkapisInput),
+    ...objectValue(config.providerInput),
+  };
+  const seed = numberFromInputValue(config.seed);
+  if (seed !== undefined) overrides.seed = seed;
+  return overrides;
+}
+
+function llmOutputRefsForNode(args: {
+  nodeId: string;
+  artifactId: Id<"artifacts">;
+  text: string;
+  responseFormat: "text" | "json";
+  object?: unknown;
+}) {
+  const baseValue = {
+    artifactId: args.artifactId,
+    text: args.text,
+    prompt: args.text,
+    responseFormat: args.responseFormat,
+    ...(args.object !== undefined ? { json: args.object } : {}),
+  };
+
+  return [
+    {
+      nodeId: args.nodeId,
+      port: "text",
+      artifactIds: [args.artifactId],
+      value: baseValue,
+    },
+    ...(args.object !== undefined
+      ? [{
+          nodeId: args.nodeId,
+          port: "json",
+          artifactIds: [args.artifactId],
+          value: {
+            artifactId: args.artifactId,
+            json: args.object,
+            text: args.text,
+            responseFormat: args.responseFormat,
+          },
+        }]
+      : []),
+    {
+      nodeId: args.nodeId,
+      port: "prompt",
+      artifactIds: [args.artifactId],
+      value: {
+        artifactId: args.artifactId,
+        prompt: args.text,
+        text: args.text,
+        responseFormat: args.responseFormat,
+      },
+    },
+  ];
 }
 
 function artifactIdsFromInputs(
@@ -374,6 +503,7 @@ export const executeRun = internalAction({
     const finalPackageArtifactIds = new Set<Id<"artifacts">>();
     let executedNodeCount = 0;
     let passCount = 0;
+    let totalCostUsd = 0;
 
     await ctx.runMutation(internal.workflows.runs.transitionRun, {
       runId: context.run._id,
@@ -469,7 +599,7 @@ export const executeRun = internalAction({
             data: {
               nodeType: node.type,
               inputSummary: resolvedInputs.summary,
-              placeholderExecution: !isMediaNode(node),
+              placeholderExecution: !isImplementedNode(node),
             },
           });
 
@@ -500,6 +630,157 @@ export const executeRun = internalAction({
               data: {
                 nodeType: node.type,
                 mediaCount: mediaItems.length,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isLlmNode(node)) {
+            const config = objectValue(node.config);
+            const inputs = resolvedInputs.inputs ?? {};
+            const providerName = modelProviderNameForNode(node);
+            const provider = getModelProvider(providerName);
+            const responseFormat = llmResponseFormat(inputs.responseFormat?.value);
+            const prompt = textFromInputValue(inputs.prompt?.value);
+            const contextText = textFromInputValue(inputs.context?.value);
+            const systemPrompt = textFromInputValue(inputs.systemPrompt?.value);
+            const userPrompt = [contextText ? `Context:\n${contextText}` : undefined, prompt]
+              .filter(Boolean)
+              .join("\n\n");
+            const model =
+              typeof node.model === "string" && node.model.trim()
+                ? node.model.trim()
+                : textFromInputValue(inputs.model?.value);
+            const temperature = numberFromInputValue(inputs.temperature?.value);
+            const maxTokens = numberFromInputValue(inputs.maxTokens?.value);
+            const providerOverrides = providerOverridesFromConfig(config);
+            const providerMetadata = {
+              workflowId: String(context.workflow._id),
+              workflowRunId: String(context.run._id),
+              nodeId: node.id,
+              nodeType: node.type,
+              ...(Object.keys(providerOverrides).length
+                ? { bulkapisInput: providerOverrides }
+                : {}),
+            };
+
+            if (!userPrompt.trim()) {
+              throw new Error(`${node.label} needs a prompt or context input.`);
+            }
+            if (!provider.capabilities.text) {
+              throw new Error(`${provider.displayName} does not support text generation.`);
+            }
+            if (responseFormat === "json" && !provider.capabilities.structured) {
+              throw new Error(`${provider.displayName} does not support structured generation.`);
+            }
+
+            const textResult =
+              responseFormat === "json"
+                ? await provider.generateStructured<unknown>({
+                    prompt: userPrompt,
+                    systemPrompt,
+                    model,
+                    temperature,
+                    maxTokens,
+                    schema: config.schema ?? config.jsonSchema ?? config.outputSchema,
+                    schemaName:
+                      typeof config.schemaName === "string" && config.schemaName.trim()
+                        ? config.schemaName.trim()
+                        : "workflow_llm_output",
+                    metadata: providerMetadata,
+                  })
+                : await provider.generateText({
+                    prompt: userPrompt,
+                    systemPrompt,
+                    model,
+                    temperature,
+                    maxTokens,
+                    metadata: providerMetadata,
+                  });
+            const outputText = textResult.text.trim();
+            const outputObject = "object" in textResult ? textResult.object : undefined;
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const artifactId = await ctx.runMutation(
+              internal.artifacts.records.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                parentArtifactIds: artifactIdsFromInputs(resolvedInputs, [
+                  "context",
+                  "input",
+                ]),
+                type: "text_draft",
+                title: `${node.label} output`,
+                data: {
+                  nodeId: node.id,
+                  nodeType: node.type,
+                  responseFormat,
+                  text: outputText,
+                  ...(outputObject !== undefined ? { json: outputObject } : {}),
+                  inputSummary: resolvedInputs.summary,
+                  providerMetadata: textResult.metadata,
+                },
+                provider: textResult.metadata.provider,
+                model: textResult.metadata.model,
+                prompt: userPrompt,
+                lifecycle,
+                reviewStatus: "not_required",
+              }
+            );
+            emittedArtifactIds.add(artifactId);
+
+            const outputRefs = llmOutputRefsForNode({
+              nodeId: node.id,
+              artifactId,
+              text: outputText,
+              responseFormat,
+              object: outputObject,
+            });
+            const costUsd = textResult.metadata.costUsd ?? 0;
+            totalCostUsd += costUsd;
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd,
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "model_call",
+              nodeId: node.id,
+              message: `${node.label} called ${provider.displayName}.`,
+              data: {
+                provider: textResult.metadata.provider,
+                model: textResult.metadata.model,
+                usage: textResult.metadata.usage,
+                costUsd,
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} generated ${responseFormat === "json" ? "structured output" : "text"}.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactId,
+                provider: textResult.metadata.provider,
+                model: textResult.metadata.model,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },
@@ -693,11 +974,12 @@ export const executeRun = internalAction({
       workflowRunId: context.run._id,
       workflowId: context.workflow._id,
       type: "node_completed",
-      message: "Workflow graph completed placeholder execution.",
+      message: "Workflow graph completed execution.",
       data: {
         executedNodeCount,
         finalPackageArtifactIds: [...finalPackageArtifactIds],
         passCount,
+        costUsd: totalCostUsd,
         skippedUnreachableNodeIds: graph.nodes
           .filter((node) => !reachableNodeIds.has(node.id))
           .map((node) => node.id),
@@ -708,7 +990,7 @@ export const executeRun = internalAction({
       runId: context.run._id,
       status: "completed",
       summary: `Executed ${executedNodeCount} workflow nodes.`,
-      costUsd: 0,
+      costUsd: totalCostUsd,
       completedAt: Date.now(),
     });
   },
