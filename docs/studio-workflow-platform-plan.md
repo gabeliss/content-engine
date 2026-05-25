@@ -1469,7 +1469,7 @@ Implementation notes:
 
 #### SW-0703: Convert Create into prompt-to-workflow draft
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1480,6 +1480,19 @@ Acceptance criteria:
 
 - Create uses workflow engine.
 - Existing one-off slideshow path is either migrated or wrapped.
+
+Implementation notes:
+
+- Replaced the Create page's independent one-off slideshow request flow with a
+  prompt-to-workflow draft creator.
+- Create now selects brand/account, template, optional workflow name, and a
+  content idea, then creates a workflow from the selected template and opens the
+  workflow canvas.
+- Template graph creation can now hydrate placeholder prompt values from the
+  Create content idea before cloning the graph.
+- Removed the old Create-only slideshow form, request list, plan panel,
+  reference picker, preview panel, create hook, and editable create preview
+  export from the frontend.
 
 #### SW-0704: Add "turn run into workflow" behavior
 
