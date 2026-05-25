@@ -6,6 +6,8 @@ import {
   artifactTypeValidator,
   contentRequestStatusValidator,
   contentFormatValidator,
+  creativeAssetKindValidator,
+  creativeAssetMediaTypeValidator,
   distributionStatusValidator,
   metricsValidator,
   modelProviderValidator,
@@ -48,26 +50,22 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_active", ["userId", "isActive"]),
 
-  brandAssets: defineTable({
+  creativeAssets: defineTable({
     userId: v.string(),
     brandId: v.id("brands"),
     name: v.string(),
-    type: v.union(
-      v.literal("character"),
-      v.literal("person"),
-      v.literal("logo"),
-      v.literal("style_reference"),
-      v.literal("product"),
-      v.literal("other")
-    ),
+    assetKind: creativeAssetKindValidator,
+    mediaType: creativeAssetMediaTypeValidator,
     storageUrl: v.string(),
     description: v.optional(v.string()),
+    usageNotes: v.optional(v.string()),
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_brand", ["brandId"]),
+    .index("by_brand", ["brandId"])
+    .index("by_brand_kind", ["brandId", "assetKind"]),
 
   providerConnections: defineTable({
     userId: v.string(),
@@ -173,7 +171,7 @@ export default defineSchema({
     referenceAssets: v.optional(
       v.array(
         v.object({
-          assetId: v.id("brandAssets"),
+          assetId: v.id("creativeAssets"),
           instruction: v.optional(v.string()),
         })
       )

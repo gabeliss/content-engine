@@ -61,6 +61,25 @@ export const platformValidator = v.union(
   v.literal("pinterest")
 );
 
+export const creativeAssetKindValidator = v.union(
+  v.literal("product"),
+  v.literal("style_reference"),
+  v.literal("mascot"),
+  v.literal("persona"),
+  v.literal("voice"),
+  v.literal("logo"),
+  v.literal("character"),
+  v.literal("person"),
+  v.literal("other")
+);
+
+export const creativeAssetMediaTypeValidator = v.union(
+  v.literal("image"),
+  v.literal("video"),
+  v.literal("audio"),
+  v.literal("file")
+);
+
 export const socialAccountStatusValidator = v.union(
   v.literal("connected"),
   v.literal("disconnected"),

@@ -2,10 +2,11 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { api } from "../../../convex/_generated/api";
 import type {
-  BrandAssetId,
+  CreativeAssetId,
   BrandId,
   CanonicalSlideshowSlide,
   CanonicalSlideshowSpec,
+  CreativeAssetKind,
   SocialAccountId,
 } from "../../types";
 import { readFileAsDataUrl } from "./fileUtils";
@@ -22,8 +23,8 @@ export function useCreateSlideshow() {
   const contentRequests = useQuery(api.content.requests.list, {});
   const createSlideshow = useMutation(api.content.requests.createSlideshow);
   const uploadBase64Image = useAction(api.storage.files.uploadBase64Image);
-  const generateReferencePreview = useAction(api.accounts.brandAssets.generatePreview);
-  const createBrandAsset = useMutation(api.accounts.brandAssets.create);
+  const generateReferencePreview = useAction(api.accounts.creativeAssets.generatePreview);
+  const createCreativeAsset = useMutation(api.accounts.creativeAssets.create);
   const deleteStorageByUrl = useMutation(api.storage.files.deleteByUrl);
   const reviseSlideshow = useMutation(api.content.requests.reviseSlideshow);
   const saveRequest = useMutation(api.content.requests.save);
@@ -41,8 +42,10 @@ export function useCreateSlideshow() {
     useState<RequestedRenderingMode>("background_plus_overlay");
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [assetName, setAssetName] = useState("");
+  const [assetKind, setAssetKind] = useState<CreativeAssetKind>("style_reference");
   const [assetFile, setAssetFile] = useState<File | null>(null);
   const [aiAssetName, setAiAssetName] = useState("");
+  const [aiAssetKind, setAiAssetKind] = useState<CreativeAssetKind>("style_reference");
   const [aiAssetPrompt, setAiAssetPrompt] = useState("");
   const [aiPreview, setAiPreview] = useState<{ storageUrl: string; prompt: string } | null>(
     null
@@ -54,8 +57,8 @@ export function useCreateSlideshow() {
   const [statusMessage, setStatusMessage] = useState("");
 
   const selectedBrandId = brandId || brands?.[0]?._id || "";
-  const brandAssets = useQuery(
-    api.accounts.brandAssets.list,
+  const creativeAssets = useQuery(
+    api.accounts.creativeAssets.list,
     selectedBrandId ? { brandId: selectedBrandId as BrandId } : "skip"
   );
   const brandAccounts = useMemo(
@@ -126,10 +129,12 @@ export function useCreateSlideshow() {
         base64Data: await readFileAsDataUrl(assetFile),
         filename: assetFile.name,
       });
-      const assetId = await createBrandAsset({
+      const assetId = await createCreativeAsset({
         brandId: selectedBrandId as BrandId,
         name: assetName.trim(),
+        assetKind,
         storageUrl,
+        mimeType: assetFile.type || undefined,
       });
       setSelectedReferenceIds((current) => [...current, String(assetId)]);
       setAssetName("");
@@ -165,9 +170,10 @@ export function useCreateSlideshow() {
 
     setStatusMessage("Saving generated reference");
     try {
-      const assetId = await createBrandAsset({
+      const assetId = await createCreativeAsset({
         brandId: selectedBrandId as BrandId,
         name: aiAssetName.trim(),
+        assetKind: aiAssetKind,
         storageUrl: aiPreview.storageUrl,
         description: aiPreview.prompt,
       });
@@ -212,7 +218,7 @@ export function useCreateSlideshow() {
         prompt: prompt.trim(),
         requestedRenderingMode,
         referenceAssets: selectedReferenceIds.map((assetId) => ({
-          assetId: assetId as BrandAssetId,
+          assetId: assetId as CreativeAssetId,
         })),
       });
       setSelectedRequestId(String(requestId));
@@ -365,7 +371,7 @@ export function useCreateSlideshow() {
     data: {
       brands,
       brandAccounts,
-      brandAssets,
+      creativeAssets,
       contentRequests,
       activeRequest,
       activeSlideshow,
@@ -379,8 +385,10 @@ export function useCreateSlideshow() {
       requestedRenderingMode,
       selectedReferenceIds,
       assetName,
+      assetKind,
       assetFile,
       aiAssetName,
+      aiAssetKind,
       aiAssetPrompt,
       aiPreview,
       isGeneratingReference,
@@ -392,7 +400,9 @@ export function useCreateSlideshow() {
       setPrompt,
       setRequestedRenderingMode,
       setAssetName,
+      setAssetKind,
       setAiAssetName,
+      setAiAssetKind,
       setAiAssetPrompt,
       setReferenceComposer,
       toggleReference,

@@ -2,12 +2,12 @@ import { Sparkles } from "lucide-react";
 import { FormPanel, Select, TextArea } from "../../components/ui";
 import { ReferenceAssetsPanel } from "./ReferenceAssetsPanel";
 import type { CreateFormActions, CreateFormState, RequestedRenderingMode } from "./types";
-import type { BrandAssetDoc, BrandDoc, SocialAccountDoc } from "./viewTypes";
+import type { CreativeAssetDoc, BrandDoc, SocialAccountDoc } from "./viewTypes";
 
 type CreateSlideshowFormProps = {
   brands?: BrandDoc[];
   brandAccounts: SocialAccountDoc[];
-  brandAssets?: BrandAssetDoc[];
+  creativeAssets?: CreativeAssetDoc[];
   form: CreateFormState;
   actions: CreateFormActions;
 };
@@ -15,7 +15,7 @@ type CreateSlideshowFormProps = {
 export function CreateSlideshowForm({
   brands,
   brandAccounts,
-  brandAssets,
+  creativeAssets,
   form,
   actions,
 }: CreateSlideshowFormProps) {
@@ -65,7 +65,7 @@ export function CreateSlideshowForm({
         />
       </div>
 
-      <ReferenceAssetsPanel brandAssets={brandAssets} form={form} actions={actions} />
+      <ReferenceAssetsPanel creativeAssets={creativeAssets} form={form} actions={actions} />
 
       <div className="col-span-full flex justify-end border-t border-[var(--color-border)] pt-[var(--space-4)]">
         <button

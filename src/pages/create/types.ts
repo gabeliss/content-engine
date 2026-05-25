@@ -1,7 +1,7 @@
 import type { ChangeEvent, FormEvent } from "react";
-import type { CanonicalSlideshowSlide, SlideshowTextBlock } from "../../types";
+import type { CanonicalSlideshowSlide, CreativeAssetKind, SlideshowTextBlock } from "../../types";
 import type {
-  BrandAssetDoc,
+  CreativeAssetDoc,
   BrandDoc,
   ContentRequestDoc,
   SlideshowDoc,
@@ -51,7 +51,7 @@ export type SlideTextUpdate = {
 export type CreatePageData = {
   brands?: BrandDoc[];
   brandAccounts: SocialAccountDoc[];
-  brandAssets?: BrandAssetDoc[];
+  creativeAssets?: CreativeAssetDoc[];
   contentRequests?: ContentRequestDoc[];
   activeRequest?: ContentRequestDoc;
   activeSlideshow?: SlideshowDoc;
@@ -66,8 +66,10 @@ export type CreateFormState = {
   requestedRenderingMode: RequestedRenderingMode;
   selectedReferenceIds: string[];
   assetName: string;
+  assetKind: CreativeAssetKind;
   assetFile: File | null;
   aiAssetName: string;
+  aiAssetKind: CreativeAssetKind;
   aiAssetPrompt: string;
   aiPreview: GeneratedReferencePreview | null;
   isGeneratingReference: boolean;
@@ -80,7 +82,9 @@ export type CreateFormActions = {
   setPrompt: (value: string) => void;
   setRequestedRenderingMode: (value: RequestedRenderingMode) => void;
   setAssetName: (value: string) => void;
+  setAssetKind: (value: CreativeAssetKind) => void;
   setAiAssetName: (value: string) => void;
+  setAiAssetKind: (value: CreativeAssetKind) => void;
   setAiAssetPrompt: (value: string) => void;
   setReferenceComposer: (
     value: ReferenceComposer | ((current: ReferenceComposer) => ReferenceComposer)

@@ -62,7 +62,7 @@ type ArtifactDocForRun = Doc<"artifacts">;
 
 type MediaNodeItemForRun = {
   id: string;
-  source: "artifact" | "brand_asset" | "persona_asset" | "uploaded";
+  source: "artifact" | "creative_asset" | "uploaded";
   kind: MediaKindForRun;
   title?: string;
   storageUrl?: string;
@@ -4403,8 +4403,7 @@ export const resolveMediaNodeItems = internalQuery({
 
     const config = objectValue(node.config);
     const artifactIds = stringArrayFromConfig(config.artifactIds);
-    const brandAssetIds = stringArrayFromConfig(config.brandAssetIds);
-    const personaAssetIds = stringArrayFromConfig(config.personaAssetIds);
+    const creativeAssetIds = stringArrayFromConfig(config.creativeAssetIds);
     const items: MediaNodeItemForRun[] = [];
 
     for (const artifactId of artifactIds) {
@@ -4425,38 +4424,26 @@ export const resolveMediaNodeItems = internalQuery({
       });
     }
 
-    for (const assetId of brandAssetIds) {
-      const asset = await ctx.db.get(assetId as Id<"brandAssets">);
+    for (const assetId of creativeAssetIds) {
+      const asset = await ctx.db.get(assetId as Id<"creativeAssets">);
       if (!asset || asset.userId !== run.userId) continue;
 
       items.push({
         id: String(asset._id),
-        source: "brand_asset",
-        kind: "image",
+        source: "creative_asset",
+        kind: asset.mediaType === "image" ||
+          asset.mediaType === "video" ||
+          asset.mediaType === "audio"
+          ? asset.mediaType
+          : "media",
         title: asset.name,
         storageUrl: asset.storageUrl,
         metadata: {
-          assetType: asset.type,
+          assetKind: asset.assetKind,
+          mediaType: asset.mediaType,
           description: asset.description,
+          usageNotes: asset.usageNotes,
           metadata: asset.metadata,
-        },
-      });
-    }
-
-    for (const personaId of personaAssetIds) {
-      const persona = await ctx.db.get(personaId as Id<"brandAssets">);
-      if (!persona || persona.userId !== run.userId) continue;
-
-      items.push({
-        id: String(persona._id),
-        source: "persona_asset",
-        kind: "image",
-        title: persona.name,
-        storageUrl: persona.storageUrl,
-        metadata: {
-          assetType: persona.type,
-          description: persona.description,
-          metadata: persona.metadata,
         },
       });
     }

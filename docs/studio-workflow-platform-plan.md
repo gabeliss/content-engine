@@ -831,10 +831,10 @@ Acceptance criteria:
 Implementation notes:
 
 - Added a typed `nodeInputBindingValidator` for literal values, node outputs,
-  artifacts, media assets, and persona assets.
+  artifacts, creative assets, and persona assets.
 - Added a backend input resolver that combines node config, incoming graph
-  edges, explicit `inputBindings`, upstream node output refs, artifacts, brand
-  media assets, and persona-style brand assets into one resolved input map.
+  edges, explicit `inputBindings`, upstream node output refs, artifacts, and
+  reusable creative assets into one resolved input map.
 - The graph executor now resolves inputs before each placeholder node execution
   and records input summaries in node events.
 - Placeholder node execution now emits output refs for outbound ports so
@@ -951,14 +951,12 @@ Acceptance criteria:
 
 Implementation notes:
 
-- Media node config now uses explicit `artifactIds`, `brandAssetIds`,
-  `personaAssetIds`, and `uploadedMedia` arrays instead of one ambiguous asset
-  list.
+- Media node config now uses explicit `artifactIds`, `creativeAssetIds`, and
+  `uploadedMedia` arrays instead of one ambiguous asset list.
 - The canvas inspector exposes those fields in the Media node config section as
   structured editable JSON values.
 - The graph runner resolves Media node references into typed media items from
-  saved artifacts, reusable brand assets, persona-style brand assets, and
-  uploaded media URL records.
+  saved artifacts, reusable creative assets, and uploaded media URL records.
 - Media nodes now emit concrete `media`, `image`, `video`, and `audio` output
   refs with artifact IDs where available, so downstream nodes can consume media
   through the normal input resolver.
@@ -1309,18 +1307,29 @@ Implementation notes:
 
 Goal: create reusable creative identities and assets for workflow nodes.
 
-#### SW-0601: Rename and expand brand assets concept
+#### SW-0601: Rename and expand reusable asset concept
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
 - Introduce broader `creativeAssets` or `personas/assets` product model.
-- Preserve existing brand assets or migrate cleanly.
+- Replace the narrow reusable asset model cleanly.
 
 Acceptance criteria:
 
 - Product assets, style refs, mascots, personas, and voice refs can be stored.
+
+Implementation notes:
+
+- Replaced the old `brandAssets` table/API with `creativeAssets`, using
+  `assetKind` and `mediaType` fields so reusable assets can represent products,
+  style references, mascots, personas, voice references, logos, characters,
+  people, and other files.
+- Updated Create slideshow reference selection and workflow media nodes to use
+  `creativeAssetIds` instead of split brand/persona asset arrays.
+- Creative asset creation now accepts explicit asset kinds, infers media type
+  from MIME/URL data, and can store image, video, audio, or generic file media.
 
 #### SW-0602: Add persona model
 

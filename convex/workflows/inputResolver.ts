@@ -224,7 +224,7 @@ async function resolveBinding(
   }
 
   if (binding.type === "media_asset") {
-    const asset = await ctx.db.get(binding.assetId as Id<"brandAssets">);
+    const asset = await ctx.db.get(binding.assetId as Id<"creativeAssets">);
     if (!asset || asset.userId !== userId) {
       throw new Error("Bound media asset not found");
     }
@@ -234,16 +234,18 @@ async function resolveBinding(
       value: {
         assetId: asset._id,
         name: asset.name,
-        type: asset.type,
+        assetKind: asset.assetKind,
+        mediaType: asset.mediaType,
         storageUrl: asset.storageUrl,
         description: asset.description,
+        usageNotes: asset.usageNotes,
         metadata: asset.metadata,
       },
     };
   }
 
-  const personaAsset = await ctx.db.get(binding.personaId as Id<"brandAssets">);
-  if (!personaAsset || personaAsset.userId !== userId) {
+  const personaAsset = await ctx.db.get(binding.personaId as Id<"creativeAssets">);
+  if (!personaAsset || personaAsset.userId !== userId || personaAsset.assetKind !== "persona") {
     throw new Error("Bound persona asset not found");
   }
 
@@ -253,9 +255,11 @@ async function resolveBinding(
       personaId: personaAsset._id,
       assetKey: binding.assetKey,
       name: personaAsset.name,
-      type: personaAsset.type,
+      assetKind: personaAsset.assetKind,
+      mediaType: personaAsset.mediaType,
       storageUrl: personaAsset.storageUrl,
       description: personaAsset.description,
+      usageNotes: personaAsset.usageNotes,
       metadata: personaAsset.metadata,
     },
   };

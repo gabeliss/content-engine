@@ -103,7 +103,7 @@ function promptForSlide(slide: SlideshowPlan["slides"][number]) {
 
 function referenceAssetIdsForSlide(
   slide: Pick<SlideshowPlan["slides"][number], "useReferenceImage">,
-  assets: Array<{ _id: Id<"brandAssets"> }>
+  assets: Array<{ _id: Id<"creativeAssets"> }>
 ) {
   return slide.useReferenceImage ? assets.map((asset) => String(asset._id)) : [];
 }
@@ -142,30 +142,30 @@ function requestedRenderingModeValidator() {
   );
 }
 
-function referenceInstructionFromMetadata(asset: Doc<"brandAssets">): string | undefined {
+function referenceInstructionFromMetadata(asset: Doc<"creativeAssets">): string | undefined {
   if (!asset.metadata || typeof asset.metadata !== "object") return undefined;
   const instruction = (asset.metadata as Record<string, unknown>).instruction;
   return typeof instruction === "string" && instruction.trim() ? instruction.trim() : undefined;
 }
 
 function plannerReferenceFromAsset(
-  asset: Doc<"brandAssets">,
+  asset: Doc<"creativeAssets">,
   instruction?: string
 ): PlannerReference {
   return {
     assetId: String(asset._id),
     name: asset.name,
-    type: asset.type,
+    type: asset.assetKind,
     description: asset.description,
     instruction: instruction?.trim() || referenceInstructionFromMetadata(asset),
   };
 }
 
 async function referenceImagesFromAssets(
-  assets: Doc<"brandAssets">[]
+  assets: Doc<"creativeAssets">[]
 ): Promise<ReferenceAsset[]> {
   return assets
-    .filter((asset) => asset.storageUrl.trim())
+    .filter((asset) => asset.mediaType === "image" && asset.storageUrl.trim())
     .map((asset) => ({
       url: asset.storageUrl,
       mimeType: "image/png",
@@ -412,7 +412,7 @@ export const createSlideshow = mutation({
     referenceAssets: v.optional(
       v.array(
         v.object({
-          assetId: v.id("brandAssets"),
+          assetId: v.id("creativeAssets"),
           instruction: v.optional(v.string()),
         })
       )

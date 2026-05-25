@@ -163,7 +163,7 @@ const primaryConfigFieldKeys = new Set([
   "aspectRatio",
   "audioUrl",
   "autoPublish",
-  "brandAssetIds",
+  "creativeAssetIds",
   "caption",
   "count",
   "cta",
@@ -185,7 +185,6 @@ const primaryConfigFieldKeys = new Set([
   "name",
   "optimizeFor",
   "platform",
-  "personaAssetIds",
   "postType",
   "prompt",
   "referenceImageUrl",
@@ -669,7 +668,7 @@ function friendlyConfigFieldKeysForNode(
     case "comment":
       return ["text"];
     case "media":
-      return ["artifactIds", "brandAssetIds", "personaAssetIds", "uploadedMedia"];
+      return ["artifactIds", "creativeAssetIds", "uploadedMedia"];
     case "llm":
       return ["systemPrompt", "prompt", "responseFormat", "temperature", "maxTokens", "seed"];
     case "ai_agent":
@@ -790,11 +789,10 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
       return { ...defaultField, type: "enum", enumValues: ["manual", "schedule", "event"] };
     case "assetIds":
     case "artifactIds":
-    case "brandAssetIds":
+    case "creativeAssetIds":
     case "knowledgeBase":
     case "lockedDetails":
     case "avoid":
-    case "personaAssetIds":
     case "platforms":
     case "uploadedMedia":
       return { ...defaultField, type: "json", advanced: true };

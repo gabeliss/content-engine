@@ -1,16 +1,28 @@
 import { Check, ImagePlus, Sparkles, Upload } from "lucide-react";
-import { Field, TextArea } from "../../components/ui";
-import type { BrandAssetDoc } from "./viewTypes";
+import { Field, Select, TextArea } from "../../components/ui";
+import type { CreativeAssetDoc } from "./viewTypes";
 import type { CreateFormActions, CreateFormState } from "./types";
 
+const creativeAssetKindOptions = [
+  { value: "style_reference", label: "Style reference" },
+  { value: "product", label: "Product asset" },
+  { value: "mascot", label: "Mascot" },
+  { value: "persona", label: "Persona reference" },
+  { value: "voice", label: "Voice reference" },
+  { value: "logo", label: "Logo" },
+  { value: "character", label: "Character" },
+  { value: "person", label: "Person" },
+  { value: "other", label: "Other" },
+] as const;
+
 type ReferenceAssetsPanelProps = {
-  brandAssets?: BrandAssetDoc[];
+  creativeAssets?: CreativeAssetDoc[];
   form: CreateFormState;
   actions: CreateFormActions;
 };
 
 export function ReferenceAssetsPanel({
-  brandAssets,
+  creativeAssets,
   form,
   actions,
 }: ReferenceAssetsPanelProps) {
@@ -66,6 +78,17 @@ export function ReferenceAssetsPanel({
               onChange={actions.setAssetName}
               placeholder="Yellow mascot"
             />
+            <Select
+              label="Asset kind"
+              value={form.assetKind}
+              onChange={(value) => actions.setAssetKind(value as typeof form.assetKind)}
+            >
+              {creativeAssetKindOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
             <button
               className="secondary-button w-full"
               type="button"
@@ -77,8 +100,8 @@ export function ReferenceAssetsPanel({
             </button>
           </div>
           <label className="field content-start">
-            <span>Image</span>
-            <input type="file" accept="image/*" onChange={actions.handleAssetFileChange} />
+            <span>Media</span>
+            <input type="file" accept="image/*,video/*,audio/*" onChange={actions.handleAssetFileChange} />
           </label>
         </div>
       )}
@@ -92,6 +115,19 @@ export function ReferenceAssetsPanel({
               onChange={actions.setAiAssetName}
               placeholder="Yellow mascot v1"
             />
+            <Select
+              label="Asset kind"
+              value={form.aiAssetKind}
+              onChange={(value) => actions.setAiAssetKind(value as typeof form.aiAssetKind)}
+            >
+              {creativeAssetKindOptions
+                .filter((option) => option.value !== "voice")
+                .map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+            </Select>
             <button
               className="secondary-button w-full"
               type="button"
@@ -141,13 +177,13 @@ export function ReferenceAssetsPanel({
       )}
 
       <div className="flex min-w-0 max-w-full gap-[var(--space-3)] overflow-x-auto pb-[var(--space-1)] [scrollbar-gutter:stable]">
-        {!brandAssets && form.selectedBrandId && (
+        {!creativeAssets && form.selectedBrandId && (
           <p className="muted flex-none">Loading references...</p>
         )}
-        {brandAssets?.length === 0 && (
+        {creativeAssets?.length === 0 && (
           <p className="muted flex-none">No reference assets for this brand yet.</p>
         )}
-        {brandAssets?.map((asset) => {
+        {creativeAssets?.map((asset) => {
           const selected = form.selectedReferenceIds.includes(String(asset._id));
           return (
             <article
@@ -172,6 +208,9 @@ export function ReferenceAssetsPanel({
                 <strong className="min-w-0 [overflow-wrap:anywhere] text-[0.88rem] font-[650] leading-[1.25]">
                   {asset.name}
                 </strong>
+                <span className="muted text-[0.72rem] leading-[1.15]">
+                  {asset.assetKind.replace(/_/g, " ")}
+                </span>
               </button>
             </article>
           );

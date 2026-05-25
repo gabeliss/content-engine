@@ -38,7 +38,7 @@ export function CreatePage() {
       <CreateSlideshowForm
         brands={data.brands}
         brandAccounts={data.brandAccounts}
-        brandAssets={data.brandAssets}
+        creativeAssets={data.creativeAssets}
         form={form}
         actions={formActions}
       />
