@@ -4,6 +4,7 @@ import {
   type WorkflowNode,
   type WorkflowProviderName,
 } from "./workflowGraph";
+import { DEFAULT_PUBLISHING_PROVIDER } from "./publishingRouting";
 import type { ContentFormat, PublishingProvider } from "../types";
 
 export type WorkflowTemplateId =
@@ -307,7 +308,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Create a consistent set of persona reference images to attach back to Persona Studio.",
     contentFormat: "static_image",
     outputType: "image_set",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.persona, commonInputs.prompt],
     graph: graph(
       [
@@ -364,7 +365,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Produce an AI UGC video ad from a reusable persona, a product angle, and optional reference media.",
     contentFormat: "ai_ugc_video",
     outputType: "video",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.persona, commonInputs.product, commonInputs.prompt],
     graph: graph(
       [
@@ -413,7 +414,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Create transformation content for fitness, wellness, productivity, finance, or app outcome narratives.",
     contentFormat: "ai_ugc_video",
     outputType: "video",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.persona, commonInputs.prompt],
     graph: graph(
       [
@@ -471,7 +472,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Create educational, listicle, or sales carousel posts through the native slideshow renderer.",
     contentFormat: "slideshow",
     outputType: "carousel",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.media, commonInputs.prompt],
     graph: graph(
       [
@@ -515,7 +516,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Create app marketing clips from screenshots, screen recordings, and feature briefs.",
     contentFormat: "hook_demo_video",
     outputType: "video",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.product, commonInputs.media, commonInputs.prompt],
     graph: graph(
       [
@@ -558,7 +559,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Create talking-head style content from persona media, voice references, and a script angle.",
     contentFormat: "talking_avatar",
     outputType: "video",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.persona, commonInputs.voice, commonInputs.prompt],
     graph: graph(
       [
@@ -600,7 +601,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     purpose: "Produce narrated short-form videos for app marketing, education, and founder-led content.",
     contentFormat: "short_educational_video",
     outputType: "video",
-    defaultPublishingProvider: "manual",
+    defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.media, commonInputs.voice, commonInputs.prompt],
     graph: graph(
       [

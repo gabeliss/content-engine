@@ -8,6 +8,8 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { publishingProviderValidator, slideshowStatusValidator } from "../validators";
 
+const DEFAULT_PUBLISHING_PROVIDER = "postiz";
+
 function currentUserId(identity: { subject: string } | null) {
   if (!identity) throw new Error("Not authenticated");
   return identity.subject;
@@ -219,7 +221,7 @@ export const createDraftDistributionPlanFromRenderedSlides = mutation({
       );
     }
 
-    const selectedProvider = args.provider ?? "manual";
+    const selectedProvider = args.provider ?? DEFAULT_PUBLISHING_PROVIDER;
     const caption = args.caption?.trim() || slideshow.title;
     return await ctx.db.insert("distributionPlans", {
       userId,

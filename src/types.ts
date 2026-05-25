@@ -9,7 +9,7 @@ export type WorkflowRunId = Id<"workflowRuns">;
 export type DistributionPlanId = Id<"distributionPlans">;
 export type ContentRequestId = Id<"contentRequests">;
 
-export type PublishingProvider = "postiz" | "post_bridge" | "reel_farm" | "manual";
+export type PublishingProvider = "postiz" | "post_bridge" | "manual";
 export type Platform = "tiktok" | "instagram" | "youtube" | "x" | "linkedin";
 export type ContentFormat =
   | "slideshow"

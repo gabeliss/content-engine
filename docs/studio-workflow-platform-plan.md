@@ -1339,11 +1339,12 @@ Implementation notes:
   `autoPublish` is not explicitly true, the plan remains a draft for later
   manual publishing.
 - When `autoPublish` is true, the runner publishes or schedules through the
-  selected provider (`manual`, `postiz`, or `post_bridge` once an adapter is
-  registered) and records provider status, external post ids, and failures on
+  selected provider (`postiz`, `post_bridge`, or `manual`) and records provider
+  status, external post ids, and failures on
   the node, run events, distribution plan, and post package artifact.
-- Auto Post defaults to `manual` instead of BulkAPIs, and the canvas provider
-  selector now exposes Post Bridge as a publishing provider option.
+- Auto Post does not route through BulkAPIs. Postiz is the default publishing
+  provider for new workflows and templates, Post Bridge is registered as a
+  reserved provider, and Manual remains available for export/testing workflows.
 
 ### Phase 6: Personas And Assets
 
@@ -1718,7 +1719,7 @@ Implementation notes:
 
 #### SW-0902: Add publishing provider decision implementation
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1729,6 +1730,20 @@ Acceptance criteria:
 
 - TikTok-first publishing path is clear.
 - X/Twitter path is clear through the selected publishing provider.
+
+Implementation notes:
+
+- Added a shared publishing routing registry that makes Postiz the default
+  TikTok-first and X/Twitter publishing provider, keeps Post Bridge as a
+  reserved provider, and keeps Manual for export/testing workflows.
+- Registered a Post Bridge publishing adapter placeholder so provider selection
+  is explicit but unsupported operations fail clearly until a real adapter is
+  configured.
+- Updated workflow/template/Create/Library defaults so new publishing drafts use
+  Postiz by default instead of falling back to Manual.
+- Removed ReelFarm from the account provider picker because it is not part of
+  the current posting route decision.
+- Documented the provider routing decision in `docs/publishing-routing.md`.
 
 #### SW-0903: Add platform-aware post compiler presets
 

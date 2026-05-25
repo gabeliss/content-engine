@@ -9,6 +9,7 @@ import {
   findPromotablePlanTarget,
   isPrimaryReviewArtifact,
 } from "../lib/artifactUtils";
+import { DEFAULT_PUBLISHING_PROVIDER } from "../lib/publishingRouting";
 import { renderSlideshowToBlobs } from "../lib/slideshowCanvas";
 import type { ArtifactDoc, DistributionPlanDoc, DistributionPlanId, SlideshowDoc } from "../types";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -263,7 +264,7 @@ export function LibraryPage() {
         slideshowId: slideshow._id,
         slides: uploadedSlides,
         socialAccountIds: slideshow.socialAccountId ? [slideshow.socialAccountId] : undefined,
-        provider: account?.provider ?? "manual",
+        provider: account?.provider ?? DEFAULT_PUBLISHING_PROVIDER,
         caption: slideshow.title,
       });
       setReviewStatusMessage("Draft post created in Distribution Plans");

@@ -3,7 +3,6 @@ import { v } from "convex/values";
 export const publishingProviderValidator = v.union(
   v.literal("postiz"),
   v.literal("post_bridge"),
-  v.literal("reel_farm"),
   v.literal("manual")
 );
 

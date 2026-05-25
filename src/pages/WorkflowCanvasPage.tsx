@@ -65,6 +65,7 @@ import {
   workflowAgentPresetIds,
 } from "../lib/workflowAgentPresets";
 import { validateWorkflowGraph } from "../lib/workflowGraphValidation";
+import { PUBLISHING_PROVIDER_ROUTES } from "../lib/publishingRouting";
 
 const nodeTypes = {
   workflowNode: WorkflowCanvasNode,
@@ -145,9 +146,10 @@ const providerOptions: Array<{ value: WorkflowProviderName; label: string }> = [
   { value: "gemini", label: "Gemini" },
   { value: "fal", label: "fal.ai" },
   { value: "openrouter", label: "OpenRouter" },
-  { value: "postiz", label: "Postiz" },
-  { value: "post_bridge", label: "Post Bridge" },
-  { value: "manual", label: "Manual" },
+  ...PUBLISHING_PROVIDER_ROUTES.map((route) => ({
+    value: route.provider as WorkflowProviderName,
+    label: route.label,
+  })),
 ];
 
 const retentionOptions: Array<{ value: NodeRetentionMode; label: string }> = [

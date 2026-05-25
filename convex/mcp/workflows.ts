@@ -30,6 +30,8 @@ type WorkflowGraphDoc = typeof workflowGraphValidator.type;
 type WorkflowNodeDoc = WorkflowGraphDoc["nodes"][number];
 type WorkflowEdgeDoc = WorkflowGraphDoc["edges"][number];
 
+const DEFAULT_PUBLISHING_PROVIDER = "postiz";
+
 const workflowNodeValidator = v.object({
   id: v.string(),
   type: v.string(),
@@ -175,7 +177,7 @@ async function createWorkflow(
     scheduleConfig: args.scheduleConfig,
     approvalPolicy: args.approvalPolicy ?? { mode: "always" },
     publishingPolicy: args.publishingPolicy ?? {
-      provider: "manual",
+      provider: DEFAULT_PUBLISHING_PROVIDER,
       autoPublish: false,
       defaultPlatforms: ["tiktok"],
     },
@@ -253,7 +255,7 @@ export const createBlank = mutation({
       description: args.description,
       contentFormat: args.contentFormat,
       publishingPolicy: {
-        provider: args.publishingProvider ?? "manual",
+        provider: args.publishingProvider ?? DEFAULT_PUBLISHING_PROVIDER,
         autoPublish: false,
         defaultPlatforms: args.defaultPlatforms ?? ["tiktok"],
       },

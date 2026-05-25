@@ -12,6 +12,7 @@ import {
   type WorkflowTemplateCategory,
   type WorkflowTemplateId,
 } from "../lib/workflowTemplates";
+import { DEFAULT_PUBLISHING_PROVIDER } from "../lib/publishingRouting";
 import type { BrandId, ContentFormat, SocialAccountId } from "../types";
 
 type WorkflowStatusFilter = "all" | "active" | "paused";
@@ -117,7 +118,7 @@ export function WorkflowsPage() {
         trigger: "manual",
         approvalPolicy: { mode: "always" },
         publishingPolicy: {
-          provider: "postiz",
+          provider: DEFAULT_PUBLISHING_PROVIDER,
           autoPublish: false,
           defaultPlatforms: ["tiktok"],
         },
