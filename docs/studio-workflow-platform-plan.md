@@ -1174,7 +1174,7 @@ Implementation notes:
 
 #### SW-0510: Native Slideshow Planner node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1185,6 +1185,21 @@ Acceptance criteria:
 
 - Existing prompt quality is preserved.
 - Slide specs can feed image and renderer nodes.
+
+Implementation notes:
+
+- The workflow runner now treats `native_slideshow_planner` as a real
+  executable node instead of a placeholder.
+- Planner execution reuses the existing production slideshow planning prompts,
+  schemas, image-prompt writer pass, and `normalizePlan` logic from the
+  one-off Create flow.
+- The node resolves prompt, brand context, media references, slide count,
+  aspect ratio, platform, tone, and optional rendering mode from config or
+  upstream inputs.
+- Planner output is saved as a `slide_spec` artifact with provider metadata,
+  image-prompt metadata, reference counts, and input summary.
+- The node emits a `slide_spec` output ref so downstream image generation and
+  native slideshow renderer nodes can consume the planned slideshow.
 
 #### SW-0511: Native Slideshow Renderer node
 

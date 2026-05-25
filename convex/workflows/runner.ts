@@ -3,6 +3,24 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { storeGeneratedAsset } from "../content/assetStorage";
+import {
+  buildFullGraphicPlannerPrompt,
+  buildOverlayPlannerPrompt,
+  buildSingleImagePromptWriterPrompt,
+  IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
+  normalizePlan,
+  type PlannerReference,
+  type RequestedRenderingMode,
+} from "../content/planning";
+import {
+  fullGraphicSlideshowPlanSchema,
+  overlaySlideshowPlanSchema,
+  singleFullGraphicImagePromptWriterSchema,
+  singleOverlayImagePromptWriterSchema,
+  type ImagePromptWriterOutput,
+  type SingleImagePromptWriterOutput,
+  type SlideshowPlannerOutput,
+} from "../content/types";
 import { getModelProvider } from "../providers";
 import type {
   GeneratedAsset,
@@ -191,6 +209,10 @@ function isAiVideoEditorNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "ai_video_editor";
 }
 
+function isNativeSlideshowPlannerNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "native_slideshow_planner";
+}
+
 function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
   return isMediaNode(node) ||
     isLlmNode(node) ||
@@ -199,7 +221,8 @@ function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
     isVideoGenerationNode(node) ||
     isAudioGenerationNode(node) ||
     isLipsyncNode(node) ||
-    isAiVideoEditorNode(node);
+    isAiVideoEditorNode(node) ||
+    isNativeSlideshowPlannerNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -477,6 +500,124 @@ function allMediaReferenceAssetsFromInputs(
     ...referenceVideoAssetsFromInputs(resolvedInputs, preferredKeys),
     ...referenceAudioAssetsFromInputs(resolvedInputs, preferredKeys),
   ]);
+}
+
+function requestedRenderingModeFromValue(value: unknown): RequestedRenderingMode {
+  return value === "full_graphic_generation"
+    ? "full_graphic_generation"
+    : "background_plus_overlay";
+}
+
+function plannerSchemaForMode(renderingMode: RequestedRenderingMode) {
+  return renderingMode === "full_graphic_generation"
+    ? fullGraphicSlideshowPlanSchema
+    : overlaySlideshowPlanSchema;
+}
+
+function singleImagePromptSchemaForMode(renderingMode: RequestedRenderingMode) {
+  return renderingMode === "full_graphic_generation"
+    ? singleFullGraphicImagePromptWriterSchema
+    : singleOverlayImagePromptWriterSchema;
+}
+
+function buildPlannerPromptForMode(args: {
+  prompt: string;
+  revisionPrompt?: string;
+  brand: Parameters<typeof buildOverlayPlannerPrompt>[0]["brand"];
+  socialAccount?: Parameters<typeof buildOverlayPlannerPrompt>[0]["socialAccount"];
+  requestedRenderingMode: RequestedRenderingMode;
+  references: PlannerReference[];
+}) {
+  return args.requestedRenderingMode === "full_graphic_generation"
+    ? buildFullGraphicPlannerPrompt(args)
+    : buildOverlayPlannerPrompt(args);
+}
+
+function plannerReferencesFromInputs(
+  resolvedInputs: ResolvedInputsForRun
+): PlannerReference[] {
+  const references: PlannerReference[] = [];
+  const seen = new Set<string>();
+
+  const addReference = (value: unknown, fallbackIndex: number) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+
+    const record = value as Record<string, unknown>;
+    const metadata = objectValue(record.metadata);
+    const key = String(record.id ?? record.assetId ?? record.artifactId ?? record.storageUrl ?? `reference-${fallbackIndex}`);
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    references.push({
+      assetId: key,
+      name:
+        typeof record.title === "string" && record.title.trim()
+          ? record.title.trim()
+          : typeof record.name === "string" && record.name.trim()
+            ? record.name.trim()
+            : `Workflow reference ${references.length + 1}`,
+      type:
+        typeof record.kind === "string"
+          ? record.kind
+          : typeof record.type === "string"
+            ? record.type
+            : "media",
+      description:
+        typeof record.description === "string"
+          ? record.description
+          : typeof metadata.description === "string"
+            ? metadata.description
+            : undefined,
+      instruction:
+        typeof record.instruction === "string"
+          ? record.instruction
+          : typeof metadata.instruction === "string"
+            ? metadata.instruction
+            : undefined,
+    });
+  };
+
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.items)) {
+      record.items.forEach((item, index) => addReference(item, index));
+      return;
+    }
+    addReference(value, references.length + 1);
+  };
+
+  for (const key of ["media", "image", "video", "audio", "reference", "input"]) {
+    visit(resolvedInputs.inputs?.[key]?.value);
+  }
+
+  return references;
+}
+
+function slideSpecOutputRefsForNode(args: {
+  nodeId: string;
+  artifactId: Id<"artifacts">;
+  plan: unknown;
+}) {
+  return [{
+    nodeId: args.nodeId,
+    port: "slide_spec",
+    artifactIds: [args.artifactId],
+    value: {
+      kind: "slide_spec",
+      artifactId: args.artifactId,
+      plan: args.plan,
+    },
+  }];
+}
+
+function costUsdFromMetadata(metadata: { costUsd?: number }): number {
+  return typeof metadata.costUsd === "number" ? metadata.costUsd : 0;
 }
 
 async function waitForGeneratedImage(
@@ -2574,6 +2715,222 @@ export const executeRun = internalAction({
                 artifactId,
                 provider: renderResult.metadata.provider,
                 model: renderResult.metadata.model,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isNativeSlideshowPlannerNode(node)) {
+            const inputs = resolvedInputs.inputs ?? {};
+            const providerName = modelProviderNameForNode(node);
+            const provider = getModelProvider(providerName);
+            const basePrompt = textFromInputValue(inputs.prompt?.value);
+            const revisionPrompt = textFromInputValue(inputs.revisionPrompt?.value);
+            const requestedRenderingMode = requestedRenderingModeFromValue(
+              inputs.renderingMode?.value ?? inputs.renderMode?.value
+            );
+            const model =
+              typeof node.model === "string" && node.model.trim()
+                ? node.model.trim()
+                : textFromInputValue(inputs.model?.value);
+            const imagePromptModel =
+              textFromInputValue(inputs.imagePromptModel?.value) ?? model;
+            const slideCount = numberFromInputValue(inputs.slideCount?.value);
+            const aspectRatio = textFromInputValue(inputs.aspectRatio?.value);
+            const platform = textFromInputValue(inputs.platform?.value);
+            const tone = textFromInputValue(inputs.tone?.value);
+            const brandContext = objectValue(inputs.brand_context?.value);
+            const planningBrand = {
+              ...context.brand,
+              name: textFromInputValue(brandContext.name) ?? context.brand.name,
+              audience: textFromInputValue(brandContext.audience) ?? context.brand.audience,
+              voice: textFromInputValue(brandContext.voice) ?? context.brand.voice,
+              visualStyle:
+                textFromInputValue(brandContext.visualStyle) ?? context.brand.visualStyle,
+              constraints: Array.isArray(brandContext.constraints)
+                ? brandContext.constraints.flatMap((constraint) => {
+                    const text = textFromInputValue(constraint);
+                    return text ? [text] : [];
+                  })
+                : context.brand.constraints,
+            };
+            const references = plannerReferencesFromInputs(resolvedInputs);
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "media",
+              "image",
+              "video",
+              "audio",
+              "input",
+            ]);
+            const promptSettings = [
+              slideCount ? `Target slide count: ${slideCount}` : undefined,
+              aspectRatio ? `Target aspect ratio: ${aspectRatio}` : undefined,
+              platform ? `Target platform: ${platform}` : undefined,
+              tone ? `Tone: ${tone}` : undefined,
+            ].filter((line): line is string => Boolean(line));
+            const prompt = [
+              basePrompt,
+              promptSettings.length
+                ? `Workflow planner settings:\n${promptSettings.join("\n")}`
+                : undefined,
+            ].filter((line): line is string => Boolean(line?.trim())).join("\n\n");
+
+            if (!prompt) {
+              throw new Error(`${node.label} needs a prompt input.`);
+            }
+            if (!provider.capabilities.structured) {
+              throw new Error(`${provider.displayName} does not support structured generation.`);
+            }
+
+            const plannerOutput = await provider.generateStructured<SlideshowPlannerOutput>({
+              systemPrompt: "You are a senior short-form content creative director and slideshow planner.",
+              prompt: buildPlannerPromptForMode({
+                prompt,
+                revisionPrompt,
+                brand: planningBrand,
+                socialAccount: context.socialAccount,
+                requestedRenderingMode,
+                references,
+              }),
+              schema: plannerSchemaForMode(requestedRenderingMode),
+              schemaName: "slideshow_create_plan",
+              model,
+              temperature: 0.7,
+              parser: (text) => JSON.parse(text) as SlideshowPlannerOutput,
+              metadata: {
+                workflowId: String(context.workflow._id),
+                workflowRunId: String(context.run._id),
+                nodeId: node.id,
+                nodeType: node.type,
+                requestedRenderingMode,
+              },
+            });
+            const rawSlides = Array.isArray((plannerOutput.object as { slides?: unknown }).slides)
+              ? (plannerOutput.object as { slides: unknown[] }).slides
+              : [];
+            const imagePromptResults = await Promise.all(rawSlides.map(async (slide) => {
+              return await provider.generateStructured<SingleImagePromptWriterOutput>({
+                systemPrompt: IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
+                prompt: buildSingleImagePromptWriterPrompt({
+                  prompt,
+                  revisionPrompt,
+                  brand: planningBrand,
+                  socialAccount: context.socialAccount,
+                  requestedRenderingMode,
+                  references,
+                  plan: plannerOutput.object,
+                  slide,
+                }),
+                schema: singleImagePromptSchemaForMode(requestedRenderingMode),
+                schemaName: "slideshow_single_image_prompt",
+                model: imagePromptModel,
+                temperature: 0.2,
+                parser: (text) => JSON.parse(text) as SingleImagePromptWriterOutput,
+                metadata: {
+                  workflowId: String(context.workflow._id),
+                  workflowRunId: String(context.run._id),
+                  nodeId: node.id,
+                  nodeType: node.type,
+                  requestedRenderingMode,
+                },
+              });
+            }));
+            const imagePrompts = {
+              renderingMode: requestedRenderingMode,
+              slides: imagePromptResults.map((result) => result.object),
+            } as ImagePromptWriterOutput;
+            const plan = normalizePlan(
+              plannerOutput.object,
+              imagePrompts,
+              prompt,
+              revisionPrompt,
+              requestedRenderingMode
+            );
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const artifactId = await ctx.runMutation(
+              internal.artifacts.records.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                parentArtifactIds: sourceArtifactIds.length ? sourceArtifactIds : undefined,
+                type: "slide_spec",
+                title: plan.title,
+                data: {
+                  ...plan,
+                  workflowPlanner: {
+                    nodeId: node.id,
+                    nodeType: node.type,
+                    requestedRenderingMode,
+                    referenceCount: references.length,
+                    inputSummary: resolvedInputs.summary,
+                    plannerMetadata: plannerOutput.metadata,
+                    imagePromptMetadata: imagePromptResults.map((result) => result.metadata),
+                  },
+                },
+                provider: plannerOutput.metadata.provider,
+                model: plannerOutput.metadata.model,
+                prompt,
+                lifecycle,
+                reviewStatus: "not_required",
+              }
+            );
+            emittedArtifactIds.add(artifactId);
+            const outputRefs = slideSpecOutputRefsForNode({
+              nodeId: node.id,
+              artifactId,
+              plan,
+            });
+            const costUsd = [
+              plannerOutput.metadata,
+              ...imagePromptResults.map((result) => result.metadata),
+            ].reduce((sum, metadata) => sum + costUsdFromMetadata(metadata), 0);
+            totalCostUsd += costUsd;
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd,
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "model_call",
+              nodeId: node.id,
+              message: `${node.label} planned ${plan.slides.length} slideshow slides.`,
+              data: {
+                provider: plannerOutput.metadata.provider,
+                model: plannerOutput.metadata.model,
+                costUsd,
+                requestedRenderingMode,
+                slideCount: plan.slides.length,
+                referenceCount: references.length,
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} produced a slide spec.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactId,
+                provider: plannerOutput.metadata.provider,
+                model: plannerOutput.metadata.model,
+                slideCount: plan.slides.length,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },
