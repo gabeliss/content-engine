@@ -85,6 +85,23 @@ export function artifactSummary(artifact: ArtifactDoc): string {
       .join(" · ");
   }
 
+  if (artifact.type === "publish_payload" && artifact.data && typeof artifact.data === "object") {
+    const data = artifact.data as {
+      caption?: string;
+      mediaArtifactIds?: string[];
+      name?: string;
+      postType?: string;
+    };
+    return [
+      data.name ?? "Post package",
+      data.postType,
+      data.mediaArtifactIds?.length ? `${data.mediaArtifactIds.length} media refs` : undefined,
+      data.caption ? "caption ready" : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
   if (artifact.data && typeof artifact.data === "object") {
     const data = artifact.data as { text?: string };
     if (data.text) return data.text;

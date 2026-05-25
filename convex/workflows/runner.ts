@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation } from "../_generated/server";
 import { artifactLifecycleValidator, workflowGraphValidator } from "../validators";
@@ -7,6 +8,15 @@ type WorkflowGraphForRun = typeof workflowGraphValidator.type;
 type WorkflowGraphNodeForRun = WorkflowGraphForRun["nodes"][number];
 type ArtifactLifecycleForRun = typeof artifactLifecycleValidator.type;
 type NodeRetentionModeForRun = "inherit" | "keep" | "discard" | "keep_on_failure";
+type ResolvedInputsForRun = {
+  inputs?: Record<string, {
+    source?: string;
+    value?: unknown;
+    artifactIds?: string[];
+    metadata?: Record<string, unknown>;
+  }>;
+  summary?: Record<string, unknown>;
+};
 
 function adjacencyForGraph(graph: WorkflowGraphForRun): Map<string, string[]> {
   const adjacency = new Map(graph.nodes.map((node) => [node.id, [] as string[]]));
@@ -113,6 +123,121 @@ function placeholderLifecycleForNode(
   return "discarded";
 }
 
+function isPostPackageNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "post_compiler";
+}
+
+function isTerminalPackageConsumer(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "export" || node.type === "auto_post";
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringFromValue(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+
+  const data = value as Record<string, unknown>;
+  for (const key of ["caption", "text", "content", "prompt"]) {
+    const candidate = data[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+
+  return undefined;
+}
+
+function artifactIdsFromInputs(
+  resolvedInputs: ResolvedInputsForRun,
+  preferredKeys: string[]
+): Id<"artifacts">[] {
+  const ids = new Set<string>();
+  const inputs = resolvedInputs.inputs ?? {};
+  const orderedInputs = [
+    ...preferredKeys.flatMap((key) => (inputs[key] ? [[key, inputs[key]] as const] : [])),
+    ...Object.entries(inputs).filter(([key]) => !preferredKeys.includes(key)),
+  ];
+
+  for (const [, input] of orderedInputs) {
+    for (const artifactId of input.artifactIds ?? []) {
+      ids.add(artifactId);
+    }
+  }
+
+  return [...ids] as Id<"artifacts">[];
+}
+
+function postPackageArtifactIdsFromInputs(
+  resolvedInputs: ResolvedInputsForRun
+): Id<"artifacts">[] {
+  const inputs = resolvedInputs.inputs ?? {};
+  const ids = new Set<string>();
+  if (inputs.post_package) {
+    for (const artifactId of inputs.post_package.artifactIds ?? []) {
+      ids.add(artifactId);
+    }
+  }
+
+  for (const input of [inputs.post_package, inputs.input].filter(Boolean)) {
+    const value = objectValue(input?.value);
+    if (value.type === "publish_payload" && typeof value.artifactId === "string") {
+      ids.add(value.artifactId);
+    }
+  }
+
+  return [...ids] as Id<"artifacts">[];
+}
+
+function postPackageDataForNode(
+  node: WorkflowGraphNodeForRun,
+  resolvedInputs: ResolvedInputsForRun,
+  sourceArtifactIds: Id<"artifacts">[]
+) {
+  const inputs = resolvedInputs.inputs ?? {};
+  const config = objectValue(node.config);
+  const metadataInput = objectValue(inputs.metadata?.value);
+  const platformSettings = objectValue(config.platformSettings);
+  const destinationPolicy = objectValue(config.destinationPolicy);
+  const configuredCaption = stringFromValue(config.caption);
+  const inputCaption =
+    stringFromValue(inputs.caption?.value) ??
+    stringFromValue(inputs.text?.value) ??
+    stringFromValue(inputs.input?.value);
+  const postType =
+    typeof config.postType === "string" && config.postType.trim()
+      ? config.postType.trim()
+      : "video";
+
+  return {
+    schemaVersion: 1,
+    kind: "post_package",
+    postType,
+    name:
+      typeof config.name === "string" && config.name.trim()
+        ? config.name.trim()
+        : `${node.label} package`,
+    caption: configuredCaption ?? inputCaption,
+    mediaArtifactIds: sourceArtifactIds.map((artifactId) => String(artifactId)),
+    platformSettings,
+    destinationPolicy: {
+      destination:
+        typeof config.destination === "string" && config.destination.trim()
+          ? config.destination.trim()
+          : undefined,
+      ...destinationPolicy,
+    },
+    metadata: {
+      ...metadataInput,
+      sourceNodeId: node.id,
+      sourceNodeType: node.type,
+      inputSummary: resolvedInputs.summary ?? {},
+    },
+  };
+}
+
 export const executeRun = internalAction({
   args: { runId: v.id("workflowRuns") },
   handler: async (ctx, args) => {
@@ -129,6 +254,8 @@ export const executeRun = internalAction({
     const dependencyNodeIdsByNode = dependencyNodeIdsForGraph(graph);
     const pendingNodeIds = new Set(runnableNodes.map((node) => node.id));
     const completedNodeIds = new Set<string>();
+    const emittedArtifactIds = new Set<Id<"artifacts">>();
+    const finalPackageArtifactIds = new Set<Id<"artifacts">>();
     let executedNodeCount = 0;
     let passCount = 0;
 
@@ -230,36 +357,83 @@ export const executeRun = internalAction({
             },
           });
 
-          const outputRefs = outboundPortsForNode(graph, node.id).map((port) => ({
+          const outboundPorts = outboundPortsForNode(graph, node.id);
+          const packageArtifactIds = postPackageArtifactIdsFromInputs(resolvedInputs);
+          const shouldCreatePostPackage =
+            isPostPackageNode(node) ||
+            (isTerminalPackageConsumer(node) && packageArtifactIds.length === 0);
+          const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+            "media",
+            "video",
+            "image",
+            "audio",
+            "input",
+          ]);
+          const createdPostPackageArtifactId = shouldCreatePostPackage
+            ? await ctx.runMutation(internal.workflows.runner.createPostPackageArtifact, {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                nodeId: node.id,
+                label: node.label,
+                sourceArtifactIds,
+                packageData: postPackageDataForNode(node, resolvedInputs, sourceArtifactIds),
+              })
+            : undefined;
+          const consumedOrCreatedPackageIds = [
+            ...packageArtifactIds,
+            ...(createdPostPackageArtifactId ? [createdPostPackageArtifactId] : []),
+          ];
+          for (const artifactId of consumedOrCreatedPackageIds) {
+            finalPackageArtifactIds.add(artifactId);
+            emittedArtifactIds.add(artifactId);
+          }
+          const outputRefs = outboundPorts.map((port) => ({
             nodeId: node.id,
             port,
             value: {
-              placeholderExecution: true,
+              placeholderExecution: !createdPostPackageArtifactId,
               nodeId: node.id,
               nodeType: node.type,
               label: node.label,
+              ...(createdPostPackageArtifactId
+                ? {
+                    kind: "post_package",
+                    artifactId: createdPostPackageArtifactId,
+                  }
+                : {}),
               inputSummary: resolvedInputs.summary,
             },
           }));
           const lifecycle = placeholderLifecycleForNode(graph, node);
-          const placeholderArtifactId = await ctx.runMutation(
-            internal.workflows.runner.createPlaceholderArtifact,
-            {
-              userId: context.run.userId,
-              brandId: context.run.brandId,
-              workflowId: context.workflow._id,
-              workflowRunId: context.run._id,
-              nodeId: node.id,
-              nodeType: node.type,
-              label: node.label,
-              lifecycle,
-              inputSummary: resolvedInputs.summary,
-              outputPorts: outputRefs.map((outputRef) => outputRef.port),
-            }
-          );
+          const placeholderArtifactId = createdPostPackageArtifactId
+            ? undefined
+            : await ctx.runMutation(
+                internal.workflows.runner.createPlaceholderArtifact,
+                {
+                  userId: context.run.userId,
+                  brandId: context.run.brandId,
+                  workflowId: context.workflow._id,
+                  workflowRunId: context.run._id,
+                  nodeId: node.id,
+                  nodeType: node.type,
+                  label: node.label,
+                  lifecycle,
+                  inputSummary: resolvedInputs.summary,
+                  outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                }
+              );
+          if (placeholderArtifactId) emittedArtifactIds.add(placeholderArtifactId);
           const outputRefsWithArtifact = outputRefs.map((outputRef) => ({
             ...outputRef,
-            artifactIds: [placeholderArtifactId],
+            ...(outputRef.port === "post_package"
+              ? { artifactIds: consumedOrCreatedPackageIds }
+              : createdPostPackageArtifactId
+                ? { artifactIds: consumedOrCreatedPackageIds }
+                : placeholderArtifactId
+                  ? { artifactIds: [placeholderArtifactId] }
+                  : {}),
           }));
 
           await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
@@ -278,10 +452,11 @@ export const executeRun = internalAction({
             message: `${node.label} completed with placeholder execution.`,
             data: {
               nodeType: node.type,
-              lifecycle,
-              artifactId: placeholderArtifactId,
+              lifecycle: createdPostPackageArtifactId ? "saved" : lifecycle,
+              artifactId: createdPostPackageArtifactId ?? placeholderArtifactId,
+              packageArtifactIds: consumedOrCreatedPackageIds,
               outputPorts: outputRefsWithArtifact.map((outputRef) => outputRef.port),
-              placeholderExecution: true,
+              placeholderExecution: !createdPostPackageArtifactId,
             },
           });
 
@@ -317,6 +492,48 @@ export const executeRun = internalAction({
       }
     }
 
+    if (!finalPackageArtifactIds.size) {
+      const fallbackPackageArtifactId = await ctx.runMutation(
+        internal.workflows.runner.createPostPackageArtifact,
+        {
+          userId: context.run.userId,
+          brandId: context.run.brandId,
+          workflowId: context.workflow._id,
+          workflowRunId: context.run._id,
+          nodeId: "workflow",
+          label: context.workflow.name,
+          sourceArtifactIds: [...emittedArtifactIds],
+          packageData: {
+            schemaVersion: 1,
+            kind: "post_package",
+            postType: context.workflow.contentFormat,
+            name: `${context.workflow.name} package`,
+            mediaArtifactIds: [...emittedArtifactIds].map((artifactId) => String(artifactId)),
+            platformSettings: {},
+            destinationPolicy: {
+              destination: "media_library",
+            },
+            metadata: {
+              sourceNodeId: "workflow",
+              sourceNodeType: "workflow_fallback",
+              reason: "No reachable terminal node produced a post package.",
+            },
+          },
+        }
+      );
+      finalPackageArtifactIds.add(fallbackPackageArtifactId);
+      await ctx.runMutation(internal.workflows.runs.recordEvent, {
+        userId: context.run.userId,
+        workflowRunId: context.run._id,
+        workflowId: context.workflow._id,
+        type: "artifact_created",
+        message: "Workflow fallback post package created.",
+        data: {
+          artifactId: fallbackPackageArtifactId,
+        },
+      });
+    }
+
     await ctx.runMutation(internal.workflows.runs.recordEvent, {
       userId: context.run.userId,
       workflowRunId: context.run._id,
@@ -325,6 +542,7 @@ export const executeRun = internalAction({
       message: "Workflow graph completed placeholder execution.",
       data: {
         executedNodeCount,
+        finalPackageArtifactIds: [...finalPackageArtifactIds],
         passCount,
         skippedUnreachableNodeIds: graph.nodes
           .filter((node) => !reachableNodeIds.has(node.id))
@@ -371,6 +589,35 @@ export const createPlaceholderArtifact = internalMutation({
         outputPorts: args.outputPorts,
       },
       lifecycle: args.lifecycle,
+      reviewStatus: "not_required",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const createPostPackageArtifact = internalMutation({
+  args: {
+    userId: v.string(),
+    brandId: v.id("brands"),
+    workflowId: v.id("workflows"),
+    workflowRunId: v.id("workflowRuns"),
+    nodeId: v.string(),
+    label: v.string(),
+    sourceArtifactIds: v.array(v.id("artifacts")),
+    packageData: v.any(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("artifacts", {
+      userId: args.userId,
+      brandId: args.brandId,
+      workflowId: args.workflowId,
+      workflowRunId: args.workflowRunId,
+      parentArtifactIds: args.sourceArtifactIds.length ? args.sourceArtifactIds : undefined,
+      type: "publish_payload",
+      title: `${args.label} post package`,
+      data: args.packageData,
+      lifecycle: "saved",
       reviewStatus: "not_required",
       createdAt: Date.now(),
       updatedAt: Date.now(),

@@ -874,7 +874,7 @@ Implementation notes:
 
 #### SW-0405: Add terminal post package compiler
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -885,6 +885,25 @@ Acceptance criteria:
 
 - Every successful workflow run has one final post package.
 - Export and Auto Post consume post packages.
+
+Implementation notes:
+
+- Added a post package artifact contract using `publish_payload` artifacts with
+  `schemaVersion`, `kind`, `postType`, `caption`, `mediaArtifactIds`,
+  `platformSettings`, `destinationPolicy`, and metadata.
+- `post_compiler` nodes now create saved post package artifacts instead of only
+  placeholder outputs.
+- Terminal `export` and `auto_post` nodes consume upstream post packages when
+  present; if a terminal node receives media/input without a package, it creates
+  a fallback final post package so successful runs still have one final package.
+- The runner also creates a workflow-level fallback package at completion if no
+  reachable node produced a post package, preventing successful runs from ending
+  without a final package artifact.
+- Post package artifact IDs are attached to node output refs so Export/Auto
+  Post implementation tickets can consume the package without re-resolving raw
+  upstream node outputs.
+- Library artifact summaries now describe publish payloads as post packages
+  with post type, media count, and caption readiness.
 
 ### Phase 5: Core Node Implementations
 
