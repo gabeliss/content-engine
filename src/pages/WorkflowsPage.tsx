@@ -1,8 +1,9 @@
 import { useMutation, useQuery } from "convex/react";
-import { Plus } from "lucide-react";
+import { Plus, Workflow } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
-import { EntityGrid, Field, FormPanel, Page, Select } from "../components/ui";
+import { Field, FormPanel, Page, Select } from "../components/ui";
 import { createStarterWorkflowGraph } from "../lib/workflowGraph";
 import type { BrandId, ContentFormat, SocialAccountId } from "../types";
 
@@ -78,16 +79,25 @@ export function WorkflowsPage() {
         </button>
       </FormPanel>
 
-      <EntityGrid
-        empty="No workflows yet."
-        items={workflows?.map((workflow) => ({
-          id: workflow._id,
-          title: workflow.name,
-          eyebrow: workflow.contentFormat,
-          body: workflow.description || `${workflow.trigger} trigger with ${workflow.publishingPolicy.provider} publishing`,
-          meta: workflow.isActive ? "Active" : "Paused",
-        }))}
-      />
+      {!workflows && <div className="empty-state">Loading...</div>}
+      {workflows?.length === 0 && <div className="empty-state">No workflows yet.</div>}
+      <div className="entity-grid">
+        {workflows?.map((workflow) => (
+          <Link className="entity-card workflow-card-link" key={workflow._id} to={`/workflows/${workflow._id}`}>
+            <div className="entity-eyebrow">{workflow.contentFormat}</div>
+            <h3>{workflow.name}</h3>
+            <p>
+              {workflow.description ||
+                `${workflow.trigger} trigger with ${workflow.publishingPolicy.provider} publishing`}
+            </p>
+            <span>{workflow.isActive ? "Active" : "Paused"}</span>
+            <span className="workflow-card-action">
+              <Workflow size={15} />
+              Open canvas
+            </span>
+          </Link>
+        ))}
+      </div>
     </Page>
   );
 }

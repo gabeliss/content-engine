@@ -461,13 +461,17 @@ Goal: make Workflows list-first and canvas-native.
 
 #### SW-0201: Install and wire React Flow
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
 - Add React Flow dependency.
 - Create a minimal canvas page that renders nodes and edges from a workflow
   graph.
+- Add a workflow detail route at `/workflows/:workflowId`.
+- Make workflow list entries open the canvas route.
+- Keep the first canvas read-only; editing controls land in later canvas
+  tickets.
 
 Acceptance criteria:
 

@@ -15,6 +15,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { LibraryPage } from "./pages/LibraryPage";
 import { RunsPage } from "./pages/RunsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { WorkflowCanvasPage } from "./pages/WorkflowCanvasPage";
 import { WorkflowsPage } from "./pages/WorkflowsPage";
 
 function AppContent() {
@@ -34,6 +35,7 @@ function AppContent() {
           <Route path="/brands" element={<BrandsPage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/workflows/:workflowId" element={<WorkflowCanvasPage />} />
           <Route path="/runs" element={<RunsPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
