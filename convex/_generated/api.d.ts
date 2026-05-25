@@ -54,6 +54,7 @@ import type * as workflows_inputResolver from "../workflows/inputResolver.js";
 import type * as workflows_runCreation from "../workflows/runCreation.js";
 import type * as workflows_runner from "../workflows/runner.js";
 import type * as workflows_runs from "../workflows/runs.js";
+import type * as workflows_scheduling from "../workflows/scheduling.js";
 
 import type {
   ApiFromModules,
@@ -108,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   "workflows/runCreation": typeof workflows_runCreation;
   "workflows/runner": typeof workflows_runner;
   "workflows/runs": typeof workflows_runs;
+  "workflows/scheduling": typeof workflows_scheduling;
 }>;
 
 /**

@@ -8,6 +8,7 @@ import {
   workflowGraphValidator,
   workflowTriggerValidator,
 } from "../validators";
+import { nextScheduledRunAt } from "./scheduling";
 
 export const list = query({
   handler: async (ctx) => {
@@ -163,6 +164,9 @@ export const updateGraph = mutation({
 
     await ctx.db.patch(args.id, {
       graph: args.graph,
+      nextRunAt: workflow.isActive
+        ? nextScheduledRunAt({ ...workflow, graph: args.graph })
+        : workflow.nextRunAt,
       updatedAt: Date.now(),
     });
   },
@@ -184,6 +188,7 @@ export const setActive = mutation({
 
     await ctx.db.patch(args.id, {
       isActive: args.isActive,
+      nextRunAt: args.isActive ? nextScheduledRunAt({ ...workflow, isActive: true }) : undefined,
       updatedAt: Date.now(),
     });
   },

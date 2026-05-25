@@ -33,12 +33,13 @@ export async function createWorkflowRun(
   }
 ): Promise<Id<"workflowRuns">> {
   const now = Date.now();
+  const trigger = args.trigger ?? "manual";
   const runId = await ctx.db.insert("workflowRuns", {
     userId: args.userId,
     workflowId: args.workflow._id,
     brandId: args.workflow.brandId,
     socialAccountId: args.workflow.socialAccountId,
-    trigger: args.trigger ?? "manual",
+    trigger,
     status: "queued",
     scheduledFor: args.scheduledFor,
     createdAt: now,
@@ -66,7 +67,9 @@ export async function createWorkflowRun(
     workflowRunId: runId,
     workflowId: args.workflow._id,
     type: "run_created",
-    message: "Manual workflow run queued.",
+    message: trigger === "schedule"
+      ? "Scheduled workflow run queued."
+      : "Manual workflow run queued.",
     createdAt: now,
   });
 

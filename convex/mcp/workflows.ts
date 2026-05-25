@@ -23,6 +23,7 @@ import {
 } from "../../src/lib/workflowTemplates";
 import { validateWorkflowGraph } from "../../src/lib/workflowGraphValidation";
 import { createWorkflowRun } from "../workflows/runCreation";
+import { nextScheduledRunAt } from "../workflows/scheduling";
 
 type WorkflowDoc = Doc<"workflows">;
 type WorkflowGraphDoc = typeof workflowGraphValidator.type;
@@ -193,6 +194,9 @@ async function patchWorkflowGraph(
   assertValidGraph(graph);
   await ctx.db.patch(workflow._id, {
     graph,
+    nextRunAt: workflow.isActive
+      ? nextScheduledRunAt({ ...workflow, graph })
+      : workflow.nextRunAt,
     updatedAt: Date.now(),
   });
 }
@@ -334,6 +338,9 @@ export const updateMetadata = mutation({
     if (args.scheduleConfig !== undefined) patch.scheduleConfig = args.scheduleConfig;
     if (args.approvalPolicy !== undefined) patch.approvalPolicy = args.approvalPolicy;
     if (args.publishingPolicy !== undefined) patch.publishingPolicy = args.publishingPolicy;
+    if (workflow.isActive && (args.trigger !== undefined || args.scheduleConfig !== undefined)) {
+      patch.nextRunAt = nextScheduledRunAt({ ...workflow, ...patch });
+    }
 
     await ctx.db.patch(workflow._id, patch);
     return workflow._id;

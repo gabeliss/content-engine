@@ -379,6 +379,9 @@ export function WorkflowsPage() {
                 `${workflow.trigger} trigger with ${workflow.publishingPolicy.provider} publishing`}
             </p>
             <span>{workflow.isActive ? "Active" : "Paused"}</span>
+            {workflow.nextRunAt ? (
+              <span>Next {new Date(workflow.nextRunAt).toLocaleString()}</span>
+            ) : null}
             <span className="workflow-card-action">
               <Workflow size={15} />
               Open canvas

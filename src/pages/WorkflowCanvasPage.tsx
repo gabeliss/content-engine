@@ -197,6 +197,9 @@ const primaryConfigFieldKeys = new Set([
   "responseFormat",
   "retryCount",
   "runsPerExecution",
+  "scheduleDayOfWeek",
+  "scheduleHour",
+  "scheduleMinute",
   "scheduledAt",
   "scheduleType",
   "scriptLengthSeconds",
@@ -742,6 +745,9 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
     case "maxTokens":
     case "retryCount":
     case "runsPerExecution":
+    case "scheduleDayOfWeek":
+    case "scheduleHour":
+    case "scheduleMinute":
     case "scriptLengthSeconds":
     case "seed":
     case "slideCount":
@@ -923,11 +929,13 @@ export function WorkflowCanvasPage() {
   );
   const updateGraph = useMutation(api.workflows.definitions.updateGraph);
   const createManualRun = useMutation(api.workflows.runs.createManualRun);
+  const setWorkflowActive = useMutation(api.workflows.definitions.setActive);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
+  const [isUpdatingActiveState, setIsUpdatingActiveState] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [connectionStatus, setConnectionStatus] = useState("");
   const [runActionStatus, setRunActionStatus] = useState("");
@@ -1231,6 +1239,27 @@ export function WorkflowCanvasPage() {
     }
   }, [createManualRun, graphValidation, isDirty, workflow]);
 
+  const handleToggleActive = useCallback(async () => {
+    if (!workflow) return;
+
+    if (isDirty) {
+      setSaveStatus("Save the workflow graph before changing its active state.");
+      return;
+    }
+
+    setIsUpdatingActiveState(true);
+    setSaveStatus("");
+
+    try {
+      await setWorkflowActive({ id: workflow._id, isActive: !workflow.isActive });
+      setSaveStatus(workflow.isActive ? "Workflow paused" : "Workflow activated");
+    } catch (error) {
+      setSaveStatus(getErrorMessage(error));
+    } finally {
+      setIsUpdatingActiveState(false);
+    }
+  }, [isDirty, setWorkflowActive, workflow]);
+
   const renderConfigField = (field: ConfigField) => {
     if (!selectedNode) return null;
 
@@ -1375,9 +1404,23 @@ export function WorkflowCanvasPage() {
           <span>{nodes.length} nodes</span>
           <span>{edges.length} edges</span>
           <span>{workflow.isActive ? "Active" : "Paused"}</span>
+          {workflow.nextRunAt ? (
+            <span>Next {new Date(workflow.nextRunAt).toLocaleString()}</span>
+          ) : null}
         </div>
         <div className="workflow-canvas-actions">
           {saveStatus ? <span>{saveStatus}</span> : null}
+          <button
+            className="secondary-button"
+            disabled={isUpdatingActiveState}
+            onClick={() => {
+              void handleToggleActive();
+            }}
+            type="button"
+          >
+            <Clock size={16} />
+            {workflow.isActive ? "Pause" : "Activate"}
+          </button>
           <button
             className="primary-button"
             disabled={!isDirty || isSaving}

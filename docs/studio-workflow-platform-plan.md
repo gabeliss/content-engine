@@ -1689,7 +1689,7 @@ Goal: let workflows run repeatedly and improve from performance.
 
 #### SW-0901: Add schedule runner
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1700,6 +1700,21 @@ Deliverables:
 Acceptance criteria:
 
 - Scheduled workflows run without manual clicks.
+
+Implementation notes:
+
+- Added `convex/workflows/scheduling.ts` with due-workflow scanning, interval,
+  daily, weekly, timezone-aware next-run calculation, and runs-per-execution
+  support.
+- Added a Convex cron in `convex/system/crons.ts` to check due scheduled
+  workflows every five minutes.
+- Scheduled runs now use the shared run creation helper with `trigger:
+  "schedule"` and `scheduledFor`.
+- Activating or saving active workflows recomputes `nextRunAt`; pausing clears
+  `nextRunAt`.
+- Runner node defaults now include daily/weekly schedule fields, and the canvas
+  header exposes activation plus next-run visibility.
+- Added `docs/scheduled-workflows.md` to document the scheduling model.
 
 #### SW-0902: Add publishing provider decision implementation
 
