@@ -22,6 +22,8 @@ import {
   type GenerateTextResult,
   type GenerateVideoInput,
   type GenerateVideoResult,
+  type GenerateVideoRenderInput,
+  type GenerateVideoRenderResult,
   type GeneratedAsset,
   type GetJobStatusInput,
   type GetJobStatusResult,
@@ -68,6 +70,7 @@ const DEFAULT_BULKAPIS_IMAGE_MODEL = "nano-banana-2";
 const DEFAULT_BULKAPIS_VIDEO_MODEL = "kling-2.5-turbo";
 const DEFAULT_BULKAPIS_AUDIO_MODEL = "elevenlabs-v3";
 const DEFAULT_BULKAPIS_LIPSYNC_MODEL = "omnihuman-v1.5";
+const DEFAULT_BULKAPIS_VIDEO_RENDER_MODEL = "video-render";
 
 function providerInputOverrides(input: { metadata?: Record<string, unknown> }): Record<string, unknown> {
   const overrides = input.metadata?.bulkapisInput;
@@ -545,6 +548,58 @@ async function generateBulkApisLipsync(
   }
 }
 
+async function generateBulkApisVideoRender(
+  input: GenerateVideoRenderInput
+): Promise<GenerateVideoRenderResult> {
+  const model = input.model ?? DEFAULT_BULKAPIS_VIDEO_RENDER_MODEL;
+  const mediaUrls = input.mediaAssets?.flatMap((asset) => {
+    const url = referenceUrl(asset);
+    return url ? [url] : [];
+  }) ?? [];
+
+  try {
+    const response = await submitBulkApisGeneration("generate_video_render", model, {
+      prompt: input.prompt,
+      system_prompt: input.systemPrompt,
+      knowledge_base: input.knowledgeBase,
+      media_urls: mediaUrls.length ? mediaUrls : undefined,
+      aspect_ratio: input.aspectRatio,
+      width: input.width,
+      height: input.height,
+      fps: input.fps,
+      max_duration: input.maxDurationSeconds,
+      ...providerInputOverrides(input),
+    });
+    const jobId = response.taskId ?? response.id;
+    if (!jobId) {
+      throw new ProviderError("BulkAPIs did not return a task id for video render", {
+        kind: "model",
+        provider: BULKAPIS_PROVIDER,
+        operation: "generate_video_render",
+        code: "provider",
+        details: response,
+      });
+    }
+
+    return {
+      jobId,
+      status: response.status ? normalizeBulkApisStatus(response.status) : "queued",
+      metadata: {
+        provider: BULKAPIS_PROVIDER,
+        model: response.model ?? model,
+        costUsd: creditsToUsd(response.creditsUsed ?? response.costCredits),
+      },
+      raw: response,
+    };
+  } catch (error) {
+    throw toProviderError(error, {
+      kind: "model",
+      provider: BULKAPIS_PROVIDER,
+      operation: "generate_video_render",
+    });
+  }
+}
+
 async function getBulkApisJobStatus(
   input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -593,6 +648,7 @@ export const bulkApisProvider: ModelProvider = {
     video: true,
     audio: true,
     lipsync: true,
+    videoRender: true,
     asyncJobs: true,
   },
   generateText: generateBulkApisText,
@@ -601,6 +657,7 @@ export const bulkApisProvider: ModelProvider = {
   generateVideo: generateBulkApisVideo,
   generateAudio: generateBulkApisAudio,
   generateLipsync: generateBulkApisLipsync,
+  generateVideoRender: generateBulkApisVideoRender,
   getJobStatus: getBulkApisJobStatus,
 };
 

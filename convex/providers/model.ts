@@ -21,6 +21,7 @@ export interface ModelProviderCapabilities {
   video: boolean;
   audio: boolean;
   lipsync: boolean;
+  videoRender: boolean;
   asyncJobs: boolean;
 }
 
@@ -156,6 +157,27 @@ export interface GenerateLipsyncResult {
   raw?: unknown;
 }
 
+export interface GenerateVideoRenderInput {
+  prompt: string;
+  model?: string;
+  systemPrompt?: string;
+  knowledgeBase?: string;
+  mediaAssets?: ReferenceAsset[];
+  aspectRatio?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  maxDurationSeconds?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GenerateVideoRenderResult {
+  jobId: string;
+  status: AsyncJobStatus;
+  metadata: ModelInvocationMetadata;
+  raw?: unknown;
+}
+
 export interface GetJobStatusInput {
   jobId: string;
   model?: string;
@@ -182,6 +204,7 @@ export interface ModelProvider {
   generateVideo(input: GenerateVideoInput): Promise<GenerateVideoResult>;
   generateAudio(input: GenerateAudioInput): Promise<GenerateAudioResult>;
   generateLipsync(input: GenerateLipsyncInput): Promise<GenerateLipsyncResult>;
+  generateVideoRender(input: GenerateVideoRenderInput): Promise<GenerateVideoRenderResult>;
   getJobStatus(input: GetJobStatusInput): Promise<GetJobStatusResult>;
 }
 

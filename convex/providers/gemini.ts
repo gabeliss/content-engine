@@ -19,6 +19,8 @@ import {
   type GenerateTextResult,
   type GenerateVideoInput,
   type GenerateVideoResult,
+  type GenerateVideoRenderInput,
+  type GenerateVideoRenderResult,
   type GetJobStatusInput,
   type GetJobStatusResult,
   type ModelProvider,
@@ -321,6 +323,12 @@ async function generateGeminiLipsync(
   throw unsupportedProviderOperation("model", GEMINI_PROVIDER, "generate_lipsync");
 }
 
+async function generateGeminiVideoRender(
+  _input: GenerateVideoRenderInput
+): Promise<GenerateVideoRenderResult> {
+  throw unsupportedProviderOperation("model", GEMINI_PROVIDER, "generate_video_render");
+}
+
 async function getGeminiJobStatus(
   _input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -337,6 +345,7 @@ export const geminiProvider: ModelProvider = {
     video: false,
     audio: false,
     lipsync: false,
+    videoRender: false,
     asyncJobs: false,
   },
   generateText: generateGeminiText,
@@ -345,6 +354,7 @@ export const geminiProvider: ModelProvider = {
   generateVideo: generateGeminiVideo,
   generateAudio: generateGeminiAudio,
   generateLipsync: generateGeminiLipsync,
+  generateVideoRender: generateGeminiVideoRender,
   getJobStatus: getGeminiJobStatus,
 };
 

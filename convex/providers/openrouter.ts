@@ -19,6 +19,8 @@ import {
   type GenerateTextResult,
   type GenerateVideoInput,
   type GenerateVideoResult,
+  type GenerateVideoRenderInput,
+  type GenerateVideoRenderResult,
   type GetJobStatusInput,
   type GetJobStatusResult,
   type ModelMessage,
@@ -311,6 +313,12 @@ async function unsupportedOpenRouterLipsync(
   throw unsupportedProviderOperation("model", OPENROUTER_PROVIDER, "generate_lipsync");
 }
 
+async function unsupportedOpenRouterVideoRender(
+  _input: GenerateVideoRenderInput
+): Promise<GenerateVideoRenderResult> {
+  throw unsupportedProviderOperation("model", OPENROUTER_PROVIDER, "generate_video_render");
+}
+
 async function unsupportedOpenRouterJobStatus(
   _input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -327,6 +335,7 @@ export const openRouterProvider: ModelProvider = {
     video: false,
     audio: false,
     lipsync: false,
+    videoRender: false,
     asyncJobs: false,
   },
   generateText: generateOpenRouterText,
@@ -335,6 +344,7 @@ export const openRouterProvider: ModelProvider = {
   generateVideo: unsupportedOpenRouterVideo,
   generateAudio: unsupportedOpenRouterAudio,
   generateLipsync: unsupportedOpenRouterLipsync,
+  generateVideoRender: unsupportedOpenRouterVideoRender,
   getJobStatus: unsupportedOpenRouterJobStatus,
 };
 

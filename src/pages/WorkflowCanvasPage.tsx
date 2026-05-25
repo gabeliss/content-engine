@@ -172,6 +172,8 @@ const primaryConfigFieldKeys = new Set([
   "failureBehavior",
   "fileName",
   "folder",
+  "fps",
+  "height",
   "hookStyle",
   "imageUrl",
   "intervalHours",
@@ -214,6 +216,7 @@ const primaryConfigFieldKeys = new Set([
   "voiceReferenceUrl",
   "variationGoal",
   "webhookUrl",
+  "width",
 ]);
 
 function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
@@ -744,6 +747,9 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
     case "temperature":
     case "timeoutSeconds":
     case "cfgScale":
+    case "fps":
+    case "height":
+    case "width":
       return { ...defaultField, type: "number" };
     case "failureBehavior":
       return {

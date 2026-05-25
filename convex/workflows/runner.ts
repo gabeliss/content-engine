@@ -187,6 +187,10 @@ function isLipsyncNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "lipsync";
 }
 
+function isAiVideoEditorNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "ai_video_editor";
+}
+
 function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
   return isMediaNode(node) ||
     isLlmNode(node) ||
@@ -194,7 +198,8 @@ function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
     isImageGenerationNode(node) ||
     isVideoGenerationNode(node) ||
     isAudioGenerationNode(node) ||
-    isLipsyncNode(node);
+    isLipsyncNode(node) ||
+    isAiVideoEditorNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -461,6 +466,17 @@ function uniqueReferenceAssets(assets: ReferenceAsset[]): ReferenceAsset[] {
   }
 
   return uniqueAssets;
+}
+
+function allMediaReferenceAssetsFromInputs(
+  resolvedInputs: ResolvedInputsForRun,
+  preferredKeys: string[]
+): ReferenceAsset[] {
+  return uniqueReferenceAssets([
+    ...referenceAssetsFromInputs(resolvedInputs, preferredKeys),
+    ...referenceVideoAssetsFromInputs(resolvedInputs, preferredKeys),
+    ...referenceAudioAssetsFromInputs(resolvedInputs, preferredKeys),
+  ]);
 }
 
 async function waitForGeneratedImage(
@@ -2331,6 +2347,233 @@ export const executeRun = internalAction({
                 artifactId,
                 provider: lipsyncResult.metadata.provider,
                 model: lipsyncResult.metadata.model,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isAiVideoEditorNode(node)) {
+            const config = objectValue(node.config);
+            const inputs = resolvedInputs.inputs ?? {};
+            const providerName = modelProviderNameForNode(node);
+            const provider = getModelProvider(providerName);
+            const prompt = textFromInputValue(inputs.prompt?.value);
+            const systemPrompt = textFromInputValue(inputs.systemPrompt?.value);
+            const knowledgeBase = textFromInputValue(inputs.knowledgeBase?.value);
+            const model =
+              typeof node.model === "string" && node.model.trim()
+                ? node.model.trim()
+                : textFromInputValue(inputs.model?.value);
+            const aspectRatio = textFromInputValue(inputs.aspectRatio?.value);
+            const maxDurationSeconds = numberFromInputValue(inputs.maxDurationSeconds?.value);
+            const width = numberFromInputValue(inputs.width?.value);
+            const height = numberFromInputValue(inputs.height?.value);
+            const fps = numberFromInputValue(inputs.fps?.value);
+            const mediaAssets = allMediaReferenceAssetsFromInputs(resolvedInputs, [
+              "media",
+              "video",
+              "image",
+              "audio",
+              "videoUrl",
+              "imageUrl",
+              "audioUrl",
+            ]);
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "media",
+              "video",
+              "image",
+              "audio",
+              "input",
+            ]);
+            const providerInput = generationProviderInputFromConfig(config, [
+              "prompt",
+              "systemPrompt",
+              "knowledgeBase",
+              "aspectRatio",
+              "maxDurationSeconds",
+              "width",
+              "height",
+              "fps",
+              "videoUrl",
+              "imageUrl",
+              "audioUrl",
+            ]);
+            const mediaUrls = mediaAssets.flatMap((asset) => asset.url ? [asset.url] : []);
+            if (mediaUrls.length) providerInput.media_urls = mediaUrls;
+
+            if (!prompt) {
+              throw new Error(`${node.label} needs a prompt input.`);
+            }
+            if (!provider.capabilities.videoRender) {
+              throw new Error(`${provider.displayName} does not support AI video render.`);
+            }
+
+            const renderResult = await provider.generateVideoRender({
+              prompt,
+              model,
+              systemPrompt,
+              knowledgeBase,
+              mediaAssets: mediaAssets.length ? mediaAssets : undefined,
+              aspectRatio,
+              width,
+              height,
+              fps,
+              maxDurationSeconds,
+              metadata: {
+                workflowId: String(context.workflow._id),
+                workflowRunId: String(context.run._id),
+                nodeId: node.id,
+                nodeType: node.type,
+                mediaAssetCount: mediaAssets.length,
+                ...(Object.keys(providerInput).length
+                  ? {
+                      arguments: providerInput,
+                      bulkapisInput: providerInput,
+                    }
+                  : {}),
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "running",
+              providerJob: {
+                provider: renderResult.metadata.provider,
+                model: renderResult.metadata.model,
+                externalJobId: renderResult.jobId,
+                status: renderResult.status,
+                submittedAt: Date.now(),
+                raw: renderResult.raw,
+              },
+            });
+
+            const videoAsset = await waitForGeneratedVideo(
+              provider,
+              {
+                jobId: renderResult.jobId,
+                model: renderResult.metadata.model,
+                metadata: renderResult.metadata,
+              },
+              async (status) => {
+                await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+                  runId: context.run._id,
+                  nodeId: node.id,
+                  status: "running",
+                  providerJob: {
+                    provider: renderResult.metadata.provider,
+                    model: renderResult.metadata.model,
+                    externalJobId: renderResult.jobId,
+                    status,
+                    ...(status === "succeeded" ? { completedAt: Date.now() } : {}),
+                  },
+                });
+              }
+            );
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const stored = await storeGeneratedAsset(ctx, videoAsset);
+            const artifactId = await ctx.runMutation(
+              internal.artifacts.records.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                parentArtifactIds: sourceArtifactIds.length ? sourceArtifactIds : undefined,
+                type: "video",
+                title: `${node.label} render`,
+                storageUrl: stored.storageUrl,
+                data: {
+                  storageId: stored.storageId,
+                  mimeType: stored.mimeType,
+                  fileSize: stored.byteLength,
+                  sourceMimeType: videoAsset.mimeType,
+                  jobId: renderResult.jobId,
+                  status: "succeeded",
+                  aspectRatio,
+                  maxDurationSeconds,
+                  width,
+                  height,
+                  fps,
+                  mediaAssetCount: mediaAssets.length,
+                  inputSummary: resolvedInputs.summary,
+                  providerMetadata: renderResult.metadata,
+                },
+                provider: renderResult.metadata.provider,
+                model: renderResult.metadata.model,
+                prompt,
+                lifecycle,
+                reviewStatus: "not_required",
+              }
+            );
+            emittedArtifactIds.add(artifactId);
+
+            const videoItems: MediaNodeItemForRun[] = [{
+              id: String(artifactId),
+              source: "artifact",
+              kind: "video",
+              title: `${node.label} render`,
+              storageUrl: stored.storageUrl,
+              metadata: {
+                mimeType: stored.mimeType,
+                fileSize: stored.byteLength,
+                provider: renderResult.metadata.provider,
+                model: renderResult.metadata.model,
+              },
+            }];
+            const outputRefs = videoOutputRefsForNode(node.id, videoItems);
+            const costUsd = renderResult.metadata.costUsd ?? 0;
+            totalCostUsd += costUsd;
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd,
+              providerJob: {
+                provider: renderResult.metadata.provider,
+                model: renderResult.metadata.model,
+                externalJobId: renderResult.jobId,
+                status: "succeeded",
+                completedAt: Date.now(),
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "model_call",
+              nodeId: node.id,
+              message: `${node.label} rendered a video.`,
+              data: {
+                provider: renderResult.metadata.provider,
+                model: renderResult.metadata.model,
+                usage: renderResult.metadata.usage,
+                costUsd,
+                jobId: renderResult.jobId,
+                status: renderResult.status,
+                mediaAssetCount: mediaAssets.length,
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} produced a rendered video output.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactId,
+                provider: renderResult.metadata.provider,
+                model: renderResult.metadata.model,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },

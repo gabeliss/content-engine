@@ -1143,7 +1143,7 @@ Implementation notes:
 
 #### SW-0509: AI Video Editor / Video Render node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1154,6 +1154,23 @@ Deliverables:
 Acceptance criteria:
 
 - Node can stitch or compose final video output from upstream assets.
+
+Implementation notes:
+
+- Extended the shared model provider abstraction with video-render generation
+  support so the AI Video Editor can use BulkAPIs Video Render through the same
+  adapter layer as image, video, audio, and lipsync nodes.
+- BulkAPIs video render now submits async `/ai/generate` jobs with prompt,
+  optional system prompt, knowledge base, normalized media URLs, aspect ratio,
+  dimensions, FPS, max duration, and schema-driven provider extras.
+- The workflow runner now treats `ai_video_editor` as a real executable node,
+  resolving upstream images, videos, audio, and media library references into
+  render media assets.
+- Completed render outputs are stored in Convex storage, saved as `video`
+  artifacts according to retention policy, and emitted on the `video` output
+  port for post compiler, export, or auto-post nodes.
+- Async provider job status is attached to the workflow node state during
+  submission, polling, and completion.
 
 #### SW-0510: Native Slideshow Planner node
 
