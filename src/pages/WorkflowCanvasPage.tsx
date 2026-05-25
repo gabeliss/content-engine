@@ -60,6 +60,10 @@ import {
   isWorkflowNodeType,
   listWorkflowNodeDefinitions,
 } from "../lib/workflowNodeCatalog";
+import {
+  getWorkflowAgentPreset,
+  workflowAgentPresetIds,
+} from "../lib/workflowAgentPresets";
 import { validateWorkflowGraph } from "../lib/workflowGraphValidation";
 
 const nodeTypes = {
@@ -154,23 +158,27 @@ const retentionOptions: Array<{ value: NodeRetentionMode; label: string }> = [
 
 const primaryConfigFieldKeys = new Set([
   "agentMode",
+  "analysisFocus",
   "aspectRatio",
   "audioUrl",
   "autoPublish",
   "brandAssetIds",
   "caption",
   "count",
+  "cta",
   "destination",
   "durationSeconds",
   "endFrameUrl",
   "failureBehavior",
   "fileName",
   "folder",
+  "hookStyle",
   "imageUrl",
   "intervalHours",
   "maxDurationSeconds",
   "maxTokens",
   "mode",
+  "motionStyle",
   "name",
   "optimizeFor",
   "platform",
@@ -203,6 +211,7 @@ const primaryConfigFieldKeys = new Set([
   "videoUrl",
   "voice",
   "voiceReferenceUrl",
+  "variationGoal",
   "webhookUrl",
 ]);
 
@@ -636,7 +645,10 @@ function schemaFieldsFromRecordSchema(schema: unknown): ConfigField[] {
   });
 }
 
-function friendlyConfigFieldKeysForNode(type: WorkflowNodeType): string[] {
+function friendlyConfigFieldKeysForNode(
+  type: WorkflowNodeType,
+  config: Record<string, unknown>
+): string[] {
   switch (type) {
     case "runner":
       return [
@@ -656,7 +668,7 @@ function friendlyConfigFieldKeysForNode(type: WorkflowNodeType): string[] {
     case "llm":
       return ["systemPrompt", "prompt", "responseFormat", "temperature", "maxTokens", "seed"];
     case "ai_agent":
-      return ["agentMode", "request", "scriptLengthSeconds", "referenceImageUrl"];
+      return getWorkflowAgentPreset(config.agentMode).configKeys;
     case "image_generation":
       return ["prompt", "aspectRatio", "resolution", "count", "seed", "referenceImageUrl", "webhookUrl"];
     case "video_generation":
@@ -706,15 +718,7 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
       return {
         ...defaultField,
         type: "enum",
-        enumValues: [
-          "analyze_input",
-          "script_writer",
-          "prompt_variation",
-          "sora_prompting",
-          "image_gen_agent",
-          "kling_prompting",
-          "grab_frame_extract_audio",
-        ],
+        enumValues: workflowAgentPresetIds(),
       };
     case "aspectRatio":
       return {
@@ -779,6 +783,8 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
     case "artifactIds":
     case "brandAssetIds":
     case "knowledgeBase":
+    case "lockedDetails":
+    case "avoid":
     case "personaAssetIds":
     case "platforms":
     case "uploadedMedia":
@@ -806,7 +812,7 @@ function configFieldsForNode(
     fieldsByKey.set(field.key, field);
   }
 
-  for (const key of friendlyConfigFieldKeysForNode(type)) {
+  for (const key of friendlyConfigFieldKeysForNode(type, config)) {
     if (!fieldsByKey.has(key)) {
       fieldsByKey.set(key, friendlyConfigFieldForKey(key, config));
     }

@@ -44,6 +44,7 @@ import type * as storage_files from "../storage/files.js";
 import type * as system_crons from "../system/crons.js";
 import type * as system_http from "../system/http.js";
 import type * as validators from "../validators.js";
+import type * as workflows_agentPresets from "../workflows/agentPresets.js";
 import type * as workflows_definitions from "../workflows/definitions.js";
 import type * as workflows_inputResolver from "../workflows/inputResolver.js";
 import type * as workflows_runner from "../workflows/runner.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   "system/crons": typeof system_crons;
   "system/http": typeof system_http;
   validators: typeof validators;
+  "workflows/agentPresets": typeof workflows_agentPresets;
   "workflows/definitions": typeof workflows_definitions;
   "workflows/inputResolver": typeof workflows_inputResolver;
   "workflows/runner": typeof workflows_runner;

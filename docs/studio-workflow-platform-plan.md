@@ -994,7 +994,7 @@ Implementation notes:
 
 #### SW-0504: AI Agent node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1006,6 +1006,19 @@ Acceptance criteria:
 
 - Agent node has preset-specific settings.
 - Agent node produces typed outputs.
+
+Implementation notes:
+
+- Added the initial AI Agent preset registry with analyze input, script writer,
+  prompt variation, image prompting, and video prompting presets.
+- The canvas inspector now derives AI Agent config fields from the selected
+  preset instead of showing one generic settings shape for every agent.
+- AI Agent nodes now execute through the registered model provider abstraction
+  using structured output, with preset-specific system prompts and prompt
+  assembly for request, context, media, and settings.
+- Agent outputs are saved as typed artifacts (`text_draft`, `script`, or
+  `prompt`) according to the selected preset and emit typed output refs such as
+  `analysis`, `script`, `prompt`, `text`, and `json`.
 
 #### SW-0505: Image Generation node
 

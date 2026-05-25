@@ -6,6 +6,7 @@ import {
   type WorkflowPortDataType,
   type WorkflowProviderName,
 } from "./workflowGraph";
+import { getWorkflowAgentPreset } from "./workflowAgentPresets";
 
 export type WorkflowNodeCategory =
   | "control"
@@ -161,12 +162,18 @@ export const WORKFLOW_NODE_CATALOG = [
     outputPorts: [
       port("text", "Text", "text"),
       port("prompt", "Prompt", "prompt"),
+      port("script", "Script", "text"),
+      port("analysis", "Analysis", "text"),
       port("json", "JSON", "json"),
-      port("media", "Media", "media", { multiple: true }),
     ],
-    defaultConfig: { agentMode: "prompt_variation", request: "" },
+    defaultConfig: {
+      agentMode: getWorkflowAgentPreset("prompt_variation").id,
+      request: "",
+      tone: "natural",
+      platform: "tiktok",
+    },
     defaultRetention: { mode: "discard" },
-    outputArtifactTypes: ["prompt", "script", "scene_spec"],
+    outputArtifactTypes: ["text_draft", "prompt", "script"],
   },
   {
     type: "image_generation",
