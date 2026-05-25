@@ -611,7 +611,7 @@ Implementation notes:
 
 #### SW-0302: Add BulkAPIs model provider adapter
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -626,6 +626,13 @@ Acceptance criteria:
 - Adapter matches existing model provider interface or cleanly extends it.
 - Async task IDs are stored in artifacts/run outputs.
 - Provider result media URLs are normalized into generated assets.
+
+Implementation notes:
+
+- Registered `bulkapis` as a backend model provider.
+- Added shared BulkAPIs request handling, envelope errors, HTTP status mapping, sync chat/structured generation, async image/video submit, and task polling.
+- Added a conservative `metadata.bulkapisInput` escape hatch for model-specific fields until the model catalog/schema tickets make node config dynamic.
+- Audio, lipsync, music, and video-render are supported by BulkAPIs but need workflow-node-specific runner adapters because the current provider interface only models text, image, video, and task polling.
 
 #### SW-0303: Add provider model catalog table
 

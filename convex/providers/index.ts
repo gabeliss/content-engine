@@ -1,3 +1,4 @@
+import "./bulkapis";
 import "./gemini";
 import "./fal";
 import "./openrouter";
