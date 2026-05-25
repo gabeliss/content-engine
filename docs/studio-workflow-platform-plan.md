@@ -1420,7 +1420,7 @@ Goal: make the product approachable without form-only workflow builders.
 
 #### SW-0701: Add workflow template registry
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1431,6 +1431,19 @@ Deliverables:
 Acceptance criteria:
 
 - User can clone a template into a workflow canvas.
+
+Implementation notes:
+
+- Replaced the one-off template list with a typed workflow template registry
+  that stores metadata, category, purpose, output type, publishing defaults,
+  required input placeholders, and graph definitions.
+- Added initial registry templates for AI UGC ad, before/after transformation,
+  slideshow carousel, app demo video, talking avatar, hook/b-roll/voiceover
+  short, plus the existing Persona image set template.
+- Template creation now clones graph definitions from the registry into an
+  editable workflow canvas.
+- Expanded the frontend `ContentFormat` type and blank-workflow format selector
+  to match the backend content format vocabulary.
 
 #### SW-0702: Add template picker
 

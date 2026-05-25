@@ -6,8 +6,9 @@ import { api } from "../../convex/_generated/api";
 import { Field, FormPanel, Page, Panel, Select } from "../components/ui";
 import { createStarterWorkflowGraph } from "../lib/workflowGraph";
 import {
-  WORKFLOW_TEMPLATES,
   createWorkflowGraphFromTemplate,
+  getWorkflowTemplate,
+  listWorkflowTemplates,
   type WorkflowTemplateId,
 } from "../lib/workflowTemplates";
 import type { BrandId, ContentFormat, SocialAccountId } from "../types";
@@ -31,6 +32,7 @@ export function WorkflowsPage() {
   const [statusFilter, setStatusFilter] = useState<WorkflowStatusFilter>("all");
   const [scheduleFilter, setScheduleFilter] = useState<WorkflowScheduleFilter>("all");
   const [createStatus, setCreateStatus] = useState("");
+  const workflowTemplates = useMemo(() => listWorkflowTemplates(), []);
 
   const brandAccounts = useMemo(
     () =>
@@ -93,8 +95,7 @@ export function WorkflowsPage() {
       return;
     }
 
-    const template = WORKFLOW_TEMPLATES.find((candidate) => candidate.id === templateId);
-    if (!template) return;
+    const template = getWorkflowTemplate(templateId);
 
     setCreateStatus(`Creating ${template.name}`);
     try {
@@ -107,7 +108,7 @@ export function WorkflowsPage() {
         trigger: "manual",
         approvalPolicy: { mode: "always" },
         publishingPolicy: {
-          provider: "manual",
+          provider: template.defaultPublishingProvider,
           autoPublish: false,
           defaultPlatforms: ["tiktok"],
         },
@@ -148,13 +149,18 @@ export function WorkflowsPage() {
           <option value="slideshow">Slideshow</option>
           <option value="hook_demo_video">Hook/demo video</option>
           <option value="ai_ugc_video">AI UGC video</option>
+          <option value="talking_avatar">Talking avatar</option>
+          <option value="short_educational_video">Short educational video</option>
+          <option value="static_image">Static image</option>
+          <option value="thread">Thread</option>
+          <option value="caption_set">Caption set</option>
         </Select>
         <Field label="Name" value={name} onChange={setName} placeholder="Daily slideshow test" />
         <button className="primary-button" type="submit">
           <Plus size={16} />
           New blank workflow
         </button>
-        {WORKFLOW_TEMPLATES.map((template) => (
+        {workflowTemplates.map((template) => (
           <button
             className="secondary-button"
             disabled={!brandId}
