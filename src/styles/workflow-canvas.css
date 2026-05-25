@@ -134,11 +134,12 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(13.5rem, 16rem) minmax(0, 1fr);
+  grid-template-columns: minmax(13.5rem, 16rem) minmax(0, 1fr) minmax(16rem, 19rem);
   gap: var(--space-4);
 }
 
-.workflow-node-palette {
+.workflow-node-palette,
+.workflow-node-inspector {
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -147,6 +148,12 @@
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-sm);
   padding: var(--space-4);
+}
+
+.workflow-node-inspector {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
 }
 
 .workflow-node-palette-header {
@@ -244,6 +251,171 @@
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: capitalize;
+}
+
+.workflow-node-inspector-header {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.workflow-node-inspector-header h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 1rem;
+  font-weight: 780;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-inspector-header p {
+  display: -webkit-box;
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: var(--color-ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.workflow-node-inspector-icon {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-strong);
+}
+
+.workflow-inspector-group {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+
+.workflow-inspector-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.workflow-inspector-field > span,
+.workflow-inspector-static-field > span {
+  color: var(--color-ink-soft);
+  font-size: 0.74rem;
+  font-weight: 780;
+}
+
+.workflow-inspector-field input,
+.workflow-inspector-field select {
+  width: 100%;
+  min-height: 2.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-page);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 0 var(--space-3);
+}
+
+.workflow-inspector-field input[type="checkbox"] {
+  width: 1rem;
+  min-height: 1rem;
+  accent-color: var(--color-primary);
+  padding: 0;
+}
+
+.workflow-inspector-field input:disabled,
+.workflow-inspector-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.workflow-inspector-toggle {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.workflow-inspector-toggle input {
+  accent-color: var(--color-primary);
+}
+
+.workflow-inspector-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.workflow-inspector-section-heading h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 0.9rem;
+  font-weight: 780;
+}
+
+.workflow-inspector-section-heading span {
+  max-width: 9rem;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.workflow-inspector-static-field {
+  display: grid;
+  min-height: 2.45rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-page);
+  padding: 0 var(--space-3);
+}
+
+.workflow-inspector-static-field code {
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.workflow-inspector-empty,
+.workflow-inspector-empty-state p {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.workflow-inspector-empty-state {
+  display: grid;
+  min-height: 14rem;
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  text-align: center;
+}
+
+.workflow-inspector-empty-state h2 {
+  margin: var(--space-1) 0 0;
+  color: var(--color-ink);
+  font-size: 1rem;
+  font-weight: 780;
 }
 
 .workflow-canvas-shell {
@@ -406,7 +578,8 @@
     grid-template-columns: 1fr;
   }
 
-  .workflow-node-palette {
+  .workflow-node-palette,
+  .workflow-node-inspector {
     max-height: 22rem;
   }
 

@@ -39,10 +39,13 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Page } from "../components/ui";
 import type {
+  NodeRetentionMode,
+  NodeRetentionPolicy,
   WorkflowEdge,
   WorkflowGraph,
   WorkflowNode,
   WorkflowNodeType,
+  WorkflowProviderName,
 } from "../lib/workflowGraph";
 import {
   getWorkflowNodeDefinition,
@@ -73,7 +76,11 @@ const nodeIcons = {
 } satisfies Record<WorkflowNodeType, typeof Play>;
 
 type WorkflowCanvasNodeData = Record<string, unknown> & {
+  config: Record<string, unknown>;
   label: string;
+  model?: string;
+  provider?: WorkflowProviderName;
+  retention?: NodeRetentionPolicy;
   type: WorkflowNodeType;
 };
 
@@ -89,6 +96,22 @@ const paletteSections = [
   { category: "output", label: "Output" },
   { category: "utility", label: "Utility" },
 ] as const;
+
+const providerOptions: Array<{ value: WorkflowProviderName; label: string }> = [
+  { value: "bulkapis", label: "BulkAPIs" },
+  { value: "gemini", label: "Gemini" },
+  { value: "fal", label: "fal.ai" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "postiz", label: "Postiz" },
+  { value: "manual", label: "Manual" },
+];
+
+const retentionOptions: Array<{ value: NodeRetentionMode; label: string }> = [
+  { value: "inherit", label: "Inherit workflow default" },
+  { value: "keep", label: "Keep output" },
+  { value: "discard", label: "Discard output" },
+  { value: "keep_on_failure", label: "Keep on failure" },
+];
 
 function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
   const definition = getWorkflowNodeDefinition(data.type);
@@ -147,7 +170,11 @@ function toFlowNodes(graph: WorkflowGraph): WorkflowFlowNode[] {
       type: "workflowNode",
       position: node.position,
       data: {
+        config: cloneConfig(node.config),
         label: node.label,
+        model: node.model,
+        provider: node.provider,
+        retention: node.retention,
         type: node.type,
       },
     }));
@@ -200,19 +227,19 @@ function toWorkflowGraph(
   return {
     ...sourceGraph,
     nodes: nodes.map((node) => {
-      const existingNode = sourceNodes.get(node.id);
       const definition = getWorkflowNodeDefinition(node.data.type);
       const graphNode: WorkflowNode = {
         id: node.id,
         type: node.data.type,
         label: node.data.label,
         position: node.position,
-        config: existingNode?.config ?? cloneConfig(definition.defaultConfig),
-        retention: existingNode?.retention ?? definition.defaultRetention,
+        config: cloneConfig(node.data.config ?? definition.defaultConfig),
+        retention: node.data.retention ?? definition.defaultRetention,
       };
 
-      if (existingNode?.provider) graphNode.provider = existingNode.provider;
-      if (existingNode?.model) graphNode.model = existingNode.model;
+      if (node.data.provider) graphNode.provider = node.data.provider;
+      if (node.data.model) graphNode.model = node.data.model;
+      const existingNode = sourceNodes.get(node.id);
       if (existingNode?.inputBindings) graphNode.inputBindings = existingNode.inputBindings;
 
       return graphNode;
@@ -236,6 +263,32 @@ function getErrorMessage(error: unknown): string {
   return "Unable to save workflow graph.";
 }
 
+function formatConfigLabel(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isPrimitiveConfigValue(value: unknown): value is string | number | boolean {
+  return ["string", "number", "boolean"].includes(typeof value);
+}
+
+function configInputType(value: unknown): "text" | "number" | "checkbox" {
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "checkbox";
+  return "text";
+}
+
+function coerceConfigValue(value: string, previousValue: unknown): unknown {
+  if (typeof previousValue === "number") {
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) ? parsedValue : previousValue;
+  }
+
+  return value;
+}
+
 export function WorkflowCanvasPage() {
   const { workflowId } = useParams();
   const workflow = useQuery(
@@ -248,6 +301,7 @@ export function WorkflowCanvasPage() {
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const flowNodes = useMemo(
     () => (workflow ? toFlowNodes(workflow.graph as WorkflowGraph) : []),
@@ -259,6 +313,14 @@ export function WorkflowCanvasPage() {
   );
   const hasRunnerNode = nodes.some((node) => node.data.type === "runner");
   const paletteDefinitions = useMemo(() => listWorkflowNodeDefinitions(), []);
+  const selectedNode = useMemo(
+    () => nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [nodes, selectedNodeId]
+  );
+  const selectedNodeDefinition = selectedNode
+    ? getWorkflowNodeDefinition(selectedNode.data.type)
+    : null;
+  const selectedConfigEntries = Object.entries(selectedNode?.data.config ?? {});
 
   useEffect(() => {
     if (!workflow) return;
@@ -268,6 +330,12 @@ export function WorkflowCanvasPage() {
     setIsDirty(false);
     setSaveStatus("");
   }, [flowEdges, flowNodes, setEdges, setNodes, workflow]);
+
+  useEffect(() => {
+    if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+  }, [nodes, selectedNodeId]);
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowFlowNode>[]) => {
@@ -287,22 +355,65 @@ export function WorkflowCanvasPage() {
 
       if (type === "runner" && hasRunnerNode) return;
 
-      setNodes((currentNodes) => [
-        ...currentNodes,
-        {
-          id: nextNodeId(type, currentNodes),
-          type: "workflowNode",
-          position: nextNodePosition(currentNodes),
-          data: {
-            label: definition.label,
-            type,
+      setNodes((currentNodes) => {
+        const nodeId = nextNodeId(type, currentNodes);
+        setSelectedNodeId(nodeId);
+
+        return [
+          ...currentNodes,
+          {
+            id: nodeId,
+            type: "workflowNode",
+            position: nextNodePosition(currentNodes),
+            data: {
+              config: cloneConfig(definition.defaultConfig),
+              label: definition.label,
+              provider: definition.defaultProvider,
+              retention: definition.defaultRetention,
+              type,
+            },
           },
-        },
-      ]);
+        ];
+      });
       setIsDirty(true);
       setSaveStatus("");
     },
     [hasRunnerNode, setNodes]
+  );
+
+  const updateSelectedNodeData = useCallback(
+    (updater: (data: WorkflowCanvasNodeData) => Partial<WorkflowCanvasNodeData>) => {
+      if (!selectedNodeId) return;
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === selectedNodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  ...updater(node.data),
+                },
+              }
+            : node
+        )
+      );
+      setIsDirty(true);
+      setSaveStatus("");
+    },
+    [selectedNodeId, setNodes]
+  );
+
+  const updateSelectedConfigValue = useCallback(
+    (key: string, value: unknown) => {
+      updateSelectedNodeData((data) => ({
+        config: {
+          ...data.config,
+          [key]: value,
+        },
+      }));
+    },
+    [updateSelectedNodeData]
   );
 
   const handleSaveGraph = useCallback(async () => {
@@ -443,7 +554,9 @@ export function WorkflowCanvasPage() {
               nodesDraggable
               nodesFocusable
               onEdgesChange={onEdgesChange}
+              onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
               onNodesChange={handleNodesChange}
+              onPaneClick={() => setSelectedNodeId(null)}
               panOnScroll
               proOptions={{ hideAttribution: true }}
             >
@@ -453,6 +566,174 @@ export function WorkflowCanvasPage() {
             </ReactFlow>
           </ReactFlowProvider>
         </div>
+
+        <aside className="workflow-node-inspector" aria-label="Workflow node inspector">
+          {selectedNode && selectedNodeDefinition ? (
+            <>
+              <div className="workflow-node-inspector-header">
+                <span className="workflow-node-inspector-icon">
+                  {(() => {
+                    const Icon = nodeIcons[selectedNode.data.type] ?? Box;
+                    return <Icon size={16} />;
+                  })()}
+                </span>
+                <div>
+                  <h2>{selectedNode.data.label}</h2>
+                  <p>{selectedNodeDefinition.description}</p>
+                </div>
+              </div>
+
+              <div className="workflow-inspector-group">
+                <label className="workflow-inspector-field">
+                  <span>Label</span>
+                  <input
+                    onChange={(event) =>
+                      updateSelectedNodeData(() => ({ label: event.target.value }))
+                    }
+                    type="text"
+                    value={selectedNode.data.label}
+                  />
+                </label>
+
+                <label className="workflow-inspector-field">
+                  <span>Provider</span>
+                  <select
+                    disabled={selectedNodeDefinition.providerRequirement === "none"}
+                    onChange={(event) =>
+                      updateSelectedNodeData(() => ({
+                        provider: event.target.value
+                          ? (event.target.value as WorkflowProviderName)
+                          : undefined,
+                      }))
+                    }
+                    value={selectedNode.data.provider ?? ""}
+                  >
+                    <option value="">No provider</option>
+                    {providerOptions.map((provider) => (
+                      <option key={provider.value} value={provider.value}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="workflow-inspector-field">
+                  <span>Model</span>
+                  <input
+                    disabled={selectedNodeDefinition.providerRequirement === "none"}
+                    onChange={(event) =>
+                      updateSelectedNodeData(() => ({
+                        model: event.target.value || undefined,
+                      }))
+                    }
+                    placeholder="Provider model id"
+                    type="text"
+                    value={selectedNode.data.model ?? ""}
+                  />
+                </label>
+              </div>
+
+              <div className="workflow-inspector-group">
+                <label className="workflow-inspector-field">
+                  <span>Retention</span>
+                  <select
+                    onChange={(event) =>
+                      updateSelectedNodeData((data) => ({
+                        retention: {
+                          ...(data.retention ?? {}),
+                          mode: event.target.value as NodeRetentionMode,
+                        },
+                      }))
+                    }
+                    value={selectedNode.data.retention?.mode ?? "inherit"}
+                  >
+                    {retentionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="workflow-inspector-toggle">
+                  <input
+                    checked={selectedNode.data.retention?.exposeInLibrary ?? false}
+                    onChange={(event) =>
+                      updateSelectedNodeData((data) => ({
+                        retention: {
+                          mode: data.retention?.mode ?? "inherit",
+                          exposeInLibrary: event.target.checked,
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>Expose output in media library</span>
+                </label>
+              </div>
+
+              <div className="workflow-inspector-group">
+                <div className="workflow-inspector-section-heading">
+                  <h3>Config</h3>
+                  <span>{selectedNodeDefinition.configSchemaMode.replace(/_/g, " ")}</span>
+                </div>
+
+                {selectedConfigEntries.length ? (
+                  selectedConfigEntries.map(([configKey, configValue]) => {
+                    if (!isPrimitiveConfigValue(configValue)) {
+                      return (
+                        <div className="workflow-inspector-static-field" key={configKey}>
+                          <span>{formatConfigLabel(configKey)}</span>
+                          <code>
+                            {Array.isArray(configValue)
+                              ? `${configValue.length} items`
+                              : "Structured value"}
+                          </code>
+                        </div>
+                      );
+                    }
+
+                    const inputType = configInputType(configValue);
+
+                    return (
+                      <label className="workflow-inspector-field" key={configKey}>
+                        <span>{formatConfigLabel(configKey)}</span>
+                        {inputType === "checkbox" ? (
+                          <input
+                            checked={Boolean(configValue)}
+                            onChange={(event) =>
+                              updateSelectedConfigValue(configKey, event.target.checked)
+                            }
+                            type="checkbox"
+                          />
+                        ) : (
+                          <input
+                            onChange={(event) =>
+                              updateSelectedConfigValue(
+                                configKey,
+                                coerceConfigValue(event.target.value, configValue)
+                              )
+                            }
+                            type={inputType}
+                            value={String(configValue)}
+                          />
+                        )}
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="workflow-inspector-empty">This node has no static config yet.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="workflow-inspector-empty-state">
+              <Box size={18} />
+              <h2>Select a node</h2>
+              <p>Node settings appear here without running the workflow.</p>
+            </div>
+          )}
+        </aside>
       </div>
     </section>
   );

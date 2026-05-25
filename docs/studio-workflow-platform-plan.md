@@ -521,7 +521,7 @@ Implementation notes:
 
 #### SW-0204: Build node settings inspector
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -532,7 +532,13 @@ Deliverables:
 Acceptance criteria:
 
 - Editing settings does not execute nodes.
-- Changes persist to graph draft.
+- Changes persist to the current workflow graph.
+
+Implementation notes:
+
+- Added a selected-node inspector to the canvas workspace.
+- Node label, provider, model, retention, and primitive config values can be edited without execution.
+- The controlled canvas state now carries graph config so newly added nodes can be configured before saving.
 
 #### SW-0205: Build edge/port connection UI
 
