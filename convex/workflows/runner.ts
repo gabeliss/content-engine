@@ -25,13 +25,18 @@ import {
 } from "../content/types";
 import { buildCanonicalSlideshowSpec } from "../content/slideshowAdapter";
 import { getSlideDimensions } from "../content/slideshowDimensions";
-import { getModelProvider } from "../providers";
+import { getModelProvider, getPublishingProvider } from "../providers";
+import {
+  loadPublishInput,
+  mapProviderStatus,
+} from "../publishing/publishInput";
 import type {
   GeneratedAsset,
   ModelProvider,
   ModelProviderName,
   ReferenceAsset,
 } from "../providers/model";
+import type { PublishingProviderName } from "../providers/publishing";
 import { artifactLifecycleValidator, workflowGraphValidator } from "../validators";
 import {
   buildWorkflowAgentPrompt,
@@ -182,8 +187,12 @@ function isExportNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "export";
 }
 
+function isAutoPostNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "auto_post";
+}
+
 function isTerminalPackageConsumer(node: WorkflowGraphNodeForRun): boolean {
-  return isExportNode(node) || node.type === "auto_post";
+  return isExportNode(node) || isAutoPostNode(node);
 }
 
 function isMediaNode(node: WorkflowGraphNodeForRun): boolean {
@@ -237,7 +246,8 @@ function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
     isAiVideoEditorNode(node) ||
     isNativeSlideshowPlannerNode(node) ||
     isNativeSlideshowRendererNode(node) ||
-    isExportNode(node);
+    isExportNode(node) ||
+    isAutoPostNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -307,6 +317,17 @@ function modelProviderNameForNode(node: WorkflowGraphNodeForRun): ModelProviderN
       return node.provider;
     default:
       return "bulkapis";
+  }
+}
+
+function publishingProviderNameForNode(node: WorkflowGraphNodeForRun): PublishingProviderName {
+  switch (node.provider) {
+    case "postiz":
+    case "post_bridge":
+    case "manual":
+      return node.provider;
+    default:
+      return "manual";
   }
 }
 
@@ -1522,6 +1543,143 @@ function exportOutputRefsForNode(args: {
       status: args.status,
       packageArtifactIds: args.packageArtifactIds.map((artifactId) => String(artifactId)),
       artifactId: args.packageArtifactIds[0],
+    },
+  }];
+}
+
+function timestampFromValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function socialAccountIdsFromInputs(
+  node: WorkflowGraphNodeForRun,
+  resolvedInputs: ResolvedInputsForRun
+): Id<"socialAccounts">[] {
+  const config = objectValue(node.config);
+  const inputs = resolvedInputs.inputs ?? {};
+  const ids = new Set<string>();
+
+  for (const value of [
+    config.socialAccountIds,
+    config.targetAccountIds,
+    inputs.socialAccountIds?.value,
+    inputs.targetAccountIds?.value,
+  ]) {
+    for (const id of stringArrayFromConfig(value)) ids.add(id);
+  }
+
+  return [...ids] as Id<"socialAccounts">[];
+}
+
+function packageMediaArtifactIdsFromData(
+  packageArtifact: ArtifactDocForRun
+): Id<"artifacts">[] {
+  const data = objectValue(packageArtifact.data);
+  const mediaArtifactIds = stringArrayFromConfig(data.mediaArtifactIds);
+  return mediaArtifactIds.length
+    ? mediaArtifactIds as Id<"artifacts">[]
+    : [packageArtifact._id];
+}
+
+function captionFromPackageArtifact(
+  packageArtifact: ArtifactDocForRun,
+  fallback?: string
+): string | undefined {
+  const data = objectValue(packageArtifact.data);
+  return stringFromValue(data.caption) ?? fallback;
+}
+
+function autoPostScheduleForNode(
+  node: WorkflowGraphNodeForRun,
+  resolvedInputs: ResolvedInputsForRun
+) {
+  const config = objectValue(node.config);
+  const inputs = resolvedInputs.inputs ?? {};
+  return timestampFromValue(inputs.scheduledAt?.value) ??
+    timestampFromValue(inputs.scheduledFor?.value) ??
+    timestampFromValue(config.scheduledAt) ??
+    timestampFromValue(config.scheduledFor);
+}
+
+function autoPublishEnabled(
+  node: WorkflowGraphNodeForRun,
+  resolvedInputs: ResolvedInputsForRun
+): boolean {
+  const config = objectValue(node.config);
+  const value = resolvedInputs.inputs?.autoPublish?.value ?? config.autoPublish;
+  return value === true;
+}
+
+function autoPostPackageData(args: {
+  packageArtifact: ArtifactDocForRun;
+  distributionPlanId: Id<"distributionPlans">;
+  provider: PublishingProviderName;
+  status: string;
+  autoPublish: boolean;
+  externalPostIds?: string[];
+  publishedAt?: number;
+  scheduledFor?: number;
+  errorMessage?: string;
+  providerPayload?: unknown;
+}) {
+  const data = objectValue(args.packageArtifact.data);
+  const existingPublishRequests = Array.isArray(data.publishRequests)
+    ? data.publishRequests
+    : [];
+  const publishRecord = {
+    distributionPlanId: args.distributionPlanId,
+    provider: args.provider,
+    status: args.status,
+    autoPublish: args.autoPublish,
+    requestedAt: Date.now(),
+    ...(args.externalPostIds ? { externalPostIds: args.externalPostIds } : {}),
+    ...(args.publishedAt ? { publishedAt: args.publishedAt } : {}),
+    ...(args.scheduledFor ? { scheduledFor: args.scheduledFor } : {}),
+    ...(args.errorMessage ? { errorMessage: args.errorMessage } : {}),
+    ...(args.providerPayload !== undefined ? { providerPayload: args.providerPayload } : {}),
+  };
+
+  return {
+    ...data,
+    publishingStatus: publishRecord,
+    distributionPlanIds: [
+      ...new Set([
+        ...stringArrayFromConfig(data.distributionPlanIds),
+        String(args.distributionPlanId),
+      ]),
+    ],
+    publishRequests: [...existingPublishRequests, publishRecord],
+  };
+}
+
+function autoPostOutputRefsForNode(args: {
+  nodeId: string;
+  packageArtifactId: Id<"artifacts">;
+  distributionPlanId: Id<"distributionPlans">;
+  provider: PublishingProviderName;
+  status: string;
+  autoPublish: boolean;
+  externalPostIds?: string[];
+}) {
+  return [{
+    nodeId: args.nodeId,
+    port: "result",
+    artifactIds: [args.packageArtifactId],
+    value: {
+      kind: "publish_result",
+      artifactId: args.packageArtifactId,
+      distributionPlanId: args.distributionPlanId,
+      provider: args.provider,
+      status: args.status,
+      autoPublish: args.autoPublish,
+      ...(args.externalPostIds ? { externalPostIds: args.externalPostIds } : {}),
     },
   }];
 }
@@ -3736,6 +3894,241 @@ export const executeRun = internalAction({
                 status: exportRecord.status,
                 packageArtifactIds,
                 sourceArtifactIds,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isAutoPostNode(node)) {
+            const providerName = publishingProviderNameForNode(node);
+            const autoPublish = autoPublishEnabled(node, resolvedInputs);
+            const socialAccountIds = socialAccountIdsFromInputs(node, resolvedInputs);
+            const scheduledFor = autoPostScheduleForNode(node, resolvedInputs);
+            const config = objectValue(node.config);
+            const inputs = resolvedInputs.inputs ?? {};
+            let packageArtifactIds = postPackageArtifactIdsFromInputs(resolvedInputs);
+            let sourceArtifactIds: Id<"artifacts">[] = [];
+
+            if (!packageArtifactIds.length) {
+              sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+                "slideshow",
+                "media",
+                "video",
+                "image",
+                "audio",
+                "input",
+                "slide_spec",
+              ]);
+              const sourceArtifacts = await artifactsForIds(ctx, sourceArtifactIds);
+              const packageData = postPackageDataForNode({
+                node,
+                resolvedInputs,
+                sourceArtifactIds,
+                sourceArtifacts,
+              });
+              const packageArtifactId = await ctx.runMutation(
+                internal.workflows.runner.createPostPackageArtifact,
+                {
+                  userId: context.run.userId,
+                  brandId: context.run.brandId,
+                  workflowId: context.workflow._id,
+                  workflowRunId: context.run._id,
+                  nodeId: node.id,
+                  label: node.label,
+                  sourceArtifactIds,
+                  packageData,
+                }
+              );
+              packageArtifactIds = [packageArtifactId];
+              emittedArtifactIds.add(packageArtifactId);
+            }
+
+            const packageArtifacts = await artifactsForIds(ctx, packageArtifactIds);
+            const packageArtifact = packageArtifacts[0];
+            if (!packageArtifact) {
+              throw new Error(`${node.label} needs a post package input.`);
+            }
+
+            const caption =
+              stringFromValue(inputs.caption?.value) ??
+              stringFromValue(config.caption) ??
+              captionFromPackageArtifact(packageArtifact);
+            const distributionArtifactIds = packageMediaArtifactIdsFromData(packageArtifact);
+            const timezone =
+              stringFromValue(inputs.timezone?.value) ??
+              stringFromValue(config.timezone);
+            const distributionPlanId = await ctx.runMutation(
+              internal.publishing.distributionPlans.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                artifactIds: distributionArtifactIds,
+                socialAccountIds,
+                provider: providerName,
+                status: "draft",
+                ...(scheduledFor ? { scheduledFor } : {}),
+                ...(timezone ? { timezone } : {}),
+                ...(caption ? { caption } : {}),
+                providerPayload: {
+                  source: "workflow_auto_post",
+                  nodeId: node.id,
+                  packageArtifactId: packageArtifact._id,
+                  packageData: packageArtifact.data,
+                },
+              }
+            );
+
+            let publishStatus = "draft";
+            let externalPostIds: string[] | undefined;
+            let publishedAt: number | undefined;
+            let providerPayload: unknown;
+
+            try {
+              if (autoPublish) {
+                if (socialAccountIds.length === 0 && providerName !== "manual") {
+                  throw new Error(`${node.label} needs at least one target social account to auto-post with ${providerName}.`);
+                }
+
+                const provider = getPublishingProvider(providerName);
+                await ctx.runMutation(internal.publishing.distributionPlans.updateFromProvider, {
+                  id: distributionPlanId,
+                  userId: context.run.userId,
+                  status: "publishing",
+                });
+                const publishContext = await ctx.runQuery(
+                  internal.publishing.distributionPlans.getPublishContext,
+                  {
+                    id: distributionPlanId,
+                    userId: context.run.userId,
+                  }
+                );
+                if (!publishContext) {
+                  throw new Error("Distribution plan not found for auto-post.");
+                }
+
+                const publishInput = await loadPublishInput(provider, publishContext);
+                const result = scheduledFor
+                  ? await provider.schedulePost(publishInput)
+                  : await provider.publishNow(publishInput);
+                publishStatus = mapProviderStatus(result.status);
+                externalPostIds = result.externalPostIds;
+                publishedAt = result.publishedAt;
+                providerPayload = result.providerPayload;
+
+                await ctx.runMutation(internal.publishing.distributionPlans.updateFromProvider, {
+                  id: distributionPlanId,
+                  userId: context.run.userId,
+                  status: publishStatus as "draft" | "scheduled" | "publishing" | "published" | "failed" | "canceled",
+                  externalPostIds,
+                  publishedAt,
+                  providerPayload,
+                });
+                await ctx.runMutation(internal.workflows.runs.recordEvent, {
+                  userId: context.run.userId,
+                  workflowRunId: context.run._id,
+                  workflowId: context.workflow._id,
+                  type: scheduledFor ? "publish_requested" : "publish_completed",
+                  nodeId: node.id,
+                  message: scheduledFor
+                    ? `${node.label} scheduled a post through ${provider.displayName}.`
+                    : `${node.label} published a post through ${provider.displayName}.`,
+                  data: {
+                    distributionPlanId,
+                    provider: providerName,
+                    status: publishStatus,
+                    externalPostIds,
+                    publishedAt,
+                    providerPayload,
+                  },
+                });
+              }
+
+              await ctx.runMutation(internal.artifacts.records.updateFromRunner, {
+                artifactId: packageArtifact._id,
+                userId: context.run.userId,
+                data: autoPostPackageData({
+                  packageArtifact,
+                  distributionPlanId,
+                  provider: providerName,
+                  status: publishStatus,
+                  autoPublish,
+                  externalPostIds,
+                  publishedAt,
+                  scheduledFor,
+                  providerPayload,
+                }),
+              });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Auto-post failed";
+              publishStatus = "failed";
+              await ctx.runMutation(internal.publishing.distributionPlans.updateFromProvider, {
+                id: distributionPlanId,
+                userId: context.run.userId,
+                status: "failed",
+                errorMessage: message,
+              });
+              await ctx.runMutation(internal.artifacts.records.updateFromRunner, {
+                artifactId: packageArtifact._id,
+                userId: context.run.userId,
+                data: autoPostPackageData({
+                  packageArtifact,
+                  distributionPlanId,
+                  provider: providerName,
+                  status: "failed",
+                  autoPublish,
+                  scheduledFor,
+                  errorMessage: message,
+                }),
+              });
+              throw error;
+            }
+
+            finalPackageArtifactIds.add(packageArtifact._id);
+            emittedArtifactIds.add(packageArtifact._id);
+
+            const outputRefs = autoPostOutputRefsForNode({
+              nodeId: node.id,
+              packageArtifactId: packageArtifact._id,
+              distributionPlanId,
+              provider: providerName,
+              status: publishStatus,
+              autoPublish,
+              externalPostIds,
+            });
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd: 0,
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: autoPublish
+                ? `${node.label} completed with publishing status ${publishStatus}.`
+                : `${node.label} created a draft distribution plan.`,
+              data: {
+                nodeType: node.type,
+                provider: providerName,
+                autoPublish,
+                status: publishStatus,
+                distributionPlanId,
+                packageArtifactId: packageArtifact._id,
+                targetAccountCount: socialAccountIds.length,
+                scheduledFor,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },

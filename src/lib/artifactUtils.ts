@@ -114,6 +114,11 @@ export function artifactSummary(artifact: ArtifactDoc): string {
         destination?: string;
         status?: string;
       };
+      publishingStatus?: {
+        provider?: string;
+        status?: string;
+        autoPublish?: boolean;
+      };
       name?: string;
       postType?: string;
     };
@@ -124,6 +129,9 @@ export function artifactSummary(artifact: ArtifactDoc): string {
       mediaCount ? `${mediaCount} media refs` : undefined,
       data.exportStatus?.destination
         ? `${data.exportStatus.destination}: ${data.exportStatus.status ?? "export"}`
+        : undefined,
+      data.publishingStatus?.provider
+        ? `${data.publishingStatus.provider}: ${data.publishingStatus.status ?? "publish"}`
         : undefined,
       data.caption ? "caption ready" : undefined,
     ]

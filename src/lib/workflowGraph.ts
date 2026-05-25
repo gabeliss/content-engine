@@ -42,6 +42,7 @@ export type WorkflowProviderName =
   | "fal"
   | "openrouter"
   | "postiz"
+  | "post_bridge"
   | "manual";
 
 export type WorkflowRunMode = "test" | "production";

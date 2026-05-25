@@ -99,7 +99,7 @@ type WorkflowCanvasNodeData = Record<string, unknown> & {
 };
 
 type WorkflowFlowNode = Node<WorkflowCanvasNodeData>;
-type ProviderCatalogName = Exclude<WorkflowProviderName, "postiz">;
+type ProviderCatalogName = Exclude<WorkflowProviderName, "postiz" | "post_bridge">;
 type ProviderModelDoc = Doc<"providerModels">;
 type WorkflowRunDoc = Doc<"workflowRuns">;
 type WorkflowRunNodeStateDoc = Doc<"workflowRunNodeStates">;
@@ -146,6 +146,7 @@ const providerOptions: Array<{ value: WorkflowProviderName; label: string }> = [
   { value: "fal", label: "fal.ai" },
   { value: "openrouter", label: "OpenRouter" },
   { value: "postiz", label: "Postiz" },
+  { value: "post_bridge", label: "Post Bridge" },
   { value: "manual", label: "Manual" },
 ];
 
@@ -703,7 +704,7 @@ function friendlyConfigFieldKeysForNode(
     case "export":
       return ["destination", "folder", "fileName", "optimizeFor"];
     case "auto_post":
-      return ["platforms", "caption", "scheduledAt", "autoPublish"];
+      return ["autoPublish", "socialAccountIds", "caption", "scheduledAt", "timezone"];
   }
 }
 

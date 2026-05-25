@@ -1279,7 +1279,7 @@ Implementation notes:
 
 #### SW-0514: Auto Post node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1290,6 +1290,20 @@ Acceptance criteria:
 
 - Workflow can auto-post only when explicitly configured.
 - Publishing errors are visible on the node and run.
+
+Implementation notes:
+
+- Auto Post now executes as a real terminal node and routes through the
+  publishing provider abstraction instead of BulkAPIs.
+- The node creates a distribution plan from the upstream post package. If
+  `autoPublish` is not explicitly true, the plan remains a draft for later
+  manual publishing.
+- When `autoPublish` is true, the runner publishes or schedules through the
+  selected provider (`manual`, `postiz`, or `post_bridge` once an adapter is
+  registered) and records provider status, external post ids, and failures on
+  the node, run events, distribution plan, and post package artifact.
+- Auto Post defaults to `manual` instead of BulkAPIs, and the canvas provider
+  selector now exposes Post Bridge as a publishing provider option.
 
 ### Phase 6: Personas And Assets
 
