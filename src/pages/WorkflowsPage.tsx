@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { LayoutTemplate, Plus, Workflow } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import { Field, FormPanel, Page, Panel, Select } from "../components/ui";
@@ -77,6 +77,12 @@ export function WorkflowsPage() {
     [filteredTemplates, selectedTemplateId, workflowTemplates]
   );
 
+  useEffect(() => {
+    if (!brandId && brands?.[0]) {
+      setBrandId(brands[0]._id);
+    }
+  }, [brandId, brands]);
+
   const brandAccounts = useMemo(
     () =>
       accounts?.filter((account) => !brandId || account.brandId === brandId) ?? [],
@@ -106,7 +112,18 @@ export function WorkflowsPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!brandId || !name.trim()) return;
+    if (!brands?.length) {
+      setCreateStatus("Create a brand before creating workflows.");
+      return;
+    }
+    if (!brandId) {
+      setCreateStatus("Select a brand before creating a workflow.");
+      return;
+    }
+    if (!name.trim()) {
+      setCreateStatus("Name the workflow before creating it.");
+      return;
+    }
 
     setCreateStatus("Creating blank workflow");
     try {
@@ -174,7 +191,9 @@ export function WorkflowsPage() {
     <Page title="Workflows" description="Repeatable agent pipelines for each brand/account.">
       <FormPanel title="New Workflow" onSubmit={handleSubmit}>
         <Select label="Brand" value={brandId} onChange={setBrandId}>
-          <option value="">Select brand</option>
+          <option value="">
+            {brands?.length === 0 ? "No brands yet" : "Select brand"}
+          </option>
           {brands?.map((brand) => (
             <option key={brand._id} value={brand._id}>
               {brand.name}
