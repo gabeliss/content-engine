@@ -71,11 +71,25 @@ export function artifactSummary(artifact: ArtifactDoc): string {
 
   if (artifact.type === "rendered_asset" && artifact.data && typeof artifact.data === "object") {
     const data = artifact.data as {
+      format?: string;
       slideIndex?: number;
+      slideCount?: number;
       width?: number;
       height?: number;
+      dimensions?: { width?: number; height?: number };
       mimeType?: string;
     };
+    if (data.format === "native_slideshow") {
+      return [
+        "Native slideshow",
+        data.slideCount ? `${data.slideCount} slides` : undefined,
+        data.dimensions?.width && data.dimensions.height
+          ? `${data.dimensions.width}x${data.dimensions.height}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
     return [
       typeof data.slideIndex === "number" ? `Publish-ready slide ${data.slideIndex}` : "Publish-ready asset",
       data.width && data.height ? `${data.width}x${data.height}` : undefined,

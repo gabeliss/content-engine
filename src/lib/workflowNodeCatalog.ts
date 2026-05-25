@@ -328,7 +328,8 @@ export const WORKFLOW_NODE_CATALOG = [
     configSchemaMode: "static",
     providerRequirement: "none",
     inputPorts: [
-      port("media", "Media", "media", { required: true }),
+      port("media", "Media", "media"),
+      port("slideshow", "Slideshow", "slideshow"),
       port("caption", "Caption", "text"),
       port("metadata", "Metadata", "json"),
     ],

@@ -17,10 +17,14 @@ import {
   overlaySlideshowPlanSchema,
   singleFullGraphicImagePromptWriterSchema,
   singleOverlayImagePromptWriterSchema,
+  type CanonicalSlideshowSpec,
   type ImagePromptWriterOutput,
   type SingleImagePromptWriterOutput,
+  type SlideshowPlan,
   type SlideshowPlannerOutput,
 } from "../content/types";
+import { buildCanonicalSlideshowSpec } from "../content/slideshowAdapter";
+import { getSlideDimensions } from "../content/slideshowDimensions";
 import { getModelProvider } from "../providers";
 import type {
   GeneratedAsset,
@@ -213,6 +217,10 @@ function isNativeSlideshowPlannerNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "native_slideshow_planner";
 }
 
+function isNativeSlideshowRendererNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "native_slideshow_renderer";
+}
+
 function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
   return isMediaNode(node) ||
     isLlmNode(node) ||
@@ -222,7 +230,8 @@ function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
     isAudioGenerationNode(node) ||
     isLipsyncNode(node) ||
     isAiVideoEditorNode(node) ||
-    isNativeSlideshowPlannerNode(node);
+    isNativeSlideshowPlannerNode(node) ||
+    isNativeSlideshowRendererNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -612,6 +621,241 @@ function slideSpecOutputRefsForNode(args: {
       kind: "slide_spec",
       artifactId: args.artifactId,
       plan: args.plan,
+    },
+  }];
+}
+
+function isSlideshowPlanValue(value: unknown): value is SlideshowPlan {
+  const record = objectValue(value);
+  return record.format === "slideshow" &&
+    typeof record.renderingMode === "string" &&
+    typeof record.title === "string" &&
+    typeof record.aspectRatio === "string" &&
+    Array.isArray(record.slides);
+}
+
+function isCanonicalSlideshowSpecValue(value: unknown): value is CanonicalSlideshowSpec {
+  const record = objectValue(value);
+  return isSlideshowPlanValue(value) &&
+    Boolean(record.dimensions && typeof record.dimensions === "object") &&
+    Boolean(record.exportSettings && typeof record.exportSettings === "object");
+}
+
+function slideshowSpecFromValue(value: unknown): {
+  plan?: SlideshowPlan;
+  canonicalSpec?: CanonicalSlideshowSpec;
+  artifactId?: Id<"artifacts">;
+} | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const extracted = slideshowSpecFromValue(item);
+      if (extracted) return extracted;
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const artifactId = typeof record.artifactId === "string"
+    ? record.artifactId as Id<"artifacts">
+    : undefined;
+
+  for (const candidate of [
+    record.plan,
+    record.spec,
+    record.data,
+    objectValue(record.data).plan,
+    objectValue(record.data).spec,
+    value,
+  ]) {
+    if (isCanonicalSlideshowSpecValue(candidate)) {
+      return { canonicalSpec: candidate, artifactId };
+    }
+    if (isSlideshowPlanValue(candidate)) {
+      return { plan: candidate, artifactId };
+    }
+  }
+
+  return undefined;
+}
+
+function slideshowSpecFromInputs(resolvedInputs: ResolvedInputsForRun) {
+  const inputs = resolvedInputs.inputs ?? {};
+  for (const key of ["slide_spec", "input"]) {
+    const extracted = slideshowSpecFromValue(inputs[key]?.value);
+    if (extracted) return extracted;
+  }
+
+  for (const input of Object.values(inputs)) {
+    const extracted = slideshowSpecFromValue(input.value);
+    if (extracted) return extracted;
+  }
+
+  return undefined;
+}
+
+function numberFromRecordFields(
+  record: Record<string, unknown>,
+  keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function slideImageArtifactIdFromRecord(record: Record<string, unknown>): Id<"artifacts"> | undefined {
+  const artifactId = record.artifactId ?? (record.source === "artifact" ? record.id : undefined);
+  return typeof artifactId === "string" && artifactId.trim()
+    ? artifactId as Id<"artifacts">
+    : undefined;
+}
+
+function collectSlideImagesFromValue(
+  value: unknown,
+  images: Array<{
+    artifactId?: Id<"artifacts">;
+    url?: string;
+    title?: string;
+    slideIndex?: number;
+  }>,
+  seen: Set<string>
+) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSlideImagesFromValue(item, images, seen);
+    return;
+  }
+
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.items)) {
+    for (const item of record.items) collectSlideImagesFromValue(item, images, seen);
+  }
+
+  const data = objectValue(record.data);
+  const metadata = objectValue(record.metadata);
+  const mimeType =
+    typeof record.mimeType === "string" ? record.mimeType :
+      typeof data.mimeType === "string" ? data.mimeType :
+        typeof metadata.mimeType === "string" ? metadata.mimeType :
+          undefined;
+  const kind = typeof record.kind === "string" ? record.kind : undefined;
+  const type =
+    typeof record.type === "string" ? record.type :
+      typeof metadata.artifactType === "string" ? metadata.artifactType :
+        undefined;
+  const url = record.storageUrl ?? record.url ?? data.storageUrl ?? data.url ?? data.backgroundImageUrl;
+  const artifactId = slideImageArtifactIdFromRecord(record);
+  const isImage =
+    kind === "image" ||
+    type === "image" ||
+    type === "thumbnail" ||
+    (typeof mimeType === "string" && mimeType.startsWith("image/"));
+
+  if ((isImage || typeof url === "string") && (artifactId || typeof url === "string")) {
+    const key = String(artifactId ?? url);
+    if (!seen.has(key)) {
+      seen.add(key);
+      images.push({
+        artifactId,
+        url: typeof url === "string" && url.trim() ? url.trim() : undefined,
+        title:
+          typeof record.title === "string" ? record.title :
+            typeof record.name === "string" ? record.name :
+              undefined,
+        slideIndex:
+          numberFromRecordFields(record, ["slideIndex", "index"]) ??
+          numberFromRecordFields(data, ["slideIndex", "index"]) ??
+          numberFromRecordFields(metadata, ["slideIndex", "index"]),
+      });
+    }
+  }
+
+  if (record.data && typeof record.data === "object") {
+    collectSlideImagesFromValue(record.data, images, seen);
+  }
+}
+
+function slideImagesByIndexFromInputs(
+  resolvedInputs: ResolvedInputsForRun,
+  spec: SlideshowPlan | CanonicalSlideshowSpec
+): Map<number, { artifactId?: string; url?: string }> {
+  const inputs = resolvedInputs.inputs ?? {};
+  const images: Array<{
+    artifactId?: Id<"artifacts">;
+    url?: string;
+    title?: string;
+    slideIndex?: number;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const key of ["media", "image", "input"]) {
+    collectSlideImagesFromValue(inputs[key]?.value, images, seen);
+  }
+
+  const activeSlideIndexes = spec.slides
+    .map((slide) => slide.index)
+    .sort((first, second) => first - second);
+  const byIndex = new Map<number, { artifactId?: string; url?: string }>();
+  let fallbackIndex = 0;
+
+  for (const image of images) {
+    const mappedIndex = image.slideIndex ?? activeSlideIndexes[fallbackIndex];
+    if (mappedIndex === undefined || byIndex.has(mappedIndex)) continue;
+
+    byIndex.set(mappedIndex, {
+      artifactId: image.artifactId ? String(image.artifactId) : undefined,
+      url: image.url,
+    });
+    if (image.slideIndex === undefined) fallbackIndex += 1;
+  }
+
+  return byIndex;
+}
+
+function enrichCanonicalSpecWithImages(
+  spec: CanonicalSlideshowSpec,
+  imageBySlideIndex: ReadonlyMap<number, { artifactId?: string; url?: string }>
+): CanonicalSlideshowSpec {
+  return {
+    ...spec,
+    slides: spec.slides.map((slide) => {
+      const image = imageBySlideIndex.get(slide.index);
+      if (!image || (slide.backgroundImageUrl && slide.sourceImageArtifactId)) return slide;
+      return {
+        ...slide,
+        backgroundImageUrl: slide.backgroundImageUrl ?? image.url,
+        sourceImageArtifactId: slide.sourceImageArtifactId ?? image.artifactId,
+        updatedAt: Date.now(),
+      };
+    }),
+  };
+}
+
+function nativeSlideshowOutputRefsForNode(args: {
+  nodeId: string;
+  artifactId: Id<"artifacts">;
+  slideshowId: Id<"slideshows">;
+  spec: CanonicalSlideshowSpec;
+}) {
+  return [{
+    nodeId: args.nodeId,
+    port: "slideshow",
+    artifactIds: [args.artifactId],
+    value: {
+      kind: "slideshow",
+      artifactId: args.artifactId,
+      slideshowId: args.slideshowId,
+      title: args.spec.title,
+      slideCount: args.spec.slides.filter((slide) => slide.status !== "deleted").length,
+      aspectRatio: args.spec.aspectRatio,
+      dimensions: args.spec.dimensions,
+      spec: args.spec,
     },
   }];
 }
@@ -2942,12 +3186,118 @@ export const executeRun = internalAction({
             continue;
           }
 
+          if (isNativeSlideshowRendererNode(node)) {
+            const sourceSpec = slideshowSpecFromInputs(resolvedInputs);
+            if (!sourceSpec?.plan && !sourceSpec?.canonicalSpec) {
+              throw new Error(`${node.label} needs a slide spec input.`);
+            }
+
+            const planOrSpec = sourceSpec.canonicalSpec ?? sourceSpec.plan!;
+            const imageBySlideIndex = slideImagesByIndexFromInputs(resolvedInputs, planOrSpec);
+            const canonicalSpec = sourceSpec.canonicalSpec
+              ? enrichCanonicalSpecWithImages(sourceSpec.canonicalSpec, imageBySlideIndex)
+              : buildCanonicalSlideshowSpec({
+                  plan: sourceSpec.plan!,
+                  dimensions: getSlideDimensions(sourceSpec.plan!.aspectRatio),
+                  imageBySlideIndex,
+                });
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "slide_spec",
+              "media",
+              "image",
+              "input",
+            ]);
+            const slideshowId = await ctx.runMutation(
+              internal.content.slideshows.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                title: canonicalSpec.title,
+                status: "preview",
+                spec: canonicalSpec,
+              }
+            );
+            const renderedArtifactId = await ctx.runMutation(
+              internal.artifacts.records.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                parentArtifactIds: sourceArtifactIds.length ? sourceArtifactIds : undefined,
+                type: "rendered_asset",
+                title: `${node.label} slideshow`,
+                data: {
+                  format: "native_slideshow",
+                  renderMode: "native",
+                  slideshowId,
+                  title: canonicalSpec.title,
+                  aspectRatio: canonicalSpec.aspectRatio,
+                  dimensions: canonicalSpec.dimensions,
+                  slideCount: canonicalSpec.slides.filter((slide) => slide.status !== "deleted").length,
+                  spec: canonicalSpec,
+                  sourceSlideSpecArtifactId: sourceSpec.artifactId,
+                  sourceImageArtifactIds: [...imageBySlideIndex.values()]
+                    .map((image) => image.artifactId)
+                    .filter(Boolean),
+                  inputSummary: resolvedInputs.summary,
+                },
+                lifecycle,
+                reviewStatus: "not_required",
+              }
+            );
+            emittedArtifactIds.add(renderedArtifactId);
+
+            const outputRefs = nativeSlideshowOutputRefsForNode({
+              nodeId: node.id,
+              artifactId: renderedArtifactId,
+              slideshowId,
+              spec: canonicalSpec,
+            });
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd: 0,
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} rendered an editable native slideshow.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactId: renderedArtifactId,
+                slideshowId,
+                slideCount: canonicalSpec.slides.length,
+                imageCount: imageBySlideIndex.size,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
           const outboundPorts = outboundPortsForNode(graph, node.id);
           const packageArtifactIds = postPackageArtifactIdsFromInputs(resolvedInputs);
           const shouldCreatePostPackage =
             isPostPackageNode(node) ||
             (isTerminalPackageConsumer(node) && packageArtifactIds.length === 0);
           const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+            "slideshow",
+            "slide_spec",
             "media",
             "video",
             "image",

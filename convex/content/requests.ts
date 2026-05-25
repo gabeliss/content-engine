@@ -35,6 +35,7 @@ import {
   type SlideshowTextBlock,
 } from "./types";
 import { getSlideDimensions } from "./slideshowDimensions";
+import { buildCanonicalSlideshowSpec } from "./slideshowAdapter";
 import { getModelProvider } from "../providers/index";
 import type {
   GenerateImageResult,
@@ -235,41 +236,6 @@ async function waitForImageResult(
   }
 
   throw new Error(`Image job ${args.jobId} timed out after 5 minutes with status ${lastStatus}${lastError ? `: ${lastError}` : ""}`);
-}
-
-function buildCanonicalSlideshowSpec(args: {
-  plan: SlideshowPlan;
-  dimensions: { width: number; height: number };
-  imageBySlideIndex: Map<number, { artifactId: Id<"artifacts">; url?: string }>;
-}): CanonicalSlideshowSpec {
-  const now = Date.now();
-  return {
-    format: "slideshow",
-    renderingMode: args.plan.renderingMode,
-    title: args.plan.title,
-    aspectRatio: args.plan.aspectRatio,
-    dimensions: args.dimensions,
-    exportSettings: {
-      previewMimeType: "image/png",
-      publishMimeType: "image/png",
-      width: args.dimensions.width,
-      height: args.dimensions.height,
-    },
-    visualSystem: args.plan.visualSystem,
-    creativeBrief: args.plan.creativeBrief,
-    strategy: args.plan.strategy,
-    slides: args.plan.slides.map((slide): CanonicalSlideshowSlide => {
-      const image = args.imageBySlideIndex.get(slide.index);
-      return {
-        ...slide,
-        status: "active",
-        dimensions: args.dimensions,
-        backgroundImageUrl: image?.url,
-        sourceImageArtifactId: image?.artifactId ? String(image.artifactId) : undefined,
-        updatedAt: now,
-      };
-    }),
-  };
 }
 
 function normalizeCanonicalSpec(value: unknown): CanonicalSlideshowSpec {

@@ -1203,7 +1203,7 @@ Implementation notes:
 
 #### SW-0511: Native Slideshow Renderer node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1214,6 +1214,18 @@ Acceptance criteria:
 
 - Existing slideshow previews remain usable.
 - Rendered outputs can feed Post Compiler.
+
+Implementation notes:
+
+- The workflow runner executes `native_slideshow_renderer` nodes by consuming a
+  `slide_spec` output, building the shared canonical slideshow spec, and
+  creating an editable `slideshows` preview row.
+- Renderer nodes create a `rendered_asset` workflow artifact with the native
+  slideshow manifest, slideshow id, dimensions, slide count, source spec id,
+  and any mapped image artifact ids.
+- Post Compiler can now receive slideshow outputs directly, and package
+  gathering includes slideshow artifacts alongside image, video, audio, and
+  media inputs.
 
 #### SW-0512: Post Compiler node
 
