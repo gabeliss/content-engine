@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { storeGeneratedAsset } from "../content/assetStorage";
 import {
   buildFullGraphicPlannerPrompt,
@@ -53,6 +53,7 @@ type ResolvedInputsForRun = {
   summary?: Record<string, unknown>;
 };
 type MediaKindForRun = "image" | "video" | "audio" | "media";
+type ArtifactDocForRun = Doc<"artifacts">;
 
 type MediaNodeItemForRun = {
   id: string;
@@ -1170,6 +1171,25 @@ function artifactIdsFromInputs(
   return [...ids] as Id<"artifacts">[];
 }
 
+async function artifactsForIds(
+  ctx: ActionCtx,
+  artifactIds: Id<"artifacts">[]
+): Promise<ArtifactDocForRun[]> {
+  const artifacts: ArtifactDocForRun[] = [];
+  const seen = new Set<string>();
+
+  for (const artifactId of artifactIds) {
+    if (seen.has(String(artifactId))) continue;
+    seen.add(String(artifactId));
+    const artifact = await ctx.runQuery(internal.artifacts.records.getForRunner, {
+      artifactId,
+    });
+    if (artifact) artifacts.push(artifact);
+  }
+
+  return artifacts;
+}
+
 function postPackageArtifactIdsFromInputs(
   resolvedInputs: ResolvedInputsForRun
 ): Id<"artifacts">[] {
@@ -1191,36 +1211,147 @@ function postPackageArtifactIdsFromInputs(
   return [...ids] as Id<"artifacts">[];
 }
 
-function postPackageDataForNode(
-  node: WorkflowGraphNodeForRun,
-  resolvedInputs: ResolvedInputsForRun,
-  sourceArtifactIds: Id<"artifacts">[]
+function stringListFromValue(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function packageMediaItemFromArtifact(
+  artifact: ArtifactDocForRun,
+  index: number
 ) {
+  const data = objectValue(artifact.data);
+  const dimensions = objectValue(data.dimensions);
+  const format = typeof data.format === "string" ? data.format : undefined;
+  const mimeType = typeof data.mimeType === "string" ? data.mimeType : undefined;
+  const artifactType = artifact.type;
+  const role =
+    artifactType === "rendered_asset" && format === "native_slideshow"
+      ? "slideshow"
+      : artifactType === "video"
+        ? "video"
+        : artifactType === "image" || artifactType === "thumbnail"
+          ? "image"
+          : mimeType?.startsWith("audio/")
+            ? "audio"
+            : artifactType === "slide_spec"
+              ? "slide_spec"
+              : "asset";
+
+  return {
+    artifactId: String(artifact._id),
+    order: index + 1,
+    role,
+    artifactType,
+    title: artifact.title,
+    storageUrl: artifact.storageUrl,
+    mimeType,
+    dimensions:
+      typeof dimensions.width === "number" && typeof dimensions.height === "number"
+        ? {
+            width: dimensions.width,
+            height: dimensions.height,
+          }
+        : undefined,
+    durationSeconds:
+      typeof data.durationSeconds === "number"
+        ? data.durationSeconds
+        : typeof data.duration === "number"
+          ? data.duration
+          : undefined,
+    slideshow:
+      role === "slideshow"
+        ? {
+            slideshowId: typeof data.slideshowId === "string" ? data.slideshowId : undefined,
+            slideCount: typeof data.slideCount === "number" ? data.slideCount : undefined,
+            aspectRatio: typeof data.aspectRatio === "string" ? data.aspectRatio : undefined,
+          }
+        : undefined,
+    provider: artifact.provider,
+    model: artifact.model,
+  };
+}
+
+function inferredPostType(args: {
+  configuredPostType?: string;
+  mediaItems: ReturnType<typeof packageMediaItemFromArtifact>[];
+}) {
+  if (args.configuredPostType?.trim()) return args.configuredPostType.trim();
+
+  const mediaItems = args.mediaItems;
+  if (mediaItems.some((item) => item.role === "slideshow")) return "slideshow";
+  if (mediaItems.some((item) => item.role === "video")) return "video";
+  const imageCount = mediaItems.filter((item) => item.role === "image").length;
+  if (imageCount > 1) return "carousel";
+  if (imageCount === 1) return "single_image";
+  if (mediaItems.some((item) => item.role === "audio")) return "audio";
+  return "media";
+}
+
+function postPackageDataForNode(args: {
+  node: WorkflowGraphNodeForRun;
+  resolvedInputs: ResolvedInputsForRun;
+  sourceArtifactIds: Id<"artifacts">[];
+  sourceArtifacts: ArtifactDocForRun[];
+}) {
+  const { node, resolvedInputs, sourceArtifactIds, sourceArtifacts } = args;
   const inputs = resolvedInputs.inputs ?? {};
   const config = objectValue(node.config);
   const metadataInput = objectValue(inputs.metadata?.value);
-  const platformSettings = objectValue(config.platformSettings);
-  const destinationPolicy = objectValue(config.destinationPolicy);
+  const platformSettings = {
+    ...objectValue(config.platformSettings),
+    ...objectValue(inputs.platformSettings?.value),
+  };
+  const destinationPolicy = {
+    ...objectValue(config.destinationPolicy),
+    ...objectValue(inputs.destinationPolicy?.value),
+  };
   const configuredCaption = stringFromValue(config.caption);
   const inputCaption =
     stringFromValue(inputs.caption?.value) ??
     stringFromValue(inputs.text?.value) ??
+    stringFromValue(inputs.prompt?.value) ??
     stringFromValue(inputs.input?.value);
-  const postType =
-    typeof config.postType === "string" && config.postType.trim()
-      ? config.postType.trim()
-      : "video";
+  const mediaItems = sourceArtifacts.map((artifact, index) =>
+    packageMediaItemFromArtifact(artifact, index)
+  );
+  const postType = inferredPostType({
+    configuredPostType: typeof config.postType === "string" ? config.postType : undefined,
+    mediaItems,
+  });
+  const name =
+    typeof config.name === "string" && config.name.trim()
+      ? config.name.trim()
+      : `${node.label} package`;
+  const optimizeForPlatforms = [
+    ...new Set([
+      ...stringListFromValue(config.optimizeForPlatforms),
+      ...stringListFromValue(config.platforms),
+      ...stringListFromValue(platformSettings.platforms),
+      ...stringListFromValue(platformSettings.platform),
+    ]),
+  ];
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "post_package",
     postType,
-    name:
-      typeof config.name === "string" && config.name.trim()
-        ? config.name.trim()
-        : `${node.label} package`,
+    name,
     caption: configuredCaption ?? inputCaption,
     mediaArtifactIds: sourceArtifactIds.map((artifactId) => String(artifactId)),
+    mediaItems,
+    mediaSummary: {
+      total: mediaItems.length,
+      slideshowCount: mediaItems.filter((item) => item.role === "slideshow").length,
+      videoCount: mediaItems.filter((item) => item.role === "video").length,
+      imageCount: mediaItems.filter((item) => item.role === "image").length,
+      audioCount: mediaItems.filter((item) => item.role === "audio").length,
+    },
     platformSettings,
     destinationPolicy: {
       destination:
@@ -1229,11 +1360,76 @@ function postPackageDataForNode(
           : undefined,
       ...destinationPolicy,
     },
+    optimizeForPlatforms,
     metadata: {
       ...metadataInput,
       sourceNodeId: node.id,
       sourceNodeType: node.type,
       inputSummary: resolvedInputs.summary ?? {},
+      compiledAt: Date.now(),
+    },
+  };
+}
+
+function postPackageOutputRefsForNode(args: {
+  nodeId: string;
+  artifactId: Id<"artifacts">;
+  packageData: ReturnType<typeof postPackageDataForNode>;
+}) {
+  return [{
+    nodeId: args.nodeId,
+    port: "post_package",
+    artifactIds: [args.artifactId],
+    value: {
+      kind: "post_package",
+      artifactId: args.artifactId,
+      postType: args.packageData.postType,
+      name: args.packageData.name,
+      caption: args.packageData.caption,
+      mediaArtifactIds: args.packageData.mediaArtifactIds,
+      mediaSummary: args.packageData.mediaSummary,
+    },
+  }];
+}
+
+function postPackageDataForWorkflowFallback(args: {
+  workflowName: string;
+  contentFormat: string;
+  sourceArtifactIds: Id<"artifacts">[];
+  sourceArtifacts: ArtifactDocForRun[];
+}) {
+  const mediaItems = args.sourceArtifacts.map((artifact, index) =>
+    packageMediaItemFromArtifact(artifact, index)
+  );
+  const postType = inferredPostType({
+    configuredPostType: args.contentFormat,
+    mediaItems,
+  });
+
+  return {
+    schemaVersion: 2,
+    kind: "post_package",
+    postType,
+    name: `${args.workflowName} package`,
+    mediaArtifactIds: args.sourceArtifactIds.map((artifactId) => String(artifactId)),
+    mediaItems,
+    mediaSummary: {
+      total: mediaItems.length,
+      slideshowCount: mediaItems.filter((item) => item.role === "slideshow").length,
+      videoCount: mediaItems.filter((item) => item.role === "video").length,
+      imageCount: mediaItems.filter((item) => item.role === "image").length,
+      audioCount: mediaItems.filter((item) => item.role === "audio").length,
+    },
+    platformSettings: {},
+    destinationPolicy: {
+      destination: "media_library",
+    },
+    optimizeForPlatforms: [],
+    metadata: {
+      sourceNodeId: "workflow",
+      sourceNodeType: "workflow_fallback",
+      reason: "No reachable terminal node produced a post package.",
+      compiledAt: Date.now(),
     },
   };
 }
@@ -3290,11 +3486,79 @@ export const executeRun = internalAction({
             continue;
           }
 
+          if (isPostPackageNode(node)) {
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "slideshow",
+              "media",
+              "video",
+              "image",
+              "audio",
+              "input",
+              "slide_spec",
+            ]);
+            const sourceArtifacts = await artifactsForIds(ctx, sourceArtifactIds);
+            const packageData = postPackageDataForNode({
+              node,
+              resolvedInputs,
+              sourceArtifactIds,
+              sourceArtifacts,
+            });
+            const packageArtifactId = await ctx.runMutation(
+              internal.workflows.runner.createPostPackageArtifact,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                nodeId: node.id,
+                label: node.label,
+                sourceArtifactIds,
+                packageData,
+              }
+            );
+            finalPackageArtifactIds.add(packageArtifactId);
+            emittedArtifactIds.add(packageArtifactId);
+
+            const outputRefs = postPackageOutputRefsForNode({
+              nodeId: node.id,
+              artifactId: packageArtifactId,
+              packageData,
+            });
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd: 0,
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} compiled a ${packageData.postType} post package.`,
+              data: {
+                nodeType: node.type,
+                artifactId: packageArtifactId,
+                postType: packageData.postType,
+                mediaSummary: packageData.mediaSummary,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
           const outboundPorts = outboundPortsForNode(graph, node.id);
           const packageArtifactIds = postPackageArtifactIdsFromInputs(resolvedInputs);
           const shouldCreatePostPackage =
-            isPostPackageNode(node) ||
-            (isTerminalPackageConsumer(node) && packageArtifactIds.length === 0);
+            isTerminalPackageConsumer(node) && packageArtifactIds.length === 0;
           const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
             "slideshow",
             "slide_spec",
@@ -3304,6 +3568,14 @@ export const executeRun = internalAction({
             "audio",
             "input",
           ]);
+          const packageData = shouldCreatePostPackage
+            ? postPackageDataForNode({
+                node,
+                resolvedInputs,
+                sourceArtifactIds,
+                sourceArtifacts: await artifactsForIds(ctx, sourceArtifactIds),
+              })
+            : undefined;
           const createdPostPackageArtifactId = shouldCreatePostPackage
             ? await ctx.runMutation(internal.workflows.runner.createPostPackageArtifact, {
                 userId: context.run.userId,
@@ -3313,7 +3585,7 @@ export const executeRun = internalAction({
                 nodeId: node.id,
                 label: node.label,
                 sourceArtifactIds,
-                packageData: postPackageDataForNode(node, resolvedInputs, sourceArtifactIds),
+                packageData: packageData!,
               })
             : undefined;
           const consumedOrCreatedPackageIds = [
@@ -3336,6 +3608,11 @@ export const executeRun = internalAction({
                 ? {
                     kind: "post_package",
                     artifactId: createdPostPackageArtifactId,
+                    postType: packageData!.postType,
+                    name: packageData!.name,
+                    caption: packageData!.caption,
+                    mediaArtifactIds: packageData!.mediaArtifactIds,
+                    mediaSummary: packageData!.mediaSummary,
                   }
                 : {}),
               inputSummary: resolvedInputs.summary,
@@ -3428,6 +3705,8 @@ export const executeRun = internalAction({
     }
 
     if (!finalPackageArtifactIds.size) {
+      const fallbackSourceArtifactIds = [...emittedArtifactIds];
+      const fallbackSourceArtifacts = await artifactsForIds(ctx, fallbackSourceArtifactIds);
       const fallbackPackageArtifactId = await ctx.runMutation(
         internal.workflows.runner.createPostPackageArtifact,
         {
@@ -3437,23 +3716,13 @@ export const executeRun = internalAction({
           workflowRunId: context.run._id,
           nodeId: "workflow",
           label: context.workflow.name,
-          sourceArtifactIds: [...emittedArtifactIds],
-          packageData: {
-            schemaVersion: 1,
-            kind: "post_package",
-            postType: context.workflow.contentFormat,
-            name: `${context.workflow.name} package`,
-            mediaArtifactIds: [...emittedArtifactIds].map((artifactId) => String(artifactId)),
-            platformSettings: {},
-            destinationPolicy: {
-              destination: "media_library",
-            },
-            metadata: {
-              sourceNodeId: "workflow",
-              sourceNodeType: "workflow_fallback",
-              reason: "No reachable terminal node produced a post package.",
-            },
-          },
+          sourceArtifactIds: fallbackSourceArtifactIds,
+          packageData: postPackageDataForWorkflowFallback({
+            workflowName: context.workflow.name,
+            contentFormat: context.workflow.contentFormat,
+            sourceArtifactIds: fallbackSourceArtifactIds,
+            sourceArtifacts: fallbackSourceArtifacts,
+          }),
         }
       );
       finalPackageArtifactIds.add(fallbackPackageArtifactId);

@@ -103,13 +103,21 @@ export function artifactSummary(artifact: ArtifactDoc): string {
     const data = artifact.data as {
       caption?: string;
       mediaArtifactIds?: string[];
+      mediaItems?: unknown[];
+      mediaSummary?: {
+        total?: number;
+        slideshowCount?: number;
+        videoCount?: number;
+        imageCount?: number;
+      };
       name?: string;
       postType?: string;
     };
+    const mediaCount = data.mediaSummary?.total ?? data.mediaItems?.length ?? data.mediaArtifactIds?.length;
     return [
       data.name ?? "Post package",
       data.postType,
-      data.mediaArtifactIds?.length ? `${data.mediaArtifactIds.length} media refs` : undefined,
+      mediaCount ? `${mediaCount} media refs` : undefined,
       data.caption ? "caption ready" : undefined,
     ]
       .filter(Boolean)

@@ -1229,7 +1229,7 @@ Implementation notes:
 
 #### SW-0512: Post Compiler node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1239,6 +1239,17 @@ Deliverables:
 Acceptance criteria:
 
 - Workflow run final output is one post package.
+
+Implementation notes:
+
+- Post Compiler now executes as a first-class runner branch rather than through
+  the generic placeholder/terminal block.
+- Compiled `publish_payload` artifacts use a richer schema with inferred
+  `postType`, caption, `mediaArtifactIds`, ordered `mediaItems`, media counts,
+  platform settings, destination policy, and optimization targets.
+- Native slideshow renderer outputs compile as slideshow media items, while
+  single images, multiple images/carousels, video, and audio are inferred from
+  artifact types and asset metadata.
 
 #### SW-0513: Export node
 
