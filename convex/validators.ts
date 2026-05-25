@@ -8,6 +8,7 @@ export const publishingProviderValidator = v.union(
 );
 
 export const modelProviderValidator = v.union(
+  v.literal("bulkapis"),
   v.literal("gemini"),
   v.literal("fal"),
   v.literal("openrouter"),

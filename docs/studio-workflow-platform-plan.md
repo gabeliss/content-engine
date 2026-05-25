@@ -589,7 +589,7 @@ abstraction.
 
 #### SW-0301: Add BulkAPIs environment configuration
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -602,6 +602,12 @@ Acceptance criteria:
 
 - No BulkAPIs key is exposed to the client.
 - Missing config produces clear provider errors.
+
+Implementation notes:
+
+- Added server-only `BULKAPIS_API_KEY` and optional `BULKAPIS_BASE_URL` documentation.
+- Added a shared backend BulkAPIs config helper with a default base URL and provider-style missing-key error.
+- Added `bulkapis` to the model provider type and validator so the next adapter ticket can register it cleanly.
 
 #### SW-0302: Add BulkAPIs model provider adapter
 

@@ -23,6 +23,7 @@ import type * as content_slideshowDimensions from "../content/slideshowDimension
 import type * as content_slideshows from "../content/slideshows.js";
 import type * as content_types from "../content/types.js";
 import type * as lib_text from "../lib/text.js";
+import type * as providers_bulkapisConfig from "../providers/bulkapisConfig.js";
 import type * as providers_errors from "../providers/errors.js";
 import type * as providers_fal from "../providers/fal.js";
 import type * as providers_gemini from "../providers/gemini.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   "content/slideshows": typeof content_slideshows;
   "content/types": typeof content_types;
   "lib/text": typeof lib_text;
+  "providers/bulkapisConfig": typeof providers_bulkapisConfig;
   "providers/errors": typeof providers_errors;
   "providers/fal": typeof providers_fal;
   "providers/gemini": typeof providers_gemini;

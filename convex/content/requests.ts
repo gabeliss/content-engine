@@ -41,6 +41,7 @@ import type {
   GeneratedAsset,
   ModelInvocationMetadata,
   ModelProvider,
+  ModelProviderName,
   ReferenceAsset,
 } from "../providers/model";
 import { contentRequestStatusValidator } from "../validators";
@@ -179,7 +180,7 @@ async function createRequestArtifact(
     title?: string;
     storageUrl?: string;
     data?: unknown;
-    provider?: "gemini" | "fal" | "openrouter" | "manual";
+    provider?: ModelProviderName;
     model?: string;
     prompt?: string;
     parentArtifactIds?: Id<"artifacts">[];

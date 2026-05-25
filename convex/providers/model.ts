@@ -1,6 +1,11 @@
 import { unsupportedProviderOperation } from "./errors";
 
-export type ModelProviderName = "gemini" | "fal" | "openrouter" | "manual";
+export type ModelProviderName =
+  | "bulkapis"
+  | "gemini"
+  | "fal"
+  | "openrouter"
+  | "manual";
 
 export type AsyncJobStatus =
   | "queued"
