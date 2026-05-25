@@ -5,6 +5,7 @@ import {
   type WorkflowProviderName,
 } from "./workflowGraph";
 import { DEFAULT_PUBLISHING_PROVIDER } from "./publishingRouting";
+import type { PostCompilerPresetId } from "./postCompilerPresets";
 import type { ContentFormat, PublishingProvider } from "../types";
 
 export type WorkflowTemplateId =
@@ -233,7 +234,11 @@ function videoEditor(args: {
   };
 }
 
-function postCompiler(postType: string, position: { x: number; y: number }): WorkflowNode {
+function postCompiler(
+  postType: string,
+  position: { x: number; y: number },
+  platformPreset: PostCompilerPresetId = "tiktok_vertical_video"
+): WorkflowNode {
   return {
     id: "post_compiler",
     type: "post_compiler",
@@ -241,6 +246,7 @@ function postCompiler(postType: string, position: { x: number; y: number }): Wor
     position,
     config: {
       postType,
+      platformPreset,
       caption: "{{CAPTION}}",
       name: "{{POST_NAME}}",
     },
@@ -495,7 +501,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
           config: { renderMode: "native", aspectRatio: "9:16", resolution: "1080x1920" },
           retention: { mode: "keep_on_failure" },
         },
-        postCompiler("carousel", { x: 1010, y: 250 }),
+        postCompiler("carousel", { x: 1010, y: 250 }, "instagram_carousel"),
         exportNode({ x: 1320, y: 250 }),
       ],
       [

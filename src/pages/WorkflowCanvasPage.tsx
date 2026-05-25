@@ -66,6 +66,7 @@ import {
 } from "../lib/workflowAgentPresets";
 import { validateWorkflowGraph } from "../lib/workflowGraphValidation";
 import { PUBLISHING_PROVIDER_ROUTES } from "../lib/publishingRouting";
+import { postCompilerPresetIds } from "../lib/postCompilerPresets";
 
 const nodeTypes = {
   workflowNode: WorkflowCanvasNode,
@@ -705,7 +706,7 @@ function friendlyConfigFieldKeysForNode(
     case "ai_video_editor":
       return ["renderMode", "prompt", "systemPrompt", "knowledgeBase", "aspectRatio", "maxDurationSeconds", "webhookUrl"];
     case "post_compiler":
-      return ["postType", "caption", "name"];
+      return ["postType", "platformPreset", "caption", "name", "optimizeForPlatforms"];
     case "export":
       return ["destination", "folder", "fileName", "optimizeFor"];
     case "auto_post":
@@ -779,6 +780,12 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
         ...defaultField,
         type: "enum",
         enumValues: ["video", "slideshow", "carousel", "single_image", "thread"],
+      };
+    case "platformPreset":
+      return {
+        ...defaultField,
+        type: "enum",
+        enumValues: postCompilerPresetIds(),
       };
     case "renderMode":
       return {

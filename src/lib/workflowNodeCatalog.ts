@@ -337,7 +337,12 @@ export const WORKFLOW_NODE_CATALOG = [
       port("metadata", "Metadata", "json"),
     ],
     outputPorts: [port("post_package", "Post Package", "post_package")],
-    defaultConfig: { postType: "video", caption: "" },
+    defaultConfig: {
+      postType: "video",
+      platformPreset: "tiktok_vertical_video",
+      optimizeForPlatforms: ["tiktok"],
+      caption: "",
+    },
     defaultRetention: { mode: "keep", exposeInLibrary: true },
     outputArtifactTypes: ["publish_payload"],
   },

@@ -43,6 +43,7 @@ import {
   getWorkflowAgentPreset,
   type WorkflowAgentOutputKind,
 } from "./agentPresets";
+import { buildPlatformPackages } from "./postCompilerPresets";
 
 type WorkflowGraphForRun = typeof workflowGraphValidator.type;
 type WorkflowGraphNodeForRun = WorkflowGraphForRun["nodes"][number];
@@ -1256,16 +1257,6 @@ function postPackageArtifactIdsFromInputs(
   return [...ids] as Id<"artifacts">[];
 }
 
-function stringListFromValue(value: unknown): string[] {
-  if (typeof value === "string") {
-    return value.split(",").map((item) => item.trim()).filter(Boolean);
-  }
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
-}
-
 function packageMediaItemFromArtifact(
   artifact: ArtifactDocForRun,
   index: number
@@ -1373,31 +1364,35 @@ function postPackageDataForNode(args: {
     typeof config.name === "string" && config.name.trim()
       ? config.name.trim()
       : `${node.label} package`;
-  const optimizeForPlatforms = [
-    ...new Set([
-      ...stringListFromValue(config.optimizeForPlatforms),
-      ...stringListFromValue(config.platforms),
-      ...stringListFromValue(platformSettings.platforms),
-      ...stringListFromValue(platformSettings.platform),
-    ]),
-  ];
+  const mediaSummary = {
+    total: mediaItems.length,
+    slideshowCount: mediaItems.filter((item) => item.role === "slideshow").length,
+    videoCount: mediaItems.filter((item) => item.role === "video").length,
+    imageCount: mediaItems.filter((item) => item.role === "image").length,
+    audioCount: mediaItems.filter((item) => item.role === "audio").length,
+  };
+  const caption = configuredCaption ?? inputCaption;
+  const platformCompilation = buildPlatformPackages({
+    caption,
+    config,
+    mediaSummary,
+    platformSettings,
+    postType,
+  });
 
   return {
     schemaVersion: 2,
     kind: "post_package",
     postType,
     name,
-    caption: configuredCaption ?? inputCaption,
+    caption,
     mediaArtifactIds: sourceArtifactIds.map((artifactId) => String(artifactId)),
     mediaItems,
-    mediaSummary: {
-      total: mediaItems.length,
-      slideshowCount: mediaItems.filter((item) => item.role === "slideshow").length,
-      videoCount: mediaItems.filter((item) => item.role === "video").length,
-      imageCount: mediaItems.filter((item) => item.role === "image").length,
-      audioCount: mediaItems.filter((item) => item.role === "audio").length,
-    },
-    platformSettings,
+    mediaSummary,
+    primaryPlatformPreset: platformCompilation.primaryPlatformPreset,
+    platformPresets: platformCompilation.platformPresets,
+    platformPackages: platformCompilation.platformPackages,
+    platformSettings: platformCompilation.platformSettings,
     destinationPolicy: {
       destination:
         typeof config.destination === "string" && config.destination.trim()
@@ -1405,7 +1400,7 @@ function postPackageDataForNode(args: {
           : undefined,
       ...destinationPolicy,
     },
-    optimizeForPlatforms,
+    optimizeForPlatforms: platformCompilation.optimizeForPlatforms,
     metadata: {
       ...metadataInput,
       sourceNodeId: node.id,
@@ -1433,6 +1428,8 @@ function postPackageOutputRefsForNode(args: {
       caption: args.packageData.caption,
       mediaArtifactIds: args.packageData.mediaArtifactIds,
       mediaSummary: args.packageData.mediaSummary,
+      primaryPlatformPreset: args.packageData.primaryPlatformPreset,
+      platformPackages: args.packageData.platformPackages,
     },
   }];
 }
@@ -1450,6 +1447,19 @@ function postPackageDataForWorkflowFallback(args: {
     configuredPostType: args.contentFormat,
     mediaItems,
   });
+  const mediaSummary = {
+    total: mediaItems.length,
+    slideshowCount: mediaItems.filter((item) => item.role === "slideshow").length,
+    videoCount: mediaItems.filter((item) => item.role === "video").length,
+    imageCount: mediaItems.filter((item) => item.role === "image").length,
+    audioCount: mediaItems.filter((item) => item.role === "audio").length,
+  };
+  const platformCompilation = buildPlatformPackages({
+    config: {},
+    mediaSummary,
+    platformSettings: {},
+    postType,
+  });
 
   return {
     schemaVersion: 2,
@@ -1458,18 +1468,15 @@ function postPackageDataForWorkflowFallback(args: {
     name: `${args.workflowName} package`,
     mediaArtifactIds: args.sourceArtifactIds.map((artifactId) => String(artifactId)),
     mediaItems,
-    mediaSummary: {
-      total: mediaItems.length,
-      slideshowCount: mediaItems.filter((item) => item.role === "slideshow").length,
-      videoCount: mediaItems.filter((item) => item.role === "video").length,
-      imageCount: mediaItems.filter((item) => item.role === "image").length,
-      audioCount: mediaItems.filter((item) => item.role === "audio").length,
-    },
-    platformSettings: {},
+    mediaSummary,
+    primaryPlatformPreset: platformCompilation.primaryPlatformPreset,
+    platformPresets: platformCompilation.platformPresets,
+    platformPackages: platformCompilation.platformPackages,
+    platformSettings: platformCompilation.platformSettings,
     destinationPolicy: {
       destination: "media_library",
     },
-    optimizeForPlatforms: [],
+    optimizeForPlatforms: platformCompilation.optimizeForPlatforms,
     metadata: {
       sourceNodeId: "workflow",
       sourceNodeType: "workflow_fallback",
@@ -4229,6 +4236,8 @@ export const executeRun = internalAction({
                     caption: packageData!.caption,
                     mediaArtifactIds: packageData!.mediaArtifactIds,
                     mediaSummary: packageData!.mediaSummary,
+                    primaryPlatformPreset: packageData!.primaryPlatformPreset,
+                    platformPackages: packageData!.platformPackages,
                   }
                 : {}),
               inputSummary: resolvedInputs.summary,

@@ -52,6 +52,7 @@ import type * as validators from "../validators.js";
 import type * as workflows_agentPresets from "../workflows/agentPresets.js";
 import type * as workflows_definitions from "../workflows/definitions.js";
 import type * as workflows_inputResolver from "../workflows/inputResolver.js";
+import type * as workflows_postCompilerPresets from "../workflows/postCompilerPresets.js";
 import type * as workflows_runCreation from "../workflows/runCreation.js";
 import type * as workflows_runner from "../workflows/runner.js";
 import type * as workflows_runs from "../workflows/runs.js";
@@ -108,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   "workflows/agentPresets": typeof workflows_agentPresets;
   "workflows/definitions": typeof workflows_definitions;
   "workflows/inputResolver": typeof workflows_inputResolver;
+  "workflows/postCompilerPresets": typeof workflows_postCompilerPresets;
   "workflows/runCreation": typeof workflows_runCreation;
   "workflows/runner": typeof workflows_runner;
   "workflows/runs": typeof workflows_runs;

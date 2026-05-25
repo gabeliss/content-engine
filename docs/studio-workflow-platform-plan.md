@@ -1747,7 +1747,7 @@ Implementation notes:
 
 #### SW-0903: Add platform-aware post compiler presets
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1758,6 +1758,19 @@ Acceptance criteria:
 
 - Workflow can create platform-specific post packages without changing upstream
   creative nodes.
+
+Implementation notes:
+
+- Added Post Compiler preset definitions for TikTok vertical video,
+  Instagram Reels/carousels, YouTube Shorts, X video/thread, LinkedIn
+  video/document posts, plus future Facebook Reels, Threads, and Pinterest idea
+  pin routes.
+- Updated Post Compiler node defaults and canvas config so users can choose a
+  `platformPreset` while leaving upstream creative nodes unchanged.
+- Updated the workflow runner so `publish_payload` artifacts include
+  `primaryPlatformPreset`, `platformPresets`, `platformPackages`,
+  `platformSettings`, and normalized `optimizeForPlatforms`.
+- Documented the preset model in `docs/platform-post-compiler-presets.md`.
 
 #### SW-0904: Add metrics ingestion into workflow history
 

@@ -119,6 +119,12 @@ export function artifactSummary(artifact: ArtifactDoc): string {
         status?: string;
         autoPublish?: boolean;
       };
+      primaryPlatformPreset?: {
+        label?: string;
+        platform?: string;
+        surface?: string;
+      };
+      platformPackages?: unknown[];
       name?: string;
       postType?: string;
     };
@@ -126,6 +132,11 @@ export function artifactSummary(artifact: ArtifactDoc): string {
     return [
       data.name ?? "Post package",
       data.postType,
+      data.primaryPlatformPreset?.label ??
+        (data.primaryPlatformPreset?.platform && data.primaryPlatformPreset.surface
+          ? `${data.primaryPlatformPreset.platform} ${data.primaryPlatformPreset.surface}`
+          : undefined),
+      data.platformPackages?.length ? `${data.platformPackages.length} platform packages` : undefined,
       mediaCount ? `${mediaCount} media refs` : undefined,
       data.exportStatus?.destination
         ? `${data.exportStatus.destination}: ${data.exportStatus.status ?? "export"}`
