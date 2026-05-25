@@ -321,6 +321,14 @@ Initial MCP resources:
 - BulkAPIs model catalog snapshot.
 - Brand/persona/asset summaries.
 
+Resource contract:
+
+- The canonical resource list is documented in
+  [MCP Resources](./mcp-resources.md).
+- Resource URIs use the `content-engine://...` custom scheme and should be read
+  through the Content Engine MCP server, not fetched directly.
+- The backend resource registry lives in `convex/mcp/resources.ts`.
+
 Initial MCP tools:
 
 - List workflows.
@@ -1558,7 +1566,7 @@ Implementation notes:
 
 #### SW-0802: Add MCP resources
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1568,6 +1576,16 @@ Deliverables:
 Acceptance criteria:
 
 - An AI agent can inspect enough context to build workflows correctly.
+
+Implementation notes:
+
+- Added `convex/mcp/resources.ts` with MCP-shaped `list` and `read` queries.
+- Exposed static resources for architecture guidance, workflow graph schema,
+  node catalog, built-in templates, and agent prompt recipes.
+- Exposed authenticated user-scoped resources for active provider model catalog,
+  brand summaries, persona summaries, and creative asset summaries.
+- Added `docs/mcp-resources.md` to document the resource URIs, MIME types, and
+  expected agent usage.
 
 #### SW-0803: Add workflow MCP tools
 
