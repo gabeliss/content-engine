@@ -41,10 +41,11 @@ caption sets, and future formats.
 - Debug outputs should be inspectable inside the workflow canvas.
 - The Library should primarily show final or intentionally retained artifacts,
   not every intermediate node output.
-- BulkAPIs is the default provider for AI generation, media generation, and
-  potentially social automation, behind a swappable provider layer.
-- Postiz should not be removed until BulkAPIs platform coverage is verified for
-  the target social platforms beyond X/Twitter.
+- BulkAPIs is the default provider for AI generation and media generation,
+  behind a swappable provider layer.
+- BulkAPIs should not be used for posting in the near-term platform plan.
+- Postiz and/or Post Bridge should remain the publishing providers behind the
+  publishing abstraction.
 - BulkAPIs model-specific node fields should come from cached model schemas.
 - MCP is a first-class external integration surface, not a later local-only
   helper.
@@ -107,6 +108,7 @@ As of this planning pass, the BulkAPIs documentation describes:
     and prompts
 - Social automation APIs currently documented around X/Twitter:
   - connected accounts
+  - X OAuth connect
   - DMs
   - inbox/conversations
   - posts
@@ -120,6 +122,25 @@ As of this planning pass, the BulkAPIs documentation describes:
   - webhooks
   - API keys
   - usage and billing
+
+BulkAPIs publishing coverage decision:
+
+- Decision: do not use BulkAPIs for posting right now.
+- BulkAPIs should power AI generation, model catalog metadata, async AI task
+  polling/webhooks, and model-specific media-generation capabilities.
+- Postiz and/or Post Bridge should remain the publishing providers for
+  `auto_post`, distribution plans, account sync, scheduling, status sync, and
+  publishing metrics.
+- BulkAPIs docs currently show social automation concentrated around
+  X/Twitter. That may become useful later for X-specific research or growth
+  automation, but it should not be part of the initial posting architecture.
+- Account storage should keep provider-specific external account IDs for the
+  selected publishing provider: Postiz integration IDs for Postiz channels,
+  Post Bridge IDs if/when that adapter is implemented, and normalized platform
+  handles in our own `socialAccounts` table.
+- Webhooks should remain provider-neutral in our app: normalize publishing
+  provider status events into our run/event/distribution records rather than
+  exposing raw provider event names to workflow code.
 
 Important implementation implication: our BulkAPIs integration should treat
 `GET /api/v1/ai/models` as live provider metadata and should not hard-code model
@@ -703,20 +724,33 @@ Implementation notes:
 
 #### SW-0306: Evaluate BulkAPIs publishing coverage
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
 - Verify which social platforms BulkAPIs supports for posts, scheduling,
   analytics, and OAuth.
 - Compare against Postiz.
-- Decide whether BulkAPIs should replace Postiz, coexist with Postiz, or only
-  handle X/Twitter initially.
+- Decide whether BulkAPIs should replace Postiz, coexist with Postiz/Post
+  Bridge, or stay out of posting initially.
 
 Acceptance criteria:
 
 - Decision is documented before removing Postiz code.
 - No existing publishing capability is removed prematurely.
+
+Implementation notes:
+
+- Reviewed BulkAPIs docs across accounts, posts, media, analytics, schedules,
+  automations, comments, DMs, X intelligence, viral watch, and webhooks.
+- Reviewed Postiz public API docs for integrations, post creation/scheduling,
+  platform settings, provider coverage, and analytics.
+- Decision: do not use BulkAPIs for posting right now. BulkAPIs should remain
+  focused on AI/model/media generation.
+- Postiz and/or Post Bridge should remain the publishing path for TikTok-first
+  and multi-platform workflows.
+- Next implementation should keep `auto_post` and distribution plans routed
+  through the publishing abstraction without adding a BulkAPIs posting adapter.
 
 ### Phase 4: Graph Runner
 
@@ -986,7 +1020,7 @@ Status: `Not Started`
 Deliverables:
 
 - Use publishing provider abstraction.
-- Support manual, Postiz, and BulkAPIs after publishing coverage decision.
+- Support manual, Postiz, and Post Bridge after publishing coverage decision.
 
 Acceptance criteria:
 
@@ -1206,12 +1240,13 @@ Status: `Not Started`
 
 Deliverables:
 
-- Based on SW-0306, route publishing through BulkAPIs, Postiz, or both.
+- Based on SW-0306, route publishing through Postiz and/or Post Bridge, not
+  BulkAPIs.
 
 Acceptance criteria:
 
 - TikTok-first publishing path is clear.
-- X/Twitter path is clear if BulkAPIs remains X-focused.
+- X/Twitter path is clear through the selected publishing provider.
 
 #### SW-0903: Add platform-aware post compiler presets
 
