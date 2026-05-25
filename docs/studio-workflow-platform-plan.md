@@ -481,13 +481,16 @@ Acceptance criteria:
 
 #### SW-0202: Build workflow list entry point
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
 - Keep Workflows as list-first.
 - Add filters for brand, format, status, and schedule state.
 - Add actions for new blank workflow, new from template, and open workflow.
+- New blank workflow creation navigates directly to the workflow canvas.
+- Template creation is represented as a disabled action until workflow
+  templates are implemented.
 
 Acceptance criteria:
 
