@@ -1,0 +1,162 @@
+export const WORKFLOW_GRAPH_SCHEMA_VERSION = 1 as const;
+
+export type WorkflowGraphSchemaVersion = typeof WORKFLOW_GRAPH_SCHEMA_VERSION;
+
+export type WorkflowNodeType =
+  | "runner"
+  | "comment"
+  | "media"
+  | "llm"
+  | "ai_agent"
+  | "image_generation"
+  | "video_generation"
+  | "audio_generation"
+  | "lipsync"
+  | "native_slideshow_planner"
+  | "native_slideshow_renderer"
+  | "ai_video_editor"
+  | "post_compiler"
+  | "export"
+  | "auto_post";
+
+export type WorkflowPortDataType =
+  | "any"
+  | "text"
+  | "json"
+  | "prompt"
+  | "image"
+  | "video"
+  | "audio"
+  | "media"
+  | "slide_spec"
+  | "slideshow"
+  | "post_package"
+  | "artifact";
+
+export type WorkflowProviderName =
+  | "bulkapis"
+  | "gemini"
+  | "fal"
+  | "openrouter"
+  | "postiz"
+  | "manual";
+
+export type WorkflowRunMode = "test" | "production";
+
+export type WorkflowPoint = {
+  x: number;
+  y: number;
+};
+
+export type WorkflowCanvasViewport = WorkflowPoint & {
+  zoom: number;
+};
+
+export type WorkflowCanvasState = {
+  viewport?: WorkflowCanvasViewport;
+};
+
+export type WorkflowPort = {
+  id: string;
+  label: string;
+  dataType: WorkflowPortDataType;
+  required?: boolean;
+  multiple?: boolean;
+  description?: string;
+};
+
+export type NodeInputBinding =
+  | {
+      type: "literal";
+      value: unknown;
+    }
+  | {
+      type: "node_output";
+      sourceNodeId: string;
+      sourcePort: string;
+      outputKey?: string;
+    }
+  | {
+      type: "artifact";
+      artifactId: string;
+    }
+  | {
+      type: "media_asset";
+      assetId: string;
+    }
+  | {
+      type: "persona";
+      personaId: string;
+      assetKey?: string;
+    };
+
+export type NodeRetentionMode =
+  | "inherit"
+  | "keep"
+  | "discard"
+  | "keep_on_failure";
+
+export type NodeRetentionPolicy = {
+  mode: NodeRetentionMode;
+  exposeInLibrary?: boolean;
+};
+
+export type WorkflowNode = {
+  id: string;
+  type: WorkflowNodeType;
+  label: string;
+  position: WorkflowPoint;
+  provider?: WorkflowProviderName;
+  model?: string;
+  config: Record<string, unknown>;
+  inputBindings?: Record<string, NodeInputBinding>;
+  retention?: NodeRetentionPolicy;
+};
+
+export type WorkflowEdge = {
+  id: string;
+  sourceNodeId: string;
+  sourcePort: string;
+  targetNodeId: string;
+  targetPort: string;
+};
+
+export type WorkflowGraph = {
+  schemaVersion: WorkflowGraphSchemaVersion;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  canvas?: WorkflowCanvasState;
+};
+
+export type WorkflowOutputRef = {
+  nodeId: string;
+  port: string;
+  artifactIds?: string[];
+  value?: unknown;
+};
+
+export type WorkflowNodeExecutionStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped";
+
+export type WorkflowNodeExecutionState = {
+  nodeId: string;
+  status: WorkflowNodeExecutionStatus;
+  startedAt?: number;
+  completedAt?: number;
+  costUsd?: number;
+  errorMessage?: string;
+  outputRefs?: WorkflowOutputRef[];
+};
+
+export function createEmptyWorkflowGraph(): WorkflowGraph {
+  return {
+    schemaVersion: WORKFLOW_GRAPH_SCHEMA_VERSION,
+    nodes: [],
+    edges: [],
+  };
+}

@@ -349,7 +349,7 @@ Acceptance criteria:
 
 #### SW-0003: Fix current TypeScript issues
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -375,6 +375,9 @@ Deliverables:
 - Add shared TypeScript types for `WorkflowGraph`, `WorkflowNode`,
   `WorkflowEdge`, ports, bindings, node config, and retention policy.
 - Keep types independent from React Flow.
+- Note: the first type module lives in `src/lib/workflowGraph.ts`; backend
+  imports should be finalized when graph validation/runtime APIs are introduced
+  so we do not churn TypeScript path configuration prematurely.
 
 Acceptance criteria:
 
