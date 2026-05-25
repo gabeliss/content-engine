@@ -6,11 +6,14 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
   type Edge,
   type Node,
+  type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   Box,
@@ -23,21 +26,28 @@ import {
   Mic,
   PackageCheck,
   Play,
+  Save,
   Send,
   Sparkles,
   Upload,
   Video,
   WandSparkles,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Page } from "../components/ui";
-import type { WorkflowGraph, WorkflowNodeType } from "../lib/workflowGraph";
+import type {
+  WorkflowEdge,
+  WorkflowGraph,
+  WorkflowNode,
+  WorkflowNodeType,
+} from "../lib/workflowGraph";
 import {
   getWorkflowNodeDefinition,
   isWorkflowNodeType,
+  listWorkflowNodeDefinitions,
 } from "../lib/workflowNodeCatalog";
 
 const nodeTypes = {
@@ -62,12 +72,25 @@ const nodeIcons = {
   auto_post: Send,
 } satisfies Record<WorkflowNodeType, typeof Play>;
 
-type WorkflowCanvasNodeData = {
+type WorkflowCanvasNodeData = Record<string, unknown> & {
   label: string;
   type: WorkflowNodeType;
 };
 
-function WorkflowCanvasNode({ data }: NodeProps<Node<WorkflowCanvasNodeData>>) {
+type WorkflowFlowNode = Node<WorkflowCanvasNodeData>;
+
+const paletteSections = [
+  { category: "control", label: "Control" },
+  { category: "input", label: "Input" },
+  { category: "language", label: "Language" },
+  { category: "agent", label: "Agents" },
+  { category: "generation", label: "Generation" },
+  { category: "assembly", label: "Assembly" },
+  { category: "output", label: "Output" },
+  { category: "utility", label: "Utility" },
+] as const;
+
+function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
   const definition = getWorkflowNodeDefinition(data.type);
   const Icon = nodeIcons[data.type] ?? Box;
 
@@ -116,7 +139,7 @@ function portOffset(index: number, count: number): number {
   return 16 + (available / (count - 1)) * index;
 }
 
-function toFlowNodes(graph: WorkflowGraph): Node<WorkflowCanvasNodeData>[] {
+function toFlowNodes(graph: WorkflowGraph): WorkflowFlowNode[] {
   return graph.nodes
     .filter((node) => isWorkflowNodeType(node.type))
     .map((node) => ({
@@ -142,12 +165,89 @@ function toFlowEdges(graph: WorkflowGraph): Edge[] {
   }));
 }
 
+function cloneConfig(config: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+}
+
+function nextNodeId(type: WorkflowNodeType, nodes: WorkflowFlowNode[]): string {
+  const baseId = type.replace(/_/g, "-");
+  const usedIds = new Set(nodes.map((node) => node.id));
+  let index = 1;
+
+  while (usedIds.has(`${baseId}-${index}`)) {
+    index += 1;
+  }
+
+  return `${baseId}-${index}`;
+}
+
+function nextNodePosition(nodes: WorkflowFlowNode[]) {
+  const index = Math.max(0, nodes.length - 1);
+
+  return {
+    x: 140 + (index % 3) * 300,
+    y: 120 + Math.floor(index / 3) * 210,
+  };
+}
+
+function toWorkflowGraph(
+  sourceGraph: WorkflowGraph,
+  nodes: WorkflowFlowNode[],
+  edges: Edge[]
+): WorkflowGraph {
+  const sourceNodes = new Map(sourceGraph.nodes.map((node) => [node.id, node]));
+
+  return {
+    ...sourceGraph,
+    nodes: nodes.map((node) => {
+      const existingNode = sourceNodes.get(node.id);
+      const definition = getWorkflowNodeDefinition(node.data.type);
+      const graphNode: WorkflowNode = {
+        id: node.id,
+        type: node.data.type,
+        label: node.data.label,
+        position: node.position,
+        config: existingNode?.config ?? cloneConfig(definition.defaultConfig),
+        retention: existingNode?.retention ?? definition.defaultRetention,
+      };
+
+      if (existingNode?.provider) graphNode.provider = existingNode.provider;
+      if (existingNode?.model) graphNode.model = existingNode.model;
+      if (existingNode?.inputBindings) graphNode.inputBindings = existingNode.inputBindings;
+
+      return graphNode;
+    }),
+    edges: edges.map((edge) => {
+      const graphEdge: WorkflowEdge = {
+        id: edge.id,
+        sourceNodeId: edge.source,
+        sourcePort: String(edge.sourceHandle ?? "output"),
+        targetNodeId: edge.target,
+        targetPort: String(edge.targetHandle ?? "input"),
+      };
+
+      return graphEdge;
+    }),
+  };
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return "Unable to save workflow graph.";
+}
+
 export function WorkflowCanvasPage() {
   const { workflowId } = useParams();
   const workflow = useQuery(
     api.workflows.definitions.get,
     workflowId ? { id: workflowId as Id<"workflows"> } : "skip"
   );
+  const updateGraph = useMutation(api.workflows.definitions.updateGraph);
+  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowFlowNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
 
   const flowNodes = useMemo(
     () => (workflow ? toFlowNodes(workflow.graph as WorkflowGraph) : []),
@@ -157,6 +257,71 @@ export function WorkflowCanvasPage() {
     () => (workflow ? toFlowEdges(workflow.graph as WorkflowGraph) : []),
     [workflow]
   );
+  const hasRunnerNode = nodes.some((node) => node.data.type === "runner");
+  const paletteDefinitions = useMemo(() => listWorkflowNodeDefinitions(), []);
+
+  useEffect(() => {
+    if (!workflow) return;
+
+    setNodes(flowNodes);
+    setEdges(flowEdges);
+    setIsDirty(false);
+    setSaveStatus("");
+  }, [flowEdges, flowNodes, setEdges, setNodes, workflow]);
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<WorkflowFlowNode>[]) => {
+      if (changes.some((change) => change.type === "position" || change.type === "dimensions")) {
+        setIsDirty(true);
+        setSaveStatus("");
+      }
+
+      onNodesChange(changes);
+    },
+    [onNodesChange]
+  );
+
+  const handleAddNode = useCallback(
+    (type: WorkflowNodeType) => {
+      const definition = getWorkflowNodeDefinition(type);
+
+      if (type === "runner" && hasRunnerNode) return;
+
+      setNodes((currentNodes) => [
+        ...currentNodes,
+        {
+          id: nextNodeId(type, currentNodes),
+          type: "workflowNode",
+          position: nextNodePosition(currentNodes),
+          data: {
+            label: definition.label,
+            type,
+          },
+        },
+      ]);
+      setIsDirty(true);
+      setSaveStatus("");
+    },
+    [hasRunnerNode, setNodes]
+  );
+
+  const handleSaveGraph = useCallback(async () => {
+    if (!workflow) return;
+
+    setIsSaving(true);
+    setSaveStatus("");
+
+    try {
+      const graph = toWorkflowGraph(workflow.graph as WorkflowGraph, nodes, edges);
+      await updateGraph({ id: workflow._id, graph });
+      setIsDirty(false);
+      setSaveStatus("Saved");
+    } catch (error) {
+      setSaveStatus(getErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [edges, nodes, updateGraph, workflow]);
 
   if (!workflowId) {
     return (
@@ -196,33 +361,98 @@ export function WorkflowCanvasPage() {
           <p>{workflow.description || `${workflow.contentFormat} workflow`}</p>
         </div>
         <div className="workflow-canvas-stats">
-          <span>{flowNodes.length} nodes</span>
-          <span>{flowEdges.length} edges</span>
+          <span>{nodes.length} nodes</span>
+          <span>{edges.length} edges</span>
           <span>{workflow.isActive ? "Active" : "Paused"}</span>
+        </div>
+        <div className="workflow-canvas-actions">
+          {saveStatus ? <span>{saveStatus}</span> : null}
+          <button
+            className="primary-button"
+            disabled={!isDirty || isSaving}
+            onClick={() => {
+              void handleSaveGraph();
+            }}
+            type="button"
+          >
+            <Save size={16} />
+            {isSaving ? "Saving" : "Save graph"}
+          </button>
         </div>
       </header>
 
-      <div className="workflow-canvas-shell">
-        <ReactFlowProvider>
-          <ReactFlow
-            colorMode="light"
-            defaultEdges={flowEdges}
-            defaultNodes={flowNodes}
-            fitView
-            fitViewOptions={{ padding: 0.35 }}
-            maxZoom={1.4}
-            minZoom={0.35}
-            nodeTypes={nodeTypes}
-            nodesDraggable={false}
-            nodesFocusable
-            panOnScroll
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background color="oklch(75% 0.034 220)" gap={22} size={1.2} />
-            <MiniMap pannable zoomable />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-        </ReactFlowProvider>
+      <div className="workflow-canvas-layout">
+        <aside className="workflow-node-palette" aria-label="Workflow node palette">
+          <div className="workflow-node-palette-header">
+            <h2>Add node</h2>
+            <span>{paletteDefinitions.length} types</span>
+          </div>
+
+          {paletteSections.map((section) => {
+            const sectionDefinitions = paletteDefinitions.filter(
+              (definition) => definition.category === section.category
+            );
+
+            if (!sectionDefinitions.length) return null;
+
+            return (
+              <section className="workflow-palette-section" key={section.category}>
+                <h3>{section.label}</h3>
+                <div className="workflow-palette-list">
+                  {sectionDefinitions.map((definition) => {
+                    const Icon = nodeIcons[definition.type] ?? Box;
+                    const isDisabled = definition.type === "runner" && hasRunnerNode;
+
+                    return (
+                      <button
+                        className="workflow-palette-button"
+                        disabled={isDisabled}
+                        key={definition.type}
+                        onClick={() => handleAddNode(definition.type)}
+                        type="button"
+                      >
+                        <span className="workflow-palette-icon">
+                          <Icon size={15} />
+                        </span>
+                        <span>
+                          <strong>{definition.label}</strong>
+                          <small>
+                            {isDisabled ? "Already on canvas" : definition.providerRequirement}
+                          </small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </aside>
+
+        <div className="workflow-canvas-shell">
+          <ReactFlowProvider>
+            <ReactFlow
+              colorMode="light"
+              edges={edges}
+              fitView
+              fitViewOptions={{ padding: 0.35 }}
+              maxZoom={1.4}
+              minZoom={0.35}
+              nodes={nodes}
+              nodeTypes={nodeTypes}
+              nodesDraggable
+              nodesFocusable
+              onEdgesChange={onEdgesChange}
+              onNodesChange={handleNodesChange}
+              panOnScroll
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background color="oklch(75% 0.034 220)" gap={22} size={1.2} />
+              <MiniMap pannable zoomable />
+              <Controls showInteractive={false} />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </div>
       </div>
     </section>
   );

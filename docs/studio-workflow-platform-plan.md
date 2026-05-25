@@ -500,7 +500,7 @@ Acceptance criteria:
 
 #### SW-0203: Build canvas node palette
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -512,6 +512,12 @@ Acceptance criteria:
 - User can add core nodes.
 - New nodes get stable IDs and default config.
 - Canvas save persists added nodes.
+
+Implementation notes:
+
+- Added a catalog-driven node palette grouped by node category.
+- Converted the canvas to controlled React Flow state with explicit graph saving.
+- Runner additions are disabled once the workflow already has its single runner.
 
 #### SW-0204: Build node settings inspector
 
