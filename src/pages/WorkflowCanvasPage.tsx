@@ -38,6 +38,7 @@ import {
   Upload,
   Video,
   WandSparkles,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -950,6 +951,7 @@ export function WorkflowCanvasPage() {
   const [runActionStatus, setRunActionStatus] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<Id<"workflowRuns"> | null>(null);
+  const [openDrawer, setOpenDrawer] = useState<"node" | "execution" | null>(null);
 
   const flowNodes = useMemo(
     () => (workflow ? toFlowNodes(workflow.graph as WorkflowGraph) : []),
@@ -1053,6 +1055,7 @@ export function WorkflowCanvasPage() {
   useEffect(() => {
     if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
       setSelectedNodeId(null);
+      setOpenDrawer((currentDrawer) => (currentDrawer === "node" ? null : currentDrawer));
     }
   }, [nodes, selectedNodeId]);
 
@@ -1101,6 +1104,7 @@ export function WorkflowCanvasPage() {
       setNodes((currentNodes) => {
         const nodeId = nextNodeId(type, currentNodes);
         setSelectedNodeId(nodeId);
+        setOpenDrawer("node");
 
         return [
           ...currentNodes,
@@ -1401,13 +1405,15 @@ export function WorkflowCanvasPage() {
   return (
     <section className="workflow-detail-page">
       <header className="workflow-canvas-header">
-        <div>
+        <div className="workflow-canvas-title">
           <Link className="workflow-back-link" to="/workflows">
             <ArrowLeft size={16} />
             Workflows
           </Link>
-          <h1>{workflow.name}</h1>
-          <p>{workflow.description || `${workflow.contentFormat} workflow`}</p>
+          <div>
+            <h1>{workflow.name}</h1>
+            <p>{workflow.description || `${workflow.contentFormat} workflow`}</p>
+          </div>
         </div>
         <div className="workflow-canvas-stats">
           <span>{nodes.length} nodes</span>
@@ -1419,6 +1425,30 @@ export function WorkflowCanvasPage() {
         </div>
         <div className="workflow-canvas-actions">
           {saveStatus ? <span>{saveStatus}</span> : null}
+          <button
+            className={`secondary-button${openDrawer === "execution" ? " workflow-toolbar-button-active" : ""}`}
+            onClick={() =>
+              setOpenDrawer((currentDrawer) =>
+                currentDrawer === "execution" ? null : "execution"
+              )
+            }
+            type="button"
+          >
+            <Activity size={16} />
+            Executions
+          </button>
+          <button
+            className="secondary-button"
+            disabled={isCreatingRun || isDirty || !graphValidation?.valid}
+            onClick={() => {
+              setOpenDrawer("execution");
+              void handleCreateManualRun();
+            }}
+            type="button"
+          >
+            <Play size={16} />
+            {isCreatingRun ? "Queueing" : "Run once"}
+          </button>
           <button
             className="secondary-button"
             disabled={isUpdatingActiveState}
@@ -1439,7 +1469,7 @@ export function WorkflowCanvasPage() {
             type="button"
           >
             <Save size={16} />
-            {isSaving ? "Saving" : "Save graph"}
+            {isSaving ? "Saving" : "Save"}
           </button>
         </div>
       </header>
@@ -1470,8 +1500,10 @@ export function WorkflowCanvasPage() {
                       <button
                         className="workflow-palette-button"
                         disabled={isDisabled}
+                        aria-label={`Add ${definition.label}`}
                         key={definition.type}
                         onClick={() => handleAddNode(definition.type)}
+                        title={definition.label}
                         type="button"
                       >
                         <span className="workflow-palette-icon">
@@ -1508,9 +1540,15 @@ export function WorkflowCanvasPage() {
               isValidConnection={isValidConnection}
               onConnect={handleConnect}
               onEdgesChange={handleEdgesChange}
-              onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+              onNodeClick={(_event, node) => {
+                setSelectedNodeId(node.id);
+                setOpenDrawer("node");
+              }}
               onNodesChange={handleNodesChange}
-              onPaneClick={() => setSelectedNodeId(null)}
+              onPaneClick={() => {
+                setSelectedNodeId(null);
+                setOpenDrawer((currentDrawer) => (currentDrawer === "node" ? null : currentDrawer));
+              }}
               panOnScroll
               proOptions={{ hideAttribution: true }}
             >
@@ -1526,7 +1564,12 @@ export function WorkflowCanvasPage() {
           ) : null}
         </div>
 
-        <aside className="workflow-node-inspector" aria-label="Workflow node inspector">
+        <aside
+          className={`workflow-node-inspector workflow-side-drawer${
+            openDrawer === "node" ? " workflow-side-drawer-open" : ""
+          }`}
+          aria-label="Workflow node inspector"
+        >
           {selectedNode && selectedNodeDefinition ? (
             <>
               <div className="workflow-node-inspector-header">
@@ -1540,6 +1583,14 @@ export function WorkflowCanvasPage() {
                   <h2>{selectedNode.data.label}</h2>
                   <p>{selectedNodeDefinition.description}</p>
                 </div>
+                <button
+                  aria-label="Close node settings"
+                  className="workflow-drawer-close"
+                  onClick={() => setOpenDrawer(null)}
+                  type="button"
+                >
+                  <X size={16} />
+                </button>
               </div>
 
               <div className="workflow-inspector-group">
@@ -1736,7 +1787,12 @@ export function WorkflowCanvasPage() {
           )}
         </aside>
 
-        <section className="workflow-execution-panel" aria-label="Workflow execution panel">
+        <section
+          className={`workflow-execution-panel workflow-side-drawer${
+            openDrawer === "execution" ? " workflow-side-drawer-open" : ""
+          }`}
+          aria-label="Workflow execution panel"
+        >
           <div className="workflow-execution-header">
             <div>
               <h2>Execution</h2>
@@ -1744,17 +1800,27 @@ export function WorkflowCanvasPage() {
                 Runs use the saved graph only. Editing nodes or edges never starts execution.
               </p>
             </div>
-            <button
-              className="primary-button"
-              disabled={isCreatingRun || isDirty || !graphValidation?.valid}
-              onClick={() => {
-                void handleCreateManualRun();
-              }}
-              type="button"
-            >
-              <Play size={16} />
-              {isCreatingRun ? "Queueing" : "Run workflow"}
-            </button>
+            <div className="workflow-execution-header-actions">
+              <button
+                className="primary-button"
+                disabled={isCreatingRun || isDirty || !graphValidation?.valid}
+                onClick={() => {
+                  void handleCreateManualRun();
+                }}
+                type="button"
+              >
+                <Play size={16} />
+                {isCreatingRun ? "Queueing" : "Run workflow"}
+              </button>
+              <button
+                aria-label="Close executions"
+                className="workflow-drawer-close"
+                onClick={() => setOpenDrawer(null)}
+                type="button"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
           <div className="workflow-execution-summary">

@@ -4,6 +4,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
 } from "react-router-dom";
 import { Sidebar } from "./components/AppShell";
 import { LoadingScreen, SignInScreen } from "./components/ui";
@@ -21,12 +22,14 @@ import { WorkflowsPage } from "./pages/WorkflowsPage";
 
 function AppContent() {
   const { isLoaded, isSignedIn } = useAuth();
+  const location = useLocation();
+  const isWorkflowCanvasRoute = /^\/workflows\/[^/]+/.test(location.pathname);
 
   if (!isLoaded) return <LoadingScreen />;
   if (!isSignedIn) return <SignInScreen />;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isWorkflowCanvasRoute ? " app-shell-canvas" : ""}`}>
       <Sidebar />
       <main className="workspace">
         <Routes>
