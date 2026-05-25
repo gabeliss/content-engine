@@ -179,12 +179,17 @@ function isVideoGenerationNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "video_generation";
 }
 
+function isAudioGenerationNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "audio_generation";
+}
+
 function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
   return isMediaNode(node) ||
     isLlmNode(node) ||
     isAiAgentNode(node) ||
     isImageGenerationNode(node) ||
-    isVideoGenerationNode(node);
+    isVideoGenerationNode(node) ||
+    isAudioGenerationNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -420,6 +425,25 @@ function referenceVideoAssetsFromInputs(
   return referenceAssets;
 }
 
+function referenceAudioAssetsFromInputs(
+  resolvedInputs: ResolvedInputsForRun,
+  preferredKeys: string[]
+): ReferenceAsset[] {
+  const inputs = resolvedInputs.inputs ?? {};
+  const seenUrls = new Set<string>();
+  const referenceAssets: ReferenceAsset[] = [];
+
+  for (const key of preferredKeys) {
+    collectReferenceAssetsFromValue(inputs[key]?.value, referenceAssets, seenUrls, {
+      acceptedKinds: ["audio"],
+      defaultMimeType: "audio/mpeg",
+      mimePrefix: "audio/",
+    });
+  }
+
+  return referenceAssets;
+}
+
 function uniqueReferenceAssets(assets: ReferenceAsset[]): ReferenceAsset[] {
   const seen = new Set<string>();
   const uniqueAssets: ReferenceAsset[] = [];
@@ -510,6 +534,45 @@ async function waitForGeneratedVideo(
   }
 
   throw new Error(`Video job ${args.jobId} timed out after 10 minutes with status ${lastStatus}${lastError ? `: ${lastError}` : ""}`);
+}
+
+async function waitForGeneratedAudio(
+  provider: ModelProvider,
+  args: {
+    jobId?: string;
+    model: string;
+    metadata?: Record<string, unknown>;
+  },
+  onStatus?: (status: string) => Promise<void>
+): Promise<GeneratedAsset> {
+  if (!args.jobId) throw new Error("Audio generation did not return an audio asset or job id");
+
+  let lastStatus = "unknown";
+  let lastError = "";
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const result = await provider.getJobStatus({
+      jobId: args.jobId,
+      model: args.model,
+      metadata: args.metadata,
+    });
+    lastStatus = result.status;
+    lastError = result.errorMessage ?? "";
+    await onStatus?.(result.status);
+
+    if (result.status === "succeeded") {
+      const asset = result.assets?.find((candidate) =>
+        candidate.mimeType.startsWith("audio/")
+      );
+      if (asset) return asset;
+      throw new Error(`Audio job ${args.jobId} succeeded but returned no audio assets`);
+    }
+    if (result.status === "failed" || result.status === "canceled") {
+      throw new Error(`Audio job ${args.jobId} ${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ""}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
+  throw new Error(`Audio job ${args.jobId} timed out after 5 minutes with status ${lastStatus}${lastError ? `: ${lastError}` : ""}`);
 }
 
 function llmOutputRefsForNode(args: {
@@ -657,6 +720,26 @@ function videoOutputRefsForNode(
       kind: "video",
       items: videos,
       count: videos.length,
+    },
+  }];
+}
+
+function audioOutputRefsForNode(
+  nodeId: string,
+  audios: MediaNodeItemForRun[]
+) {
+  const artifactIds = audios
+    .filter((item) => item.source === "artifact")
+    .map((item) => item.id as Id<"artifacts">);
+
+  return [{
+    nodeId,
+    port: "audio",
+    ...(artifactIds.length ? { artifactIds } : {}),
+    value: {
+      kind: "audio",
+      items: audios,
+      count: audios.length,
     },
   }];
 }
@@ -1770,6 +1853,257 @@ export const executeRun = internalAction({
                 artifactId,
                 provider: videoResult.metadata.provider,
                 model: videoResult.metadata.model,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isAudioGenerationNode(node)) {
+            const config = objectValue(node.config);
+            const inputs = resolvedInputs.inputs ?? {};
+            const providerName = modelProviderNameForNode(node);
+            const provider = getModelProvider(providerName);
+            const text =
+              textFromInputValue(inputs.text?.value) ??
+              textFromInputValue(inputs.prompt?.value) ??
+              textFromInputValue(inputs.input?.value);
+            const mode = textFromInputValue(inputs.mode?.value);
+            const model =
+              typeof node.model === "string" && node.model.trim()
+                ? node.model.trim()
+                : textFromInputValue(inputs.model?.value);
+            const voiceReferenceAudios = referenceAudioAssetsFromInputs(resolvedInputs, [
+              "voice_reference",
+              "audio",
+              "voiceReferenceUrl",
+              "audioUrl",
+              "media",
+            ]);
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "voice_reference",
+              "audio",
+              "media",
+              "input",
+            ]);
+            const providerInput = generationProviderInputFromConfig(config, [
+              "text",
+              "mode",
+              "voice",
+              "voiceReferenceUrl",
+              "audioUrl",
+            ]);
+            const voiceReferenceUrl = voiceReferenceAudios[0]?.url;
+            if (voiceReferenceUrl) {
+              providerInput.audio_url = voiceReferenceUrl;
+            }
+            if (voiceReferenceAudios.length > 1) {
+              providerInput.audio_urls = voiceReferenceAudios.flatMap((asset) =>
+                asset.url ? [asset.url] : []
+              );
+            }
+            const cfgScale = numberFromInputValue(config.cfgScale);
+            if (cfgScale !== undefined && providerInput.cfg === undefined) {
+              providerInput.cfg = cfgScale;
+            }
+
+            if (!text) {
+              throw new Error(`${node.label} needs text input.`);
+            }
+            if (!provider.capabilities.audio) {
+              throw new Error(`${provider.displayName} does not support audio generation.`);
+            }
+
+            const audioResult = await provider.generateAudio({
+              text,
+              model,
+              mode,
+              voiceReferenceAudios: voiceReferenceAudios.length
+                ? voiceReferenceAudios
+                : undefined,
+              metadata: {
+                workflowId: String(context.workflow._id),
+                workflowRunId: String(context.run._id),
+                nodeId: node.id,
+                nodeType: node.type,
+                mode,
+                voiceReferenceCount: voiceReferenceAudios.length,
+                ...(Object.keys(providerInput).length
+                  ? {
+                      arguments: providerInput,
+                      bulkapisInput: providerInput,
+                    }
+                  : {}),
+              },
+            });
+            const providerJob = audioResult.jobId
+              ? {
+                  provider: audioResult.metadata.provider,
+                  model: audioResult.metadata.model,
+                  externalJobId: audioResult.jobId,
+                  status: audioResult.status ?? "queued",
+                  submittedAt: Date.now(),
+                  raw: audioResult.raw,
+                }
+              : undefined;
+
+            if (providerJob) {
+              await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+                runId: context.run._id,
+                nodeId: node.id,
+                status: "running",
+                providerJob,
+              });
+            }
+
+            const generatedAudios = [...audioResult.audios];
+            if (!generatedAudios.length && audioResult.jobId) {
+              generatedAudios.push(
+                await waitForGeneratedAudio(
+                  provider,
+                  {
+                    jobId: audioResult.jobId,
+                    model: audioResult.metadata.model,
+                    metadata: audioResult.metadata,
+                  },
+                  async (status) => {
+                    await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+                      runId: context.run._id,
+                      nodeId: node.id,
+                      status: "running",
+                      providerJob: {
+                        provider: audioResult.metadata.provider,
+                        model: audioResult.metadata.model,
+                        externalJobId: audioResult.jobId!,
+                        status,
+                        ...(status === "succeeded" ? { completedAt: Date.now() } : {}),
+                      },
+                    });
+                  }
+                )
+              );
+            }
+
+            if (!generatedAudios.length) {
+              throw new Error(`${node.label} did not return any audio.`);
+            }
+
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const audioItems: MediaNodeItemForRun[] = [];
+            for (const [index, audio] of generatedAudios.entries()) {
+              if (!audio.mimeType.startsWith("audio/")) continue;
+
+              const stored = await storeGeneratedAsset(ctx, audio);
+              const artifactId = await ctx.runMutation(
+                internal.artifacts.records.createFromRunner,
+                {
+                  userId: context.run.userId,
+                  brandId: context.run.brandId,
+                  workflowId: context.workflow._id,
+                  workflowRunId: context.run._id,
+                  parentArtifactIds: sourceArtifactIds.length ? sourceArtifactIds : undefined,
+                  type: "rendered_asset",
+                  title: `${node.label} audio ${index + 1}`,
+                  storageUrl: stored.storageUrl,
+                  data: {
+                    kind: "audio",
+                    storageId: stored.storageId,
+                    mimeType: stored.mimeType,
+                    fileSize: stored.byteLength,
+                    sourceMimeType: audio.mimeType,
+                    jobId: audioResult.jobId,
+                    status: "succeeded",
+                    mode,
+                    voiceReferenceCount: voiceReferenceAudios.length,
+                    inputSummary: resolvedInputs.summary,
+                    providerMetadata: audioResult.metadata,
+                  },
+                  provider: audioResult.metadata.provider,
+                  model: audioResult.metadata.model,
+                  prompt: text,
+                  lifecycle,
+                  reviewStatus: "not_required",
+                }
+              );
+              emittedArtifactIds.add(artifactId);
+              audioItems.push({
+                id: String(artifactId),
+                source: "artifact",
+                kind: "audio",
+                title: `${node.label} audio ${index + 1}`,
+                storageUrl: stored.storageUrl,
+                metadata: {
+                  mimeType: stored.mimeType,
+                  fileSize: stored.byteLength,
+                  provider: audioResult.metadata.provider,
+                  model: audioResult.metadata.model,
+                  mode,
+                },
+              });
+            }
+
+            if (!audioItems.length) {
+              throw new Error(`${node.label} returned assets but none were audio.`);
+            }
+
+            const outputRefs = audioOutputRefsForNode(node.id, audioItems);
+            const costUsd = audioResult.metadata.costUsd ?? 0;
+            totalCostUsd += costUsd;
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd,
+              ...(audioResult.jobId
+                ? {
+                    providerJob: {
+                      provider: audioResult.metadata.provider,
+                      model: audioResult.metadata.model,
+                      externalJobId: audioResult.jobId,
+                      status: "succeeded",
+                      completedAt: Date.now(),
+                    },
+                  }
+                : {}),
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "model_call",
+              nodeId: node.id,
+              message: `${node.label} generated ${audioItems.length} audio output${audioItems.length === 1 ? "" : "s"}.`,
+              data: {
+                provider: audioResult.metadata.provider,
+                model: audioResult.metadata.model,
+                usage: audioResult.metadata.usage,
+                costUsd,
+                jobId: audioResult.jobId,
+                status: audioResult.status,
+                mode,
+                voiceReferenceCount: voiceReferenceAudios.length,
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} produced ${audioItems.length} audio output${audioItems.length === 1 ? "" : "s"}.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactIds: audioItems.map((item) => item.id),
+                provider: audioResult.metadata.provider,
+                model: audioResult.metadata.model,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },

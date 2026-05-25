@@ -19,6 +19,7 @@ export interface ModelProviderCapabilities {
   structured: boolean;
   image: boolean;
   video: boolean;
+  audio: boolean;
   asyncJobs: boolean;
 }
 
@@ -122,6 +123,22 @@ export interface GenerateVideoResult {
   raw?: unknown;
 }
 
+export interface GenerateAudioInput {
+  text: string;
+  model?: string;
+  mode?: string;
+  voiceReferenceAudios?: ReferenceAsset[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface GenerateAudioResult {
+  audios: GeneratedAsset[];
+  jobId?: string;
+  status?: AsyncJobStatus;
+  metadata: ModelInvocationMetadata;
+  raw?: unknown;
+}
+
 export interface GetJobStatusInput {
   jobId: string;
   model?: string;
@@ -146,6 +163,7 @@ export interface ModelProvider {
   generateStructured<T>(input: GenerateStructuredInput<T>): Promise<GenerateStructuredResult<T>>;
   generateImage(input: GenerateImageInput): Promise<GenerateImageResult>;
   generateVideo(input: GenerateVideoInput): Promise<GenerateVideoResult>;
+  generateAudio(input: GenerateAudioInput): Promise<GenerateAudioResult>;
   getJobStatus(input: GetJobStatusInput): Promise<GetJobStatusResult>;
 }
 

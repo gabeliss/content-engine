@@ -10,6 +10,8 @@ import {
 import {
   registerModelProvider,
   type AsyncJobStatus,
+  type GenerateAudioInput,
+  type GenerateAudioResult,
   type GenerateImageInput,
   type GenerateImageResult,
   type GenerateStructuredInput,
@@ -23,6 +25,7 @@ import {
   type GetJobStatusResult,
   type ModelMessage,
   type ModelProvider,
+  type ReferenceAsset,
 } from "./model";
 
 type BulkApisEnvelope<T> =
@@ -61,6 +64,7 @@ type BulkApisChatResponse = {
 const DEFAULT_BULKAPIS_CHAT_MODEL = "gpt-5.2";
 const DEFAULT_BULKAPIS_IMAGE_MODEL = "nano-banana-2";
 const DEFAULT_BULKAPIS_VIDEO_MODEL = "kling-2.5-turbo";
+const DEFAULT_BULKAPIS_AUDIO_MODEL = "elevenlabs-v3";
 
 function providerInputOverrides(input: { metadata?: Record<string, unknown> }): Record<string, unknown> {
   const overrides = input.metadata?.bulkapisInput;
@@ -277,9 +281,13 @@ function normalizeBulkApisAssets(result: unknown): GeneratedAsset[] {
 }
 
 function referenceUrls(
-  input: GenerateImageInput | GenerateVideoInput
+  input: GenerateImageInput | GenerateVideoInput | { voiceReferenceAudios?: GenerateAudioInput["voiceReferenceAudios"] }
 ): string[] {
-  return input.referenceImages?.flatMap((image) => {
+  const references: ReferenceAsset[] | undefined = "voiceReferenceAudios" in input
+    ? input.voiceReferenceAudios
+    : (input as GenerateImageInput | GenerateVideoInput).referenceImages;
+
+  return references?.flatMap((image: ReferenceAsset) => {
     if (image.url) return [image.url];
     if (image.base64Data) return [`data:${image.mimeType};base64,${image.base64Data}`];
     return [];
@@ -446,6 +454,44 @@ async function generateBulkApisVideo(
   }
 }
 
+async function generateBulkApisAudio(
+  input: GenerateAudioInput
+): Promise<GenerateAudioResult> {
+  const model = input.model ?? DEFAULT_BULKAPIS_AUDIO_MODEL;
+  const urls = referenceUrls(input);
+
+  try {
+    const response = await submitBulkApisGeneration("generate_audio", model, {
+      text: input.text,
+      audio_url: urls[0],
+      audio_urls: urls.length > 1 ? urls : undefined,
+      mode: input.mode,
+      ...providerInputOverrides(input),
+    });
+    const audios = normalizeBulkApisAssets(response.result).filter((asset) =>
+      asset.mimeType.startsWith("audio/")
+    );
+
+    return {
+      audios,
+      jobId: response.taskId ?? response.id,
+      status: response.status ? normalizeBulkApisStatus(response.status) : "queued",
+      metadata: {
+        provider: BULKAPIS_PROVIDER,
+        model: response.model ?? model,
+        costUsd: creditsToUsd(response.creditsUsed ?? response.costCredits),
+      },
+      raw: response,
+    };
+  } catch (error) {
+    throw toProviderError(error, {
+      kind: "model",
+      provider: BULKAPIS_PROVIDER,
+      operation: "generate_audio",
+    });
+  }
+}
+
 async function getBulkApisJobStatus(
   input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -492,12 +538,14 @@ export const bulkApisProvider: ModelProvider = {
     structured: true,
     image: true,
     video: true,
+    audio: true,
     asyncJobs: true,
   },
   generateText: generateBulkApisText,
   generateStructured: generateBulkApisStructured,
   generateImage: generateBulkApisImage,
   generateVideo: generateBulkApisVideo,
+  generateAudio: generateBulkApisAudio,
   getJobStatus: getBulkApisJobStatus,
 };
 

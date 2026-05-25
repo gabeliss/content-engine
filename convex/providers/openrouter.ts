@@ -7,6 +7,8 @@ import {
 } from "./errors";
 import {
   registerModelProvider,
+  type GenerateAudioInput,
+  type GenerateAudioResult,
   type GenerateImageInput,
   type GenerateImageResult,
   type GenerateStructuredInput,
@@ -295,6 +297,12 @@ async function unsupportedOpenRouterVideo(
   throw unsupportedProviderOperation("model", OPENROUTER_PROVIDER, "generate_video");
 }
 
+async function unsupportedOpenRouterAudio(
+  _input: GenerateAudioInput
+): Promise<GenerateAudioResult> {
+  throw unsupportedProviderOperation("model", OPENROUTER_PROVIDER, "generate_audio");
+}
+
 async function unsupportedOpenRouterJobStatus(
   _input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -309,12 +317,14 @@ export const openRouterProvider: ModelProvider = {
     structured: true,
     image: false,
     video: false,
+    audio: false,
     asyncJobs: false,
   },
   generateText: generateOpenRouterText,
   generateStructured: generateOpenRouterStructured,
   generateImage: unsupportedOpenRouterImage,
   generateVideo: unsupportedOpenRouterVideo,
+  generateAudio: unsupportedOpenRouterAudio,
   getJobStatus: unsupportedOpenRouterJobStatus,
 };
 

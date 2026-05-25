@@ -7,6 +7,8 @@ import {
 } from "./errors";
 import {
   registerModelProvider,
+  type GenerateAudioInput,
+  type GenerateAudioResult,
   type GenerateImageInput,
   type GenerateImageResult,
   type GenerateStructuredInput,
@@ -305,6 +307,12 @@ async function generateGeminiVideo(
   throw unsupportedProviderOperation("model", GEMINI_PROVIDER, "generate_video");
 }
 
+async function generateGeminiAudio(
+  _input: GenerateAudioInput
+): Promise<GenerateAudioResult> {
+  throw unsupportedProviderOperation("model", GEMINI_PROVIDER, "generate_audio");
+}
+
 async function getGeminiJobStatus(
   _input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -319,12 +327,14 @@ export const geminiProvider: ModelProvider = {
     structured: true,
     image: true,
     video: false,
+    audio: false,
     asyncJobs: false,
   },
   generateText: generateGeminiText,
   generateStructured: generateGeminiStructured,
   generateImage: generateGeminiImage,
   generateVideo: generateGeminiVideo,
+  generateAudio: generateGeminiAudio,
   getJobStatus: getGeminiJobStatus,
 };
 

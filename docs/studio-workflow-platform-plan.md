@@ -1084,7 +1084,7 @@ Implementation notes:
 
 #### SW-0507: Audio/TTS node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1093,6 +1093,23 @@ Deliverables:
 Acceptance criteria:
 
 - Node can produce audio artifacts for lipsync or video render nodes.
+
+Implementation notes:
+
+- Extended the shared model provider abstraction with audio generation support
+  instead of making Audio/TTS a BulkAPIs-only runner special case.
+- BulkAPIs audio generation now uses the same async `/ai/generate` and
+  `/ai/tasks/{taskId}` flow as image/video, matching the documented Audio/TTS
+  input fields (`text`, optional voice `audio_url`, temperature/exaggeration,
+  CFG, seed, and schema-driven extras).
+- The workflow runner now treats `audio_generation` as a real executable node,
+  resolving text and optional voice reference audio from config or upstream
+  bindings.
+- Generated audio is stored in Convex storage, saved as `rendered_asset`
+  artifacts with `kind: "audio"`, and emitted on the `audio` output port for
+  downstream lipsync and video render nodes.
+- Async provider job status is attached to the workflow node state during
+  submission, polling, and completion.
 
 #### SW-0508: Lipsync node
 

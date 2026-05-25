@@ -8,6 +8,8 @@ import {
 import {
   registerModelProvider,
   type AsyncJobStatus,
+  type GenerateAudioInput,
+  type GenerateAudioResult,
   type GenerateImageInput,
   type GenerateImageResult,
   type GenerateStructuredInput,
@@ -499,6 +501,12 @@ async function unsupportedFalStructured<T>(
   throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_structured");
 }
 
+async function unsupportedFalAudio(
+  _input: GenerateAudioInput
+): Promise<GenerateAudioResult> {
+  throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_audio");
+}
+
 export const falProvider: ModelProvider = {
   provider: FAL_PROVIDER,
   displayName: "fal.ai",
@@ -507,12 +515,14 @@ export const falProvider: ModelProvider = {
     structured: false,
     image: true,
     video: true,
+    audio: false,
     asyncJobs: true,
   },
   generateText: unsupportedFalText,
   generateStructured: unsupportedFalStructured,
   generateImage: generateFalImage,
   generateVideo: generateFalVideo,
+  generateAudio: unsupportedFalAudio,
   getJobStatus: getFalJobStatus,
 };
 
