@@ -1052,7 +1052,7 @@ Implementation notes:
 
 #### SW-0506: Video Generation node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1064,6 +1064,23 @@ Acceptance criteria:
 
 - Kling/Veo-style model differences are driven by model schema and normalized
   node bindings.
+
+Implementation notes:
+
+- The workflow runner now treats `video_generation` as a real executable node.
+- Video generation resolves prompt, aspect ratio, duration, image-to-video,
+  start-frame, end-frame, and reference-video inputs from config or upstream
+  node bindings.
+- Normalized start/end/reference media URLs are passed through provider input
+  overrides alongside schema-driven model fields so BulkAPIs/Kling/Veo-style
+  model requirements can be represented without hardcoding a separate node per
+  model.
+- Video jobs are submitted through the registered model provider, attached to
+  the workflow node state, polled until completion, and marked succeeded with
+  provider job status metadata.
+- Completed video assets are stored in Convex storage, saved as `video`
+  artifacts according to retention policy, and emitted on the `video` output
+  port for downstream editor, compiler, export, and posting nodes.
 
 #### SW-0507: Audio/TTS node
 

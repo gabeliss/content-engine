@@ -175,11 +175,16 @@ function isImageGenerationNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "image_generation";
 }
 
+function isVideoGenerationNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "video_generation";
+}
+
 function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
   return isMediaNode(node) ||
     isLlmNode(node) ||
     isAiAgentNode(node) ||
-    isImageGenerationNode(node);
+    isImageGenerationNode(node) ||
+    isVideoGenerationNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -300,31 +305,45 @@ function looksLikeUrl(value: string): boolean {
     value.startsWith("data:");
 }
 
-function referenceAssetMimeType(value: Record<string, unknown>): string {
+function referenceAssetMimeType(
+  value: Record<string, unknown>,
+  fallbackMimeType = "image/png"
+): string {
   const data = objectValue(value.data);
   const metadata = objectValue(value.metadata);
   const mimeType = value.mimeType ?? data.mimeType ?? metadata.mimeType;
   return typeof mimeType === "string" && mimeType.trim()
     ? mimeType.trim()
-    : "image/png";
+    : fallbackMimeType;
 }
 
 function collectReferenceAssetsFromValue(
   value: unknown,
   output: ReferenceAsset[],
-  seenUrls: Set<string>
+  seenUrls: Set<string>,
+  options: {
+    acceptedKinds: string[];
+    defaultMimeType: string;
+    mimePrefix: string;
+  } = {
+    acceptedKinds: ["image"],
+    defaultMimeType: "image/png",
+    mimePrefix: "image/",
+  }
 ) {
   if (typeof value === "string") {
     const url = value.trim();
     if (looksLikeUrl(url) && !seenUrls.has(url)) {
       seenUrls.add(url);
-      output.push({ url, mimeType: "image/png" });
+      output.push({ url, mimeType: options.defaultMimeType });
     }
     return;
   }
 
   if (Array.isArray(value)) {
-    for (const item of value) collectReferenceAssetsFromValue(item, output, seenUrls);
+    for (const item of value) {
+      collectReferenceAssetsFromValue(item, output, seenUrls, options);
+    }
     return;
   }
 
@@ -332,17 +351,21 @@ function collectReferenceAssetsFromValue(
 
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.items)) {
-    for (const item of record.items) collectReferenceAssetsFromValue(item, output, seenUrls);
+    for (const item of record.items) {
+      collectReferenceAssetsFromValue(item, output, seenUrls, options);
+    }
   }
 
   const url = record.storageUrl ?? record.url;
   const kind = typeof record.kind === "string" ? record.kind : undefined;
-  const mimeType = referenceAssetMimeType(record);
+  const mimeType = referenceAssetMimeType(record, options.defaultMimeType);
   if (
     typeof url === "string" &&
     looksLikeUrl(url.trim()) &&
     !seenUrls.has(url.trim()) &&
-    (kind === undefined || kind === "image" || mimeType.startsWith("image/"))
+    (kind === undefined ||
+      options.acceptedKinds.includes(kind) ||
+      mimeType.startsWith(options.mimePrefix))
   ) {
     const trimmedUrl = url.trim();
     seenUrls.add(trimmedUrl);
@@ -359,7 +382,7 @@ function collectReferenceAssetsFromValue(
   }
 
   if (record.data && typeof record.data === "object") {
-    collectReferenceAssetsFromValue(record.data, output, seenUrls);
+    collectReferenceAssetsFromValue(record.data, output, seenUrls, options);
   }
 }
 
@@ -376,6 +399,39 @@ function referenceAssetsFromInputs(
   }
 
   return referenceAssets;
+}
+
+function referenceVideoAssetsFromInputs(
+  resolvedInputs: ResolvedInputsForRun,
+  preferredKeys: string[]
+): ReferenceAsset[] {
+  const inputs = resolvedInputs.inputs ?? {};
+  const seenUrls = new Set<string>();
+  const referenceAssets: ReferenceAsset[] = [];
+
+  for (const key of preferredKeys) {
+    collectReferenceAssetsFromValue(inputs[key]?.value, referenceAssets, seenUrls, {
+      acceptedKinds: ["video"],
+      defaultMimeType: "video/mp4",
+      mimePrefix: "video/",
+    });
+  }
+
+  return referenceAssets;
+}
+
+function uniqueReferenceAssets(assets: ReferenceAsset[]): ReferenceAsset[] {
+  const seen = new Set<string>();
+  const uniqueAssets: ReferenceAsset[] = [];
+
+  for (const asset of assets) {
+    const key = asset.url ?? asset.base64Data;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    uniqueAssets.push(asset);
+  }
+
+  return uniqueAssets;
 }
 
 async function waitForGeneratedImage(
@@ -415,6 +471,45 @@ async function waitForGeneratedImage(
   }
 
   throw new Error(`Image job ${args.jobId} timed out after 5 minutes with status ${lastStatus}${lastError ? `: ${lastError}` : ""}`);
+}
+
+async function waitForGeneratedVideo(
+  provider: ModelProvider,
+  args: {
+    jobId?: string;
+    model: string;
+    metadata?: Record<string, unknown>;
+  },
+  onStatus?: (status: string) => Promise<void>
+): Promise<GeneratedAsset> {
+  if (!args.jobId) throw new Error("Video generation did not return a job id");
+
+  let lastStatus = "unknown";
+  let lastError = "";
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const result = await provider.getJobStatus({
+      jobId: args.jobId,
+      model: args.model,
+      metadata: args.metadata,
+    });
+    lastStatus = result.status;
+    lastError = result.errorMessage ?? "";
+    await onStatus?.(result.status);
+
+    if (result.status === "succeeded") {
+      const asset = result.assets?.find((candidate) =>
+        candidate.mimeType.startsWith("video/")
+      );
+      if (asset) return asset;
+      throw new Error(`Video job ${args.jobId} succeeded but returned no video assets`);
+    }
+    if (result.status === "failed" || result.status === "canceled") {
+      throw new Error(`Video job ${args.jobId} ${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ""}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
+  throw new Error(`Video job ${args.jobId} timed out after 10 minutes with status ${lastStatus}${lastError ? `: ${lastError}` : ""}`);
 }
 
 function llmOutputRefsForNode(args: {
@@ -542,6 +637,26 @@ function imageOutputRefsForNode(
       kind: "image",
       items: images,
       count: images.length,
+    },
+  }];
+}
+
+function videoOutputRefsForNode(
+  nodeId: string,
+  videos: MediaNodeItemForRun[]
+) {
+  const artifactIds = videos
+    .filter((item) => item.source === "artifact")
+    .map((item) => item.id as Id<"artifacts">);
+
+  return [{
+    nodeId,
+    port: "video",
+    ...(artifactIds.length ? { artifactIds } : {}),
+    value: {
+      kind: "video",
+      items: videos,
+      count: videos.length,
     },
   }];
 }
@@ -1403,6 +1518,258 @@ export const executeRun = internalAction({
                 artifactIds: imageItems.map((item) => item.id),
                 provider: imageResult.metadata.provider,
                 model: imageResult.metadata.model,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isVideoGenerationNode(node)) {
+            const config = objectValue(node.config);
+            const inputs = resolvedInputs.inputs ?? {};
+            const providerName = modelProviderNameForNode(node);
+            const provider = getModelProvider(providerName);
+            const prompt = textFromInputValue(inputs.prompt?.value);
+            const model =
+              typeof node.model === "string" && node.model.trim()
+                ? node.model.trim()
+                : textFromInputValue(inputs.model?.value);
+            const aspectRatio = textFromInputValue(inputs.aspectRatio?.value);
+            const durationSeconds = numberFromInputValue(inputs.durationSeconds?.value);
+            const startFrameAssets = referenceAssetsFromInputs(resolvedInputs, [
+              "start_frame",
+              "startFrameUrl",
+            ]);
+            const endFrameAssets = referenceAssetsFromInputs(resolvedInputs, [
+              "end_frame",
+              "endFrameUrl",
+            ]);
+            const imageAssets = referenceAssetsFromInputs(resolvedInputs, [
+              "image",
+              "imageUrl",
+              "reference_image",
+              "media",
+            ]);
+            const referenceImages = uniqueReferenceAssets([
+              ...startFrameAssets,
+              ...endFrameAssets,
+              ...imageAssets,
+            ]);
+            const referenceVideos = referenceVideoAssetsFromInputs(resolvedInputs, [
+              "reference_video",
+              "referenceVideoUrl",
+              "video",
+              "videoUrl",
+              "media",
+            ]);
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "image",
+              "start_frame",
+              "end_frame",
+              "reference_video",
+              "video",
+              "media",
+              "input",
+            ]);
+            const providerInput = generationProviderInputFromConfig(config, [
+              "prompt",
+              "aspectRatio",
+              "durationSeconds",
+              "imageUrl",
+              "startFrameUrl",
+              "endFrameUrl",
+              "referenceVideoUrl",
+              "videoUrl",
+            ]);
+            const startFrameUrl = startFrameAssets[0]?.url;
+            const endFrameUrl = endFrameAssets[0]?.url;
+            const referenceVideoUrl = referenceVideos[0]?.url;
+            if (startFrameUrl) {
+              providerInput.start_frame_url = startFrameUrl;
+              providerInput.start_image_url = startFrameUrl;
+            }
+            if (endFrameUrl) {
+              providerInput.end_frame_url = endFrameUrl;
+              providerInput.end_image_url = endFrameUrl;
+            }
+            if (referenceVideoUrl) {
+              providerInput.reference_video_url = referenceVideoUrl;
+              providerInput.video_url = providerInput.video_url ?? referenceVideoUrl;
+            }
+            if (referenceVideos.length > 1) {
+              providerInput.reference_video_urls = referenceVideos.flatMap((asset) =>
+                asset.url ? [asset.url] : []
+              );
+            }
+
+            if (!prompt) {
+              throw new Error(`${node.label} needs a prompt input.`);
+            }
+            if (!provider.capabilities.video) {
+              throw new Error(`${provider.displayName} does not support video generation.`);
+            }
+
+            const providerMetadata = {
+              workflowId: String(context.workflow._id),
+              workflowRunId: String(context.run._id),
+              nodeId: node.id,
+              nodeType: node.type,
+              referenceImageCount: referenceImages.length,
+              referenceVideoCount: referenceVideos.length,
+              ...(Object.keys(providerInput).length
+                ? {
+                    arguments: providerInput,
+                    bulkapisInput: providerInput,
+                  }
+                : {}),
+            };
+            const videoResult = await provider.generateVideo({
+              prompt,
+              model,
+              aspectRatio,
+              durationSeconds,
+              referenceImages: referenceImages.length ? referenceImages : undefined,
+              metadata: providerMetadata,
+            });
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "running",
+              providerJob: {
+                provider: videoResult.metadata.provider,
+                model: videoResult.metadata.model,
+                externalJobId: videoResult.jobId,
+                status: videoResult.status,
+                submittedAt: Date.now(),
+                raw: videoResult.raw,
+              },
+            });
+
+            const videoAsset = await waitForGeneratedVideo(
+              provider,
+              {
+                jobId: videoResult.jobId,
+                model: videoResult.metadata.model,
+                metadata: videoResult.metadata,
+              },
+              async (status) => {
+                await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+                  runId: context.run._id,
+                  nodeId: node.id,
+                  status: "running",
+                  providerJob: {
+                    provider: videoResult.metadata.provider,
+                    model: videoResult.metadata.model,
+                    externalJobId: videoResult.jobId,
+                    status,
+                    ...(status === "succeeded" ? { completedAt: Date.now() } : {}),
+                  },
+                });
+              }
+            );
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const stored = await storeGeneratedAsset(ctx, videoAsset);
+            const artifactId = await ctx.runMutation(
+              internal.artifacts.records.createFromRunner,
+              {
+                userId: context.run.userId,
+                brandId: context.run.brandId,
+                workflowId: context.workflow._id,
+                workflowRunId: context.run._id,
+                parentArtifactIds: sourceArtifactIds.length ? sourceArtifactIds : undefined,
+                type: "video",
+                title: `${node.label} video`,
+                storageUrl: stored.storageUrl,
+                data: {
+                  storageId: stored.storageId,
+                  mimeType: stored.mimeType,
+                  fileSize: stored.byteLength,
+                  aspectRatio,
+                  durationSeconds,
+                  sourceMimeType: videoAsset.mimeType,
+                  jobId: videoResult.jobId,
+                  status: "succeeded",
+                  referenceImageCount: referenceImages.length,
+                  referenceVideoCount: referenceVideos.length,
+                  inputSummary: resolvedInputs.summary,
+                  providerMetadata: videoResult.metadata,
+                },
+                provider: videoResult.metadata.provider,
+                model: videoResult.metadata.model,
+                prompt,
+                lifecycle,
+                reviewStatus: "not_required",
+              }
+            );
+            emittedArtifactIds.add(artifactId);
+
+            const videoItems: MediaNodeItemForRun[] = [{
+              id: String(artifactId),
+              source: "artifact",
+              kind: "video",
+              title: `${node.label} video`,
+              storageUrl: stored.storageUrl,
+              metadata: {
+                mimeType: stored.mimeType,
+                fileSize: stored.byteLength,
+                provider: videoResult.metadata.provider,
+                model: videoResult.metadata.model,
+              },
+            }];
+            const outputRefs = videoOutputRefsForNode(node.id, videoItems);
+            const costUsd = videoResult.metadata.costUsd ?? 0;
+            totalCostUsd += costUsd;
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd,
+              providerJob: {
+                provider: videoResult.metadata.provider,
+                model: videoResult.metadata.model,
+                externalJobId: videoResult.jobId,
+                status: "succeeded",
+                completedAt: Date.now(),
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "model_call",
+              nodeId: node.id,
+              message: `${node.label} generated a video.`,
+              data: {
+                provider: videoResult.metadata.provider,
+                model: videoResult.metadata.model,
+                usage: videoResult.metadata.usage,
+                costUsd,
+                jobId: videoResult.jobId,
+                status: videoResult.status,
+                referenceImageCount: referenceImages.length,
+                referenceVideoCount: referenceVideos.length,
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} produced a video output.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactId,
+                provider: videoResult.metadata.provider,
+                model: videoResult.metadata.model,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },
