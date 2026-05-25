@@ -49,7 +49,6 @@ export function LibraryPage() {
   const [reviewStatus, setReviewStatusMessage] = useState("");
   const [brandFilter, setBrandFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
-  const [formatFilter, setFormatFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [showDebugArtifacts, setShowDebugArtifacts] = useState(false);
@@ -75,13 +74,12 @@ export function LibraryPage() {
 
       if (brandFilter && artifact.brandId !== brandFilter) return false;
       if (accountFilter && workflow?.socialAccountId !== accountFilter) return false;
-      if (formatFilter && workflow?.contentFormat !== formatFilter) return false;
       if (reviewFilter && artifact.reviewStatus !== reviewFilter) return false;
       if (typeFilter && artifact.type !== typeFilter) return false;
 
       return true;
     });
-  }, [accountFilter, artifacts, brandFilter, formatFilter, reviewFilter, typeFilter, workflows]);
+  }, [accountFilter, artifacts, brandFilter, reviewFilter, typeFilter, workflows]);
 
   const artifactTypes = useMemo(
     () => Array.from(new Set((artifacts ?? []).map((artifact) => artifact.type))).sort(),
@@ -91,7 +89,6 @@ export function LibraryPage() {
   const activeFilterCount = [
     brandFilter,
     accountFilter,
-    formatFilter,
     reviewFilter,
     typeFilter,
   ].filter(Boolean).length;
@@ -122,11 +119,10 @@ export function LibraryPage() {
         if (slideshowIdsWithDistributionPlans.has(String(slideshow._id))) return false;
         if (brandFilter && slideshow.brandId !== brandFilter) return false;
         if (accountFilter && slideshow.socialAccountId !== accountFilter) return false;
-        if (formatFilter && formatFilter !== "slideshow") return false;
         return true;
       });
     },
-    [accountFilter, artifacts, brandFilter, formatFilter, plans, slideshows]
+    [accountFilter, artifacts, brandFilter, plans, slideshows]
   );
   const standaloneReviewArtifacts = useMemo(
     () => reviewArtifacts,
@@ -348,12 +344,6 @@ export function LibraryPage() {
               </option>
             ))}
           </Select>
-          <Select label="Format" value={formatFilter} onChange={setFormatFilter}>
-            <option value="">All formats</option>
-            <option value="slideshow">Slideshow</option>
-            <option value="hook_demo_video">Hook/demo video</option>
-            <option value="ai_ugc_video">AI UGC video</option>
-          </Select>
           <Select label="Review" value={reviewFilter} onChange={setReviewFilter}>
             <option value="">All review states</option>
             <option value="pending">Pending</option>
@@ -375,7 +365,6 @@ export function LibraryPage() {
             onClick={() => {
               setBrandFilter("");
               setAccountFilter("");
-              setFormatFilter("");
               setReviewFilter("");
               setTypeFilter("");
             }}

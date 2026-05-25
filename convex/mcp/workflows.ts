@@ -3,7 +3,6 @@ import { mutation, query, type MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   approvalPolicyValidator,
-  contentFormatValidator,
   platformValidator,
   publishingPolicyValidator,
   publishingProviderValidator,
@@ -90,7 +89,6 @@ function workflowSummary(workflow: WorkflowDoc) {
     socialAccountId: workflow.socialAccountId,
     name: workflow.name,
     description: workflow.description,
-    contentFormat: workflow.contentFormat,
     trigger: workflow.trigger,
     scheduleConfig: workflow.scheduleConfig,
     approvalPolicy: workflow.approvalPolicy,
@@ -146,7 +144,6 @@ async function createWorkflow(
     socialAccountId?: Id<"socialAccounts">;
     name: string;
     description?: string;
-    contentFormat: WorkflowDoc["contentFormat"];
     trigger?: WorkflowDoc["trigger"];
     scheduleConfig?: WorkflowDoc["scheduleConfig"];
     approvalPolicy?: WorkflowDoc["approvalPolicy"];
@@ -172,7 +169,6 @@ async function createWorkflow(
     socialAccountId: args.socialAccountId,
     name,
     description: args.description?.trim() || undefined,
-    contentFormat: args.contentFormat,
     trigger: args.trigger ?? "manual",
     scheduleConfig: args.scheduleConfig,
     approvalPolicy: args.approvalPolicy ?? { mode: "always" },
@@ -240,7 +236,6 @@ export const createBlank = mutation({
     socialAccountId: v.optional(v.id("socialAccounts")),
     name: v.string(),
     description: v.optional(v.string()),
-    contentFormat: contentFormatValidator,
     publishingProvider: v.optional(publishingProviderValidator),
     defaultPlatforms: v.optional(v.array(platformValidator)),
   },
@@ -253,7 +248,6 @@ export const createBlank = mutation({
       socialAccountId: args.socialAccountId,
       name: args.name,
       description: args.description,
-      contentFormat: args.contentFormat,
       publishingPolicy: {
         provider: args.publishingProvider ?? DEFAULT_PUBLISHING_PROVIDER,
         autoPublish: false,
@@ -290,7 +284,6 @@ export const createFromTemplate = mutation({
       socialAccountId: args.socialAccountId,
       name: args.name?.trim() || template.name,
       description: args.description ?? `MCP template draft: ${template.name}`,
-      contentFormat: template.contentFormat,
       publishingPolicy: args.publishingPolicy ?? {
         provider: template.defaultPublishingProvider,
         autoPublish: false,
@@ -307,7 +300,6 @@ export const updateMetadata = mutation({
     name: v.optional(v.string()),
     description: v.optional(v.string()),
     socialAccountId: v.optional(v.union(v.id("socialAccounts"), v.null())),
-    contentFormat: v.optional(contentFormatValidator),
     trigger: v.optional(workflowTriggerValidator),
     scheduleConfig: v.optional(scheduleConfigValidator),
     approvalPolicy: v.optional(approvalPolicyValidator),
@@ -335,7 +327,6 @@ export const updateMetadata = mutation({
     }
     if (args.description !== undefined) patch.description = args.description.trim() || undefined;
     if (args.socialAccountId !== undefined) patch.socialAccountId = args.socialAccountId ?? undefined;
-    if (args.contentFormat !== undefined) patch.contentFormat = args.contentFormat;
     if (args.trigger !== undefined) patch.trigger = args.trigger;
     if (args.scheduleConfig !== undefined) patch.scheduleConfig = args.scheduleConfig;
     if (args.approvalPolicy !== undefined) patch.approvalPolicy = args.approvalPolicy;

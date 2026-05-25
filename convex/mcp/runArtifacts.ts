@@ -172,7 +172,6 @@ export const inspectRun = query({
         ? {
             workflowId: workflow._id,
             name: workflow.name,
-            contentFormat: workflow.contentFormat,
             isActive: workflow.isActive,
           }
         : null,

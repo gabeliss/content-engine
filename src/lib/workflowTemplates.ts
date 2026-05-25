@@ -6,7 +6,7 @@ import {
 } from "./workflowGraph";
 import { DEFAULT_PUBLISHING_PROVIDER } from "./publishingRouting";
 import type { PostCompilerPresetId } from "./postCompilerPresets";
-import type { ContentFormat, PublishingProvider } from "../types";
+import type { PublishingProvider } from "../types";
 
 export type WorkflowTemplateId =
   | "persona_image_set"
@@ -48,7 +48,6 @@ export type WorkflowTemplate = {
   category: WorkflowTemplateCategory;
   description: string;
   purpose: string;
-  contentFormat: ContentFormat;
   outputType: "image_set" | "video" | "slideshow" | "carousel" | "post_package";
   defaultPublishingProvider: PublishingProvider;
   requiredInputs: WorkflowTemplatePlaceholder[];
@@ -312,7 +311,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "persona",
     description: "Generate reusable image variations for a selected persona.",
     purpose: "Create a consistent set of persona reference images to attach back to Persona Studio.",
-    contentFormat: "static_image",
     outputType: "image_set",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.persona, commonInputs.prompt],
@@ -369,7 +367,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "ugc",
     description: "Create a persona-led short video ad with script, avatar/source media, and final package.",
     purpose: "Produce an AI UGC video ad from a reusable persona, a product angle, and optional reference media.",
-    contentFormat: "ai_ugc_video",
     outputType: "video",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.persona, commonInputs.product, commonInputs.prompt],
@@ -418,7 +415,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "transformation",
     description: "Generate before and after visuals, then assemble them into a transformation post.",
     purpose: "Create transformation content for fitness, wellness, productivity, finance, or app outcome narratives.",
-    contentFormat: "ai_ugc_video",
     outputType: "video",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.persona, commonInputs.prompt],
@@ -476,7 +472,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "slideshow",
     description: "Plan, render, package, and export a native slideshow carousel.",
     purpose: "Create educational, listicle, or sales carousel posts through the native slideshow renderer.",
-    contentFormat: "slideshow",
     outputType: "carousel",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.media, commonInputs.prompt],
@@ -520,7 +515,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "app_demo",
     description: "Turn app captures and a feature angle into a short demo video.",
     purpose: "Create app marketing clips from screenshots, screen recordings, and feature briefs.",
-    contentFormat: "hook_demo_video",
     outputType: "video",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.product, commonInputs.media, commonInputs.prompt],
@@ -563,7 +557,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "ugc",
     description: "Write a script, generate narration, and lip-sync an avatar or persona video.",
     purpose: "Create talking-head style content from persona media, voice references, and a script angle.",
-    contentFormat: "talking_avatar",
     outputType: "video",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.persona, commonInputs.voice, commonInputs.prompt],
@@ -605,7 +598,6 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     category: "video",
     description: "Create a short voiceover video from a hook script and b-roll references.",
     purpose: "Produce narrated short-form videos for app marketing, education, and founder-led content.",
-    contentFormat: "short_educational_video",
     outputType: "video",
     defaultPublishingProvider: DEFAULT_PUBLISHING_PROVIDER,
     requiredInputs: [commonInputs.brand, commonInputs.media, commonInputs.voice, commonInputs.prompt],

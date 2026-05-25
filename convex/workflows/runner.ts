@@ -1436,7 +1436,6 @@ function postPackageOutputRefsForNode(args: {
 
 function postPackageDataForWorkflowFallback(args: {
   workflowName: string;
-  contentFormat: string;
   sourceArtifactIds: Id<"artifacts">[];
   sourceArtifacts: ArtifactDocForRun[];
 }) {
@@ -1444,7 +1443,6 @@ function postPackageDataForWorkflowFallback(args: {
     packageMediaItemFromArtifact(artifact, index)
   );
   const postType = inferredPostType({
-    configuredPostType: args.contentFormat,
     mediaItems,
   });
   const mediaSummary = {
@@ -4344,7 +4342,6 @@ export const executeRun = internalAction({
           sourceArtifactIds: fallbackSourceArtifactIds,
           packageData: postPackageDataForWorkflowFallback({
             workflowName: context.workflow.name,
-            contentFormat: context.workflow.contentFormat,
             sourceArtifactIds: fallbackSourceArtifactIds,
             sourceArtifacts: fallbackSourceArtifacts,
           }),

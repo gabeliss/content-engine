@@ -13,11 +13,10 @@ import {
   type WorkflowTemplateId,
 } from "../lib/workflowTemplates";
 import { DEFAULT_PUBLISHING_PROVIDER } from "../lib/publishingRouting";
-import type { BrandId, ContentFormat, SocialAccountId } from "../types";
+import type { BrandId, SocialAccountId } from "../types";
 
 type WorkflowStatusFilter = "all" | "active" | "paused";
 type WorkflowScheduleFilter = "all" | "manual" | "scheduled";
-type WorkflowFormatFilter = "all" | ContentFormat;
 type WorkflowTemplateCategoryFilter = "all" | WorkflowTemplateCategory;
 
 const templateCategoryLabels: Record<WorkflowTemplateCategoryFilter, string> = {
@@ -43,9 +42,7 @@ export function WorkflowsPage() {
   const [brandId, setBrandId] = useState("");
   const [socialAccountId, setSocialAccountId] = useState("");
   const [name, setName] = useState("");
-  const [contentFormat, setContentFormat] = useState<ContentFormat>("slideshow");
   const [brandFilter, setBrandFilter] = useState("all");
-  const [formatFilter, setFormatFilter] = useState<WorkflowFormatFilter>("all");
   const [statusFilter, setStatusFilter] = useState<WorkflowStatusFilter>("all");
   const [scheduleFilter, setScheduleFilter] = useState<WorkflowScheduleFilter>("all");
   const [createStatus, setCreateStatus] = useState("");
@@ -94,7 +91,6 @@ export function WorkflowsPage() {
 
     return workflows.filter((workflow) => {
       if (brandFilter !== "all" && workflow.brandId !== brandFilter) return false;
-      if (formatFilter !== "all" && workflow.contentFormat !== formatFilter) return false;
       if (statusFilter === "active" && !workflow.isActive) return false;
       if (statusFilter === "paused" && workflow.isActive) return false;
       if (scheduleFilter === "manual" && workflow.trigger !== "manual") return false;
@@ -108,7 +104,7 @@ export function WorkflowsPage() {
 
       return true;
     });
-  }, [brandFilter, formatFilter, scheduleFilter, statusFilter, workflows]);
+  }, [brandFilter, scheduleFilter, statusFilter, workflows]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -131,7 +127,6 @@ export function WorkflowsPage() {
         brandId: brandId as BrandId,
         socialAccountId: socialAccountId ? (socialAccountId as SocialAccountId) : undefined,
         name: name.trim(),
-        contentFormat,
         trigger: "manual",
         approvalPolicy: { mode: "always" },
         publishingPolicy: {
@@ -164,7 +159,6 @@ export function WorkflowsPage() {
         socialAccountId: socialAccountId ? (socialAccountId as SocialAccountId) : undefined,
         name: name.trim() || template.name,
         description: template.description,
-        contentFormat: template.contentFormat,
         trigger: "manual",
         approvalPolicy: { mode: "always" },
         publishingPolicy: {
@@ -207,20 +201,6 @@ export function WorkflowsPage() {
               {account.username}
             </option>
           ))}
-        </Select>
-        <Select
-          label="Format"
-          value={contentFormat}
-          onChange={(value) => setContentFormat(value as ContentFormat)}
-        >
-          <option value="slideshow">Slideshow</option>
-          <option value="hook_demo_video">Hook/demo video</option>
-          <option value="ai_ugc_video">AI UGC video</option>
-          <option value="talking_avatar">Talking avatar</option>
-          <option value="short_educational_video">Short educational video</option>
-          <option value="static_image">Static image</option>
-          <option value="thread">Thread</option>
-          <option value="caption_set">Caption set</option>
         </Select>
         <Field label="Name" value={name} onChange={setName} placeholder="Daily slideshow test" />
         <button className="primary-button" type="submit">
@@ -292,9 +272,6 @@ export function WorkflowsPage() {
                 <span className="rounded-full bg-[var(--color-primary-soft)] px-[var(--space-3)] py-[var(--space-1)] text-[0.76rem] font-[700] text-[var(--color-primary-strong)]">
                   {formatTemplateValue(selectedTemplate.outputType)}
                 </span>
-                <span className="rounded-full bg-[var(--color-accent-soft)] px-[var(--space-3)] py-[var(--space-1)] text-[0.76rem] font-[700] text-[var(--color-ink-soft)]">
-                  {formatTemplateValue(selectedTemplate.contentFormat)}
-                </span>
                 <span className="rounded-full bg-[var(--color-surface-tinted)] px-[var(--space-3)] py-[var(--space-1)] text-[0.76rem] font-[700] text-[var(--color-ink-soft)]">
                   {selectedTemplate.graph.nodes.length} nodes
                 </span>
@@ -345,21 +322,6 @@ export function WorkflowsPage() {
             ))}
           </Select>
           <Select
-            label="Format"
-            value={formatFilter}
-            onChange={(value) => setFormatFilter(value as WorkflowFormatFilter)}
-          >
-            <option value="all">All formats</option>
-            <option value="slideshow">Slideshow</option>
-            <option value="hook_demo_video">Hook/demo video</option>
-            <option value="ai_ugc_video">AI UGC video</option>
-            <option value="talking_avatar">Talking avatar</option>
-            <option value="short_educational_video">Short educational video</option>
-            <option value="static_image">Static image</option>
-            <option value="thread">Thread</option>
-            <option value="caption_set">Caption set</option>
-          </Select>
-          <Select
             label="Status"
             value={statusFilter}
             onChange={(value) => setStatusFilter(value as WorkflowStatusFilter)}
@@ -392,7 +354,7 @@ export function WorkflowsPage() {
       <div className="entity-grid">
         {filteredWorkflows?.map((workflow) => (
           <Link className="entity-card workflow-card-link" key={workflow._id} to={`/workflows/${workflow._id}`}>
-            <div className="entity-eyebrow">{workflow.contentFormat}</div>
+            <div className="entity-eyebrow">{workflow.isActive ? "Active" : "Paused"}</div>
             <h3>{workflow.name}</h3>
             <p>
               {workflow.description ||

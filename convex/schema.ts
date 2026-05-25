@@ -152,7 +152,6 @@ export default defineSchema({
     socialAccountId: v.optional(v.id("socialAccounts")),
     name: v.string(),
     description: v.optional(v.string()),
-    contentFormat: contentFormatValidator,
     trigger: workflowTriggerValidator,
     scheduleConfig: v.optional(scheduleConfigValidator),
     approvalPolicy: approvalPolicyValidator,

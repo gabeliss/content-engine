@@ -1412,7 +1412,7 @@ export function WorkflowCanvasPage() {
           </Link>
           <div>
             <h1>{workflow.name}</h1>
-            <p>{workflow.description || `${workflow.contentFormat} workflow`}</p>
+            <p>{workflow.description || "Workflow canvas"}</p>
           </div>
         </div>
         <div className="workflow-canvas-stats">

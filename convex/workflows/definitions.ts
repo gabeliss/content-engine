@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import {
   approvalPolicyValidator,
-  contentFormatValidator,
   publishingPolicyValidator,
   scheduleConfigValidator,
   workflowGraphValidator,
@@ -42,7 +41,6 @@ export const create = mutation({
     socialAccountId: v.optional(v.id("socialAccounts")),
     name: v.string(),
     description: v.optional(v.string()),
-    contentFormat: contentFormatValidator,
     trigger: workflowTriggerValidator,
     scheduleConfig: v.optional(scheduleConfigValidator),
     approvalPolicy: approvalPolicyValidator,
@@ -72,7 +70,6 @@ export const create = mutation({
       socialAccountId: args.socialAccountId,
       name: args.name,
       description: args.description,
-      contentFormat: args.contentFormat,
       trigger: args.trigger,
       scheduleConfig: args.scheduleConfig,
       approvalPolicy: args.approvalPolicy,
@@ -131,7 +128,6 @@ export const createFromRun = mutation({
       socialAccountId: workflow.socialAccountId,
       name,
       description: `Run draft: ${workflow.name}`,
-      contentFormat: workflow.contentFormat,
       trigger: workflow.trigger,
       scheduleConfig: workflow.scheduleConfig,
       approvalPolicy: workflow.approvalPolicy,

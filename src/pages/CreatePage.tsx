@@ -65,7 +65,6 @@ export function CreatePage() {
         socialAccountId: socialAccountId ? (socialAccountId as SocialAccountId) : undefined,
         name: name.trim() || draftName(creativeRequest, selectedTemplate.name),
         description: `Create draft: ${selectedTemplate.name}`,
-        contentFormat: selectedTemplate.contentFormat,
         trigger: "manual",
         approvalPolicy: { mode: "always" },
         publishingPolicy: {
@@ -158,7 +157,7 @@ export function CreatePage() {
 
           <section className="grid min-w-0 content-start gap-[var(--space-4)]">
             <div className="grid gap-[var(--space-2)]">
-              <span className="entity-eyebrow">{formatValue(selectedTemplate.contentFormat)}</span>
+              <span className="entity-eyebrow">{formatValue(selectedTemplate.outputType)}</span>
               <h3 className="m-0 text-[1.35rem] font-[720] leading-[1.1]">
                 {selectedTemplate.name}
               </h3>
@@ -217,7 +216,7 @@ export function CreatePage() {
                 key={workflow._id}
                 to={`/workflows/${workflow._id}`}
               >
-                <div className="entity-eyebrow">{formatValue(workflow.contentFormat)}</div>
+                <div className="entity-eyebrow">{workflow.isActive ? "Active" : "Draft"}</div>
                 <h3>{workflow.name}</h3>
                 <p>{workflow.description}</p>
                 <span>{workflow.isActive ? "Active" : "Draft"}</span>

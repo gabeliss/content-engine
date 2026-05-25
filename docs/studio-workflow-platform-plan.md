@@ -547,7 +547,9 @@ Status: `Done`
 Deliverables:
 
 - Keep Workflows as list-first.
-- Add filters for brand, format, status, and schedule state.
+- Add filters for brand, status, and schedule state. Output type should be
+  derived from graph nodes and generated artifacts, not stored as workflow
+  identity.
 - Add actions for new blank workflow, new from template, and open workflow.
 - New blank workflow creation navigates directly to the workflow canvas.
 - Template creation is enabled once workflow templates are implemented.
@@ -1483,8 +1485,9 @@ Implementation notes:
   short, plus the existing Persona image set template.
 - Template creation now clones graph definitions from the registry into an
   editable workflow canvas.
-- Expanded the frontend `ContentFormat` type and blank-workflow format selector
-  to match the backend content format vocabulary.
+- Removed workflow-level content format from the saved workflow model. Templates
+  keep category and output labels, while saved workflows derive their output
+  shape from graph nodes and artifacts.
 
 #### SW-0702: Add template picker
 
@@ -1503,8 +1506,8 @@ Implementation notes:
 
 - Replaced the inline template buttons with a dedicated Template Picker panel
   on the Workflows page.
-- Added category filtering, template selection, purpose text, output type,
-  content format, node count, and required input details.
+- Added category filtering, template selection, purpose text, output type, node
+  count, and required input details.
 - Template creation now uses the selected template detail view and opens the
   cloned workflow in the canvas.
 
