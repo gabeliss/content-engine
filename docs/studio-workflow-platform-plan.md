@@ -821,7 +821,7 @@ Status: `Done`
 Deliverables:
 
 - Resolve a node input from config literal, upstream output, media asset,
-  persona asset, or previous artifact.
+  persona, or previous artifact.
 
 Acceptance criteria:
 
@@ -831,7 +831,7 @@ Acceptance criteria:
 Implementation notes:
 
 - Added a typed `nodeInputBindingValidator` for literal values, node outputs,
-  artifacts, creative assets, and persona assets.
+  artifacts, creative assets, and personas.
 - Added a backend input resolver that combines node config, incoming graph
   edges, explicit `inputBindings`, upstream node output refs, artifacts, and
   reusable creative assets into one resolved input map.
@@ -943,7 +943,8 @@ Status: `Done`
 Deliverables:
 
 - Support uploaded image/video/audio assets.
-- Support references to existing media library and persona assets.
+- Support references to existing media library assets and persona-attached
+  assets.
 
 Acceptance criteria:
 
@@ -953,6 +954,8 @@ Implementation notes:
 
 - Media node config now uses explicit `artifactIds`, `creativeAssetIds`, and
   `uploadedMedia` arrays instead of one ambiguous asset list.
+- Persona selection was added in SW-0602 through `personaIds`, which exposes
+  each persona's attached source, generated, and voice assets downstream.
 - The canvas inspector exposes those fields in the Media node config section as
   structured editable JSON values.
 - The graph runner resolves Media node references into typed media items from
@@ -1327,13 +1330,13 @@ Implementation notes:
   style references, mascots, personas, voice references, logos, characters,
   people, and other files.
 - Updated Create slideshow reference selection and workflow media nodes to use
-  `creativeAssetIds` instead of split brand/persona asset arrays.
+  `creativeAssetIds` instead of previous split reference asset arrays.
 - Creative asset creation now accepts explicit asset kinds, infers media type
   from MIME/URL data, and can store image, video, audio, or generic file media.
 
 #### SW-0602: Add persona model
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1343,6 +1346,21 @@ Deliverables:
 Acceptance criteria:
 
 - Personas can be selected by workflow nodes.
+
+Implementation notes:
+
+- Added a first-class `personas` table and account API for reusable creative
+  identities, separate from the media files stored as `creativeAssets`.
+- Personas store name, type, description, identity prompt, visual constraints,
+  source asset ids, generated asset ids, voice asset ids, usage notes, and
+  metadata.
+- Persona mutations validate that attached creative assets belong to the same
+  user and brand, and voice references must be audio or voice creative assets.
+- Workflow persona input bindings now resolve persona profile data plus attached
+  source/generated/voice assets instead of treating personas as creative asset
+  rows.
+- Media nodes can now select `personaIds` and expose the persona's attached
+  creative assets downstream with persona metadata included on each item.
 
 #### SW-0603: Build Personas UI
 
@@ -1369,7 +1387,7 @@ Deliverables:
 
 Acceptance criteria:
 
-- Generated persona assets can be reused in content workflows.
+- Generated assets attached to personas can be reused in content workflows.
 
 ### Phase 7: Templates And Create Migration
 
@@ -1453,7 +1471,7 @@ Status: `Not Started`
 Deliverables:
 
 - Expose workflow schema, node catalog, templates, prompt recipes, model catalog,
-  and brand/persona summaries as resources.
+  brand summaries, persona summaries, and creative asset summaries as resources.
 
 Acceptance criteria:
 

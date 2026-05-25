@@ -62,7 +62,7 @@ type ArtifactDocForRun = Doc<"artifacts">;
 
 type MediaNodeItemForRun = {
   id: string;
-  source: "artifact" | "creative_asset" | "uploaded";
+  source: "artifact" | "creative_asset" | "persona" | "uploaded";
   kind: MediaKindForRun;
   title?: string;
   storageUrl?: string;
@@ -1739,6 +1739,18 @@ function mediaKindFromArtifact(artifact: {
 
   if (artifact.type === "image" || artifact.type === "thumbnail") return "image";
   if (artifact.type === "video") return "video";
+  return "media";
+}
+
+function mediaKindFromAsset(asset: { mediaType: string }): MediaKindForRun {
+  if (
+    asset.mediaType === "image" ||
+    asset.mediaType === "video" ||
+    asset.mediaType === "audio"
+  ) {
+    return asset.mediaType;
+  }
+
   return "media";
 }
 
@@ -4404,6 +4416,7 @@ export const resolveMediaNodeItems = internalQuery({
     const config = objectValue(node.config);
     const artifactIds = stringArrayFromConfig(config.artifactIds);
     const creativeAssetIds = stringArrayFromConfig(config.creativeAssetIds);
+    const personaIds = stringArrayFromConfig(config.personaIds);
     const items: MediaNodeItemForRun[] = [];
 
     for (const artifactId of artifactIds) {
@@ -4431,11 +4444,7 @@ export const resolveMediaNodeItems = internalQuery({
       items.push({
         id: String(asset._id),
         source: "creative_asset",
-        kind: asset.mediaType === "image" ||
-          asset.mediaType === "video" ||
-          asset.mediaType === "audio"
-          ? asset.mediaType
-          : "media",
+        kind: mediaKindFromAsset(asset),
         title: asset.name,
         storageUrl: asset.storageUrl,
         metadata: {
@@ -4446,6 +4455,46 @@ export const resolveMediaNodeItems = internalQuery({
           metadata: asset.metadata,
         },
       });
+    }
+
+    for (const personaId of personaIds) {
+      const persona = await ctx.db.get(personaId as Id<"personas">);
+      if (!persona || persona.userId !== run.userId) continue;
+
+      const attachedAssets = [
+        ...persona.sourceAssetIds.map((assetId) => ({ assetId, role: "source" })),
+        ...persona.generatedAssetIds.map((assetId) => ({ assetId, role: "generated" })),
+        ...persona.voiceAssetIds.map((assetId) => ({ assetId, role: "voice" })),
+      ];
+
+      for (const { assetId, role } of attachedAssets) {
+        const asset = await ctx.db.get(assetId);
+        if (!asset || asset.userId !== run.userId) continue;
+
+        items.push({
+          id: `${String(persona._id)}:${String(asset._id)}`,
+          source: "persona",
+          kind: mediaKindFromAsset(asset),
+          title: `${persona.name} · ${asset.name}`,
+          storageUrl: asset.storageUrl,
+          metadata: {
+            personaId: persona._id,
+            personaName: persona.name,
+            personaType: persona.personaType,
+            personaDescription: persona.description,
+            identityPrompt: persona.identityPrompt,
+            visualConstraints: persona.visualConstraints,
+            personaUsageNotes: persona.usageNotes,
+            personaAssetRole: role,
+            assetId: asset._id,
+            assetKind: asset.assetKind,
+            mediaType: asset.mediaType,
+            description: asset.description,
+            usageNotes: asset.usageNotes,
+            metadata: asset.metadata,
+          },
+        });
+      }
     }
 
     items.push(...uploadedMediaItemsFromConfig(config.uploadedMedia));

@@ -115,6 +115,7 @@ export const WORKFLOW_NODE_CATALOG = [
     defaultConfig: {
       artifactIds: [],
       creativeAssetIds: [],
+      personaIds: [],
       uploadedMedia: [],
     },
     defaultRetention: { mode: "keep", exposeInLibrary: false },

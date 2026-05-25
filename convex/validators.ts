@@ -80,6 +80,16 @@ export const creativeAssetMediaTypeValidator = v.union(
   v.literal("file")
 );
 
+export const personaTypeValidator = v.union(
+  v.literal("ai_influencer"),
+  v.literal("ugc_actor"),
+  v.literal("transformation_identity"),
+  v.literal("mascot"),
+  v.literal("spokesperson"),
+  v.literal("customer_avatar"),
+  v.literal("other")
+);
+
 export const socialAccountStatusValidator = v.union(
   v.literal("connected"),
   v.literal("disconnected"),

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../_generated/server";
 import { nodeInputBindingValidator, workflowGraphValidator } from "../validators";
 
@@ -73,6 +73,46 @@ function inputSummary(inputs: Record<string, ResolvedInput>): Record<string, unk
       },
     ])
   );
+}
+
+function creativeAssetValue(asset: {
+  _id: Id<"creativeAssets">;
+  name: string;
+  assetKind: string;
+  mediaType: string;
+  storageUrl: string;
+  description?: string;
+  usageNotes?: string;
+  metadata?: unknown;
+}) {
+  return {
+    assetId: asset._id,
+    name: asset.name,
+    assetKind: asset.assetKind,
+    mediaType: asset.mediaType,
+    storageUrl: asset.storageUrl,
+    description: asset.description,
+    usageNotes: asset.usageNotes,
+    metadata: asset.metadata,
+  };
+}
+
+function isOwnedCreativeAsset(
+  asset: Doc<"creativeAssets"> | null,
+  userId: string
+): asset is Doc<"creativeAssets"> {
+  return Boolean(asset && asset.userId === userId);
+}
+
+async function personaAssetsForIds(
+  ctx: QueryCtx,
+  assetIds: Id<"creativeAssets">[],
+  userId: string
+) {
+  const assets = await Promise.all(assetIds.map((assetId) => ctx.db.get(assetId)));
+  return assets
+    .filter((asset) => isOwnedCreativeAsset(asset, userId))
+    .map((asset) => creativeAssetValue(asset));
 }
 
 function upstreamOutputRefsForNode(
@@ -231,36 +271,34 @@ async function resolveBinding(
 
     return {
       source: "media_asset",
-      value: {
-        assetId: asset._id,
-        name: asset.name,
-        assetKind: asset.assetKind,
-        mediaType: asset.mediaType,
-        storageUrl: asset.storageUrl,
-        description: asset.description,
-        usageNotes: asset.usageNotes,
-        metadata: asset.metadata,
-      },
+      value: creativeAssetValue(asset),
     };
   }
 
-  const personaAsset = await ctx.db.get(binding.personaId as Id<"creativeAssets">);
-  if (!personaAsset || personaAsset.userId !== userId || personaAsset.assetKind !== "persona") {
-    throw new Error("Bound persona asset not found");
+  const persona = await ctx.db.get(binding.personaId as Id<"personas">);
+  if (!persona || persona.userId !== userId) {
+    throw new Error("Bound persona not found");
   }
+  const sourceAssets = await personaAssetsForIds(ctx, persona.sourceAssetIds, userId);
+  const generatedAssets = await personaAssetsForIds(ctx, persona.generatedAssetIds, userId);
+  const voiceAssets = await personaAssetsForIds(ctx, persona.voiceAssetIds, userId);
 
   return {
     source: "persona",
     value: {
-      personaId: personaAsset._id,
+      personaId: persona._id,
       assetKey: binding.assetKey,
-      name: personaAsset.name,
-      assetKind: personaAsset.assetKind,
-      mediaType: personaAsset.mediaType,
-      storageUrl: personaAsset.storageUrl,
-      description: personaAsset.description,
-      usageNotes: personaAsset.usageNotes,
-      metadata: personaAsset.metadata,
+      name: persona.name,
+      personaType: persona.personaType,
+      description: persona.description,
+      identityPrompt: persona.identityPrompt,
+      visualConstraints: persona.visualConstraints,
+      usageNotes: persona.usageNotes,
+      sourceAssets,
+      generatedAssets,
+      voiceAssets,
+      assets: [...sourceAssets, ...generatedAssets, ...voiceAssets],
+      metadata: persona.metadata,
     },
   };
 }

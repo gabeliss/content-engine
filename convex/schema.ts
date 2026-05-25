@@ -11,6 +11,7 @@ import {
   distributionStatusValidator,
   metricsValidator,
   modelProviderValidator,
+  personaTypeValidator,
   platformValidator,
   providerModelCapabilitiesValidator,
   providerModelCategoryValidator,
@@ -66,6 +67,26 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_brand", ["brandId"])
     .index("by_brand_kind", ["brandId", "assetKind"]),
+
+  personas: defineTable({
+    userId: v.string(),
+    brandId: v.id("brands"),
+    name: v.string(),
+    personaType: personaTypeValidator,
+    description: v.optional(v.string()),
+    identityPrompt: v.string(),
+    visualConstraints: v.optional(v.array(v.string())),
+    sourceAssetIds: v.array(v.id("creativeAssets")),
+    generatedAssetIds: v.array(v.id("creativeAssets")),
+    voiceAssetIds: v.array(v.id("creativeAssets")),
+    usageNotes: v.optional(v.string()),
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_brand", ["brandId"])
+    .index("by_brand_type", ["brandId", "personaType"]),
 
   providerConnections: defineTable({
     userId: v.string(),

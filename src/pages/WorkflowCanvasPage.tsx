@@ -185,6 +185,7 @@ const primaryConfigFieldKeys = new Set([
   "name",
   "optimizeFor",
   "platform",
+  "personaIds",
   "postType",
   "prompt",
   "referenceImageUrl",
@@ -668,7 +669,7 @@ function friendlyConfigFieldKeysForNode(
     case "comment":
       return ["text"];
     case "media":
-      return ["artifactIds", "creativeAssetIds", "uploadedMedia"];
+      return ["artifactIds", "creativeAssetIds", "personaIds", "uploadedMedia"];
     case "llm":
       return ["systemPrompt", "prompt", "responseFormat", "temperature", "maxTokens", "seed"];
     case "ai_agent":
@@ -790,6 +791,7 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
     case "assetIds":
     case "artifactIds":
     case "creativeAssetIds":
+    case "personaIds":
     case "knowledgeBase":
     case "lockedDetails":
     case "avoid":

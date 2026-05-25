@@ -2,6 +2,7 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 
 export type BrandId = Id<"brands">;
 export type CreativeAssetId = Id<"creativeAssets">;
+export type PersonaId = Id<"personas">;
 export type SocialAccountId = Id<"socialAccounts">;
 export type WorkflowId = Id<"workflows">;
 export type WorkflowRunId = Id<"workflowRuns">;
@@ -29,6 +30,15 @@ export type WorkflowRunDoc = Doc<"workflowRuns">;
 export type ContentRequestDoc = Doc<"contentRequests">;
 export type SlideshowDoc = Doc<"slideshows">;
 export type CreativeAssetDoc = Doc<"creativeAssets">;
+export type PersonaDoc = Doc<"personas">;
+export type PersonaType =
+  | "ai_influencer"
+  | "ugc_actor"
+  | "transformation_identity"
+  | "mascot"
+  | "spokesperson"
+  | "customer_avatar"
+  | "other";
 
 export type SlideshowRenderingMode = "background_plus_overlay" | "full_graphic_generation";
 
