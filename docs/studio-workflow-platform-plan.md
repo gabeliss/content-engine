@@ -1113,7 +1113,7 @@ Implementation notes:
 
 #### SW-0508: Lipsync node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1123,6 +1123,23 @@ Deliverables:
 Acceptance criteria:
 
 - Node can consume upstream media and audio outputs.
+
+Implementation notes:
+
+- Extended the shared model provider abstraction with lipsync generation
+  support so the node can use BulkAPIs without hardcoding provider calls in the
+  runner.
+- BulkAPIs lipsync generation now submits async `/ai/generate` jobs with
+  normalized `image_url` or `video_url`, required `audio_url`, optional
+  resolution/turbo settings, and schema-driven provider extras.
+- The workflow node catalog now accepts either an image or video input plus the
+  required audio input.
+- The workflow runner now treats `lipsync` as a real executable node, resolving
+  upstream image/video/audio artifacts or configured URLs, polling the provider
+  task until a video is returned, storing the result, and emitting it on the
+  `video` output port.
+- Async provider job status is attached to the workflow node state during
+  submission, polling, and completion.
 
 #### SW-0509: AI Video Editor / Video Render node
 

@@ -14,6 +14,8 @@ import {
   type GenerateAudioResult,
   type GenerateImageInput,
   type GenerateImageResult,
+  type GenerateLipsyncInput,
+  type GenerateLipsyncResult,
   type GenerateStructuredInput,
   type GenerateStructuredResult,
   type GenerateTextInput,
@@ -65,6 +67,7 @@ const DEFAULT_BULKAPIS_CHAT_MODEL = "gpt-5.2";
 const DEFAULT_BULKAPIS_IMAGE_MODEL = "nano-banana-2";
 const DEFAULT_BULKAPIS_VIDEO_MODEL = "kling-2.5-turbo";
 const DEFAULT_BULKAPIS_AUDIO_MODEL = "elevenlabs-v3";
+const DEFAULT_BULKAPIS_LIPSYNC_MODEL = "omnihuman-v1.5";
 
 function providerInputOverrides(input: { metadata?: Record<string, unknown> }): Record<string, unknown> {
   const overrides = input.metadata?.bulkapisInput;
@@ -294,6 +297,13 @@ function referenceUrls(
   }) ?? [];
 }
 
+function referenceUrl(reference?: { url?: string; base64Data?: string; mimeType: string }): string | undefined {
+  if (!reference) return undefined;
+  if (reference.url) return reference.url;
+  if (reference.base64Data) return `data:${reference.mimeType};base64,${reference.base64Data}`;
+  return undefined;
+}
+
 async function submitBulkApisGeneration<T = BulkApisTaskResponse>(
   operation: string,
   model: string,
@@ -492,6 +502,49 @@ async function generateBulkApisAudio(
   }
 }
 
+async function generateBulkApisLipsync(
+  input: GenerateLipsyncInput
+): Promise<GenerateLipsyncResult> {
+  const model = input.model ?? DEFAULT_BULKAPIS_LIPSYNC_MODEL;
+
+  try {
+    const response = await submitBulkApisGeneration("generate_lipsync", model, {
+      image_url: referenceUrl(input.image),
+      video_url: referenceUrl(input.video),
+      audio_url: referenceUrl(input.audio),
+      resolution: input.resolution,
+      ...providerInputOverrides(input),
+    });
+    const jobId = response.taskId ?? response.id;
+    if (!jobId) {
+      throw new ProviderError("BulkAPIs did not return a task id for lipsync generation", {
+        kind: "model",
+        provider: BULKAPIS_PROVIDER,
+        operation: "generate_lipsync",
+        code: "provider",
+        details: response,
+      });
+    }
+
+    return {
+      jobId,
+      status: response.status ? normalizeBulkApisStatus(response.status) : "queued",
+      metadata: {
+        provider: BULKAPIS_PROVIDER,
+        model: response.model ?? model,
+        costUsd: creditsToUsd(response.creditsUsed ?? response.costCredits),
+      },
+      raw: response,
+    };
+  } catch (error) {
+    throw toProviderError(error, {
+      kind: "model",
+      provider: BULKAPIS_PROVIDER,
+      operation: "generate_lipsync",
+    });
+  }
+}
+
 async function getBulkApisJobStatus(
   input: GetJobStatusInput
 ): Promise<GetJobStatusResult> {
@@ -539,6 +592,7 @@ export const bulkApisProvider: ModelProvider = {
     image: true,
     video: true,
     audio: true,
+    lipsync: true,
     asyncJobs: true,
   },
   generateText: generateBulkApisText,
@@ -546,6 +600,7 @@ export const bulkApisProvider: ModelProvider = {
   generateImage: generateBulkApisImage,
   generateVideo: generateBulkApisVideo,
   generateAudio: generateBulkApisAudio,
+  generateLipsync: generateBulkApisLipsync,
   getJobStatus: getBulkApisJobStatus,
 };
 

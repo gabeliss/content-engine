@@ -12,6 +12,8 @@ import {
   type GenerateAudioResult,
   type GenerateImageInput,
   type GenerateImageResult,
+  type GenerateLipsyncInput,
+  type GenerateLipsyncResult,
   type GenerateStructuredInput,
   type GenerateStructuredResult,
   type GenerateTextInput,
@@ -507,6 +509,12 @@ async function unsupportedFalAudio(
   throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_audio");
 }
 
+async function unsupportedFalLipsync(
+  _input: GenerateLipsyncInput
+): Promise<GenerateLipsyncResult> {
+  throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_lipsync");
+}
+
 export const falProvider: ModelProvider = {
   provider: FAL_PROVIDER,
   displayName: "fal.ai",
@@ -516,6 +524,7 @@ export const falProvider: ModelProvider = {
     image: true,
     video: true,
     audio: false,
+    lipsync: false,
     asyncJobs: true,
   },
   generateText: unsupportedFalText,
@@ -523,6 +532,7 @@ export const falProvider: ModelProvider = {
   generateImage: generateFalImage,
   generateVideo: generateFalVideo,
   generateAudio: unsupportedFalAudio,
+  generateLipsync: unsupportedFalLipsync,
   getJobStatus: getFalJobStatus,
 };
 

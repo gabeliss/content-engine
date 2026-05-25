@@ -246,7 +246,8 @@ export const WORKFLOW_NODE_CATALOG = [
     providerRequirement: "required",
     defaultProvider: "bulkapis",
     inputPorts: [
-      port("video", "Video", "video", { required: true }),
+      port("image", "Image", "image"),
+      port("video", "Video", "video"),
       port("audio", "Audio", "audio", { required: true }),
     ],
     outputPorts: [port("video", "Video", "video")],

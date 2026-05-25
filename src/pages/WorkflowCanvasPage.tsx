@@ -207,6 +207,7 @@ const primaryConfigFieldKeys = new Set([
   "timezone",
   "tone",
   "trigger",
+  "turboMode",
   "uploadedMedia",
   "videoUrl",
   "voice",
@@ -687,7 +688,7 @@ function friendlyConfigFieldKeysForNode(
     case "audio_generation":
       return ["mode", "text", "voice", "voiceReferenceUrl", "temperature", "cfgScale", "seed", "removeSilence", "webhookUrl"];
     case "lipsync":
-      return ["videoUrl", "audioUrl", "webhookUrl"];
+      return ["imageUrl", "videoUrl", "audioUrl", "resolution", "turboMode", "webhookUrl"];
     case "native_slideshow_planner":
       return ["prompt", "slideCount", "aspectRatio", "platform", "tone"];
     case "native_slideshow_renderer":
@@ -728,6 +729,7 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
       };
     case "autoPublish":
     case "removeSilence":
+    case "turboMode":
       return { ...defaultField, type: "boolean" };
     case "count":
     case "durationSeconds":
