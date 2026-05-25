@@ -2,8 +2,14 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { storeGeneratedAsset } from "../content/assetStorage";
 import { getModelProvider } from "../providers";
-import type { ModelProviderName } from "../providers/model";
+import type {
+  GeneratedAsset,
+  ModelProvider,
+  ModelProviderName,
+  ReferenceAsset,
+} from "../providers/model";
 import { artifactLifecycleValidator, workflowGraphValidator } from "../validators";
 import {
   buildWorkflowAgentPrompt,
@@ -165,8 +171,15 @@ function isAiAgentNode(node: WorkflowGraphNodeForRun): boolean {
   return node.type === "ai_agent";
 }
 
+function isImageGenerationNode(node: WorkflowGraphNodeForRun): boolean {
+  return node.type === "image_generation";
+}
+
 function isImplementedNode(node: WorkflowGraphNodeForRun): boolean {
-  return isMediaNode(node) || isLlmNode(node) || isAiAgentNode(node);
+  return isMediaNode(node) ||
+    isLlmNode(node) ||
+    isAiAgentNode(node) ||
+    isImageGenerationNode(node);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -256,6 +269,152 @@ function providerOverridesFromConfig(config: Record<string, unknown>) {
   const seed = numberFromInputValue(config.seed);
   if (seed !== undefined) overrides.seed = seed;
   return overrides;
+}
+
+function generationProviderInputFromConfig(
+  config: Record<string, unknown>,
+  excludedKeys: string[]
+) {
+  const overrides = {
+    ...objectValue(config.bulkapisInput),
+    ...objectValue(config.providerInput),
+  };
+  const excluded = new Set([
+    ...excludedKeys,
+    "bulkapisInput",
+    "providerInput",
+    "model",
+  ]);
+
+  for (const [key, value] of Object.entries(config)) {
+    if (excluded.has(key) || value === undefined || value === "") continue;
+    overrides[key] = value;
+  }
+
+  return overrides;
+}
+
+function looksLikeUrl(value: string): boolean {
+  return value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:");
+}
+
+function referenceAssetMimeType(value: Record<string, unknown>): string {
+  const data = objectValue(value.data);
+  const metadata = objectValue(value.metadata);
+  const mimeType = value.mimeType ?? data.mimeType ?? metadata.mimeType;
+  return typeof mimeType === "string" && mimeType.trim()
+    ? mimeType.trim()
+    : "image/png";
+}
+
+function collectReferenceAssetsFromValue(
+  value: unknown,
+  output: ReferenceAsset[],
+  seenUrls: Set<string>
+) {
+  if (typeof value === "string") {
+    const url = value.trim();
+    if (looksLikeUrl(url) && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      output.push({ url, mimeType: "image/png" });
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectReferenceAssetsFromValue(item, output, seenUrls);
+    return;
+  }
+
+  if (!value || typeof value !== "object") return;
+
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.items)) {
+    for (const item of record.items) collectReferenceAssetsFromValue(item, output, seenUrls);
+  }
+
+  const url = record.storageUrl ?? record.url;
+  const kind = typeof record.kind === "string" ? record.kind : undefined;
+  const mimeType = referenceAssetMimeType(record);
+  if (
+    typeof url === "string" &&
+    looksLikeUrl(url.trim()) &&
+    !seenUrls.has(url.trim()) &&
+    (kind === undefined || kind === "image" || mimeType.startsWith("image/"))
+  ) {
+    const trimmedUrl = url.trim();
+    seenUrls.add(trimmedUrl);
+    output.push({
+      url: trimmedUrl,
+      mimeType,
+      description:
+        typeof record.title === "string"
+          ? record.title
+          : typeof record.name === "string"
+            ? record.name
+            : undefined,
+    });
+  }
+
+  if (record.data && typeof record.data === "object") {
+    collectReferenceAssetsFromValue(record.data, output, seenUrls);
+  }
+}
+
+function referenceAssetsFromInputs(
+  resolvedInputs: ResolvedInputsForRun,
+  preferredKeys: string[]
+): ReferenceAsset[] {
+  const inputs = resolvedInputs.inputs ?? {};
+  const seenUrls = new Set<string>();
+  const referenceAssets: ReferenceAsset[] = [];
+
+  for (const key of preferredKeys) {
+    collectReferenceAssetsFromValue(inputs[key]?.value, referenceAssets, seenUrls);
+  }
+
+  return referenceAssets;
+}
+
+async function waitForGeneratedImage(
+  provider: ModelProvider,
+  args: {
+    jobId?: string;
+    model: string;
+    metadata?: Record<string, unknown>;
+  },
+  onStatus?: (status: string) => Promise<void>
+): Promise<GeneratedAsset> {
+  if (!args.jobId) throw new Error("Image generation did not return an image or job id");
+
+  let lastStatus = "unknown";
+  let lastError = "";
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const result = await provider.getJobStatus({
+      jobId: args.jobId,
+      model: args.model,
+      metadata: args.metadata,
+    });
+    lastStatus = result.status;
+    lastError = result.errorMessage ?? "";
+    await onStatus?.(result.status);
+
+    if (result.status === "succeeded") {
+      const asset = result.assets?.find((candidate) =>
+        candidate.mimeType.startsWith("image/")
+      );
+      if (asset) return asset;
+      throw new Error(`Image job ${args.jobId} succeeded but returned no image assets`);
+    }
+    if (result.status === "failed" || result.status === "canceled") {
+      throw new Error(`Image job ${args.jobId} ${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ""}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
+  throw new Error(`Image job ${args.jobId} timed out after 5 minutes with status ${lastStatus}${lastError ? `: ${lastError}` : ""}`);
 }
 
 function llmOutputRefsForNode(args: {
@@ -365,6 +524,26 @@ function agentOutputRefsForNode(args: {
       value: commonValue,
     },
   ];
+}
+
+function imageOutputRefsForNode(
+  nodeId: string,
+  images: MediaNodeItemForRun[]
+) {
+  const artifactIds = images
+    .filter((item) => item.source === "artifact")
+    .map((item) => item.id as Id<"artifacts">);
+
+  return [{
+    nodeId,
+    port: "image",
+    ...(artifactIds.length ? { artifactIds } : {}),
+    value: {
+      kind: "image",
+      items: images,
+      count: images.length,
+    },
+  }];
 }
 
 function artifactIdsFromInputs(
@@ -1000,6 +1179,230 @@ export const executeRun = internalAction({
                 model: structuredResult.metadata.model,
                 agentPreset: preset.id,
                 outputKind: preset.outputKind,
+                outputPorts: outputRefs.map((outputRef) => outputRef.port),
+                placeholderExecution: false,
+              },
+            });
+
+            pendingNodeIds.delete(node.id);
+            completedNodeIds.add(node.id);
+            executedNodeCount += 1;
+            continue;
+          }
+
+          if (isImageGenerationNode(node)) {
+            const config = objectValue(node.config);
+            const inputs = resolvedInputs.inputs ?? {};
+            const providerName = modelProviderNameForNode(node);
+            const provider = getModelProvider(providerName);
+            const prompt = textFromInputValue(inputs.prompt?.value);
+            const model =
+              typeof node.model === "string" && node.model.trim()
+                ? node.model.trim()
+                : textFromInputValue(inputs.model?.value);
+            const aspectRatio = textFromInputValue(inputs.aspectRatio?.value);
+            const count = Math.max(1, Math.floor(numberFromInputValue(inputs.count?.value) ?? 1));
+            const referenceImages = referenceAssetsFromInputs(resolvedInputs, [
+              "reference_image",
+              "image",
+              "media",
+              "referenceImageUrl",
+            ]);
+            const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
+              "reference_image",
+              "image",
+              "media",
+              "input",
+            ]);
+            const providerInput = generationProviderInputFromConfig(config, [
+              "prompt",
+              "aspectRatio",
+              "count",
+              "referenceImageUrl",
+            ]);
+
+            if (!prompt) {
+              throw new Error(`${node.label} needs a prompt input.`);
+            }
+            if (!provider.capabilities.image) {
+              throw new Error(`${provider.displayName} does not support image generation.`);
+            }
+
+            const imageResult = await provider.generateImage({
+              prompt,
+              model,
+              aspectRatio,
+              count,
+              referenceImages: referenceImages.length ? referenceImages : undefined,
+              metadata: {
+                workflowId: String(context.workflow._id),
+                workflowRunId: String(context.run._id),
+                nodeId: node.id,
+                nodeType: node.type,
+                referenceImageCount: referenceImages.length,
+                ...(Object.keys(providerInput).length ? { bulkapisInput: providerInput } : {}),
+              },
+            });
+            const providerJob = imageResult.jobId
+              ? {
+                  provider: imageResult.metadata.provider,
+                  model: imageResult.metadata.model,
+                  externalJobId: imageResult.jobId,
+                  status: imageResult.status ?? "queued",
+                  submittedAt: Date.now(),
+                  raw: imageResult.raw,
+                }
+              : undefined;
+
+            if (providerJob) {
+              await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+                runId: context.run._id,
+                nodeId: node.id,
+                status: "running",
+                providerJob,
+              });
+            }
+
+            const generatedAssets = [...imageResult.images];
+            if (!generatedAssets.length && imageResult.jobId) {
+              generatedAssets.push(
+                await waitForGeneratedImage(
+                  provider,
+                  {
+                    jobId: imageResult.jobId,
+                    model: imageResult.metadata.model,
+                    metadata: imageResult.metadata,
+                  },
+                  async (status) => {
+                    await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+                      runId: context.run._id,
+                      nodeId: node.id,
+                      status: "running",
+                      providerJob: {
+                        provider: imageResult.metadata.provider,
+                        model: imageResult.metadata.model,
+                        externalJobId: imageResult.jobId!,
+                        status,
+                        ...(status === "succeeded" ? { completedAt: Date.now() } : {}),
+                      },
+                    });
+                  }
+                )
+              );
+            }
+
+            if (!generatedAssets.length) {
+              throw new Error(`${node.label} did not return any images.`);
+            }
+
+            const lifecycle = placeholderLifecycleForNode(graph, node);
+            const imageItems: MediaNodeItemForRun[] = [];
+            for (const [index, image] of generatedAssets.entries()) {
+              if (!image.mimeType.startsWith("image/")) continue;
+
+              const stored = await storeGeneratedAsset(ctx, image);
+              const artifactId = await ctx.runMutation(
+                internal.artifacts.records.createFromRunner,
+                {
+                  userId: context.run.userId,
+                  brandId: context.run.brandId,
+                  workflowId: context.workflow._id,
+                  workflowRunId: context.run._id,
+                  parentArtifactIds: sourceArtifactIds.length ? sourceArtifactIds : undefined,
+                  type: "image",
+                  title: `${node.label} image ${index + 1}`,
+                  storageUrl: stored.storageUrl,
+                  data: {
+                    storageId: stored.storageId,
+                    mimeType: stored.mimeType,
+                    fileSize: stored.byteLength,
+                    aspectRatio,
+                    sourceMimeType: image.mimeType,
+                    jobId: imageResult.jobId,
+                    status: "succeeded",
+                    referenceImageCount: referenceImages.length,
+                    inputSummary: resolvedInputs.summary,
+                    providerMetadata: imageResult.metadata,
+                  },
+                  provider: imageResult.metadata.provider,
+                  model: imageResult.metadata.model,
+                  prompt,
+                  lifecycle,
+                  reviewStatus: "not_required",
+                }
+              );
+              emittedArtifactIds.add(artifactId);
+              imageItems.push({
+                id: String(artifactId),
+                source: "artifact",
+                kind: "image",
+                title: `${node.label} image ${index + 1}`,
+                storageUrl: stored.storageUrl,
+                metadata: {
+                  mimeType: stored.mimeType,
+                  fileSize: stored.byteLength,
+                  provider: imageResult.metadata.provider,
+                  model: imageResult.metadata.model,
+                },
+              });
+            }
+
+            if (!imageItems.length) {
+              throw new Error(`${node.label} returned assets but none were images.`);
+            }
+
+            const outputRefs = imageOutputRefsForNode(node.id, imageItems);
+            const costUsd = imageResult.metadata.costUsd ?? 0;
+            totalCostUsd += costUsd;
+
+            await ctx.runMutation(internal.workflows.runs.transitionNodeState, {
+              runId: context.run._id,
+              nodeId: node.id,
+              status: "succeeded",
+              outputRefs,
+              costUsd,
+              ...(imageResult.jobId
+                ? {
+                    providerJob: {
+                      provider: imageResult.metadata.provider,
+                      model: imageResult.metadata.model,
+                      externalJobId: imageResult.jobId,
+                      status: "succeeded",
+                      completedAt: Date.now(),
+                    },
+                  }
+                : {}),
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "model_call",
+              nodeId: node.id,
+              message: `${node.label} generated ${imageItems.length} image${imageItems.length === 1 ? "" : "s"}.`,
+              data: {
+                provider: imageResult.metadata.provider,
+                model: imageResult.metadata.model,
+                usage: imageResult.metadata.usage,
+                costUsd,
+                jobId: imageResult.jobId,
+                status: imageResult.status,
+                referenceImageCount: referenceImages.length,
+              },
+            });
+            await ctx.runMutation(internal.workflows.runs.recordEvent, {
+              userId: context.run.userId,
+              workflowRunId: context.run._id,
+              workflowId: context.workflow._id,
+              type: "node_completed",
+              nodeId: node.id,
+              message: `${node.label} produced ${imageItems.length} image output${imageItems.length === 1 ? "" : "s"}.`,
+              data: {
+                nodeType: node.type,
+                lifecycle,
+                artifactIds: imageItems.map((item) => item.id),
+                provider: imageResult.metadata.provider,
+                model: imageResult.metadata.model,
                 outputPorts: outputRefs.map((outputRef) => outputRef.port),
                 placeholderExecution: false,
               },

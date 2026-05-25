@@ -1022,7 +1022,7 @@ Implementation notes:
 
 #### SW-0505: Image Generation node
 
-Status: `Not Started`
+Status: `Done`
 
 Deliverables:
 
@@ -1034,6 +1034,21 @@ Acceptance criteria:
 
 - Node can generate one or more image outputs.
 - Async task status is visible in canvas.
+
+Implementation notes:
+
+- The workflow runner now treats `image_generation` as a real executable node.
+- Image generation resolves prompts from config or upstream prompt bindings,
+  resolves reference images from media/image/reference-image inputs, and calls
+  the registered model provider with BulkAPIs as the catalog default.
+- Model-specific settings from the node config are passed through to provider
+  input overrides while workflow-level fields such as prompt, aspect ratio,
+  count, and reference image URL remain normalized.
+- Generated images are stored in Convex storage, saved as `image` artifacts
+  according to the node/workflow retention policy, and emitted on the `image`
+  output port for downstream nodes.
+- Async provider jobs are attached to the workflow node state during submission,
+  polling, and completion so the canvas can surface job status.
 
 #### SW-0506: Video Generation node
 
