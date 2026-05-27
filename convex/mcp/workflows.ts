@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   approvalPolicyValidator,
@@ -226,6 +226,19 @@ export const list = query({
   },
 });
 
+export const listForMcp = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const workflows = await ctx.db
+      .query("workflows")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .collect();
+
+    return workflows.map(workflowSummary);
+  },
+});
+
 export const get = query({
   args: { id: v.id("workflows") },
   handler: async (ctx, args) => {
@@ -237,7 +250,24 @@ export const get = query({
   },
 });
 
+export const getForMcp = internalQuery({
+  args: { userId: v.string(), id: v.id("workflows") },
+  handler: async (ctx, args) => {
+    const workflow = await ctx.db.get(args.id);
+    if (!workflow || workflow.userId !== args.userId) return null;
+
+    return workflow;
+  },
+});
+
 export const validateGraph = query({
+  args: { graph: workflowGraphValidator },
+  handler: async (_ctx, args) => {
+    return validateWorkflowGraph(asWorkflowGraph(args.graph));
+  },
+});
+
+export const validateGraphForMcp = internalQuery({
   args: { graph: workflowGraphValidator },
   handler: async (_ctx, args) => {
     return validateWorkflowGraph(asWorkflowGraph(args.graph));
@@ -258,6 +288,33 @@ export const createBlank = mutation({
 
     return await createWorkflow(ctx, {
       userId,
+      brandId: args.brandId,
+      socialAccountId: args.socialAccountId,
+      name: args.name,
+      description: args.description,
+      publishingPolicy: {
+        provider: args.publishingProvider ?? DEFAULT_PUBLISHING_PROVIDER,
+        autoPublish: false,
+        defaultPlatforms: args.defaultPlatforms ?? ["tiktok"],
+      },
+      graph: asWorkflowGraphDoc(createStarterWorkflowGraph()),
+    });
+  },
+});
+
+export const createBlankForMcp = internalMutation({
+  args: {
+    userId: v.string(),
+    brandId: v.optional(v.id("brands")),
+    socialAccountId: v.optional(v.id("socialAccounts")),
+    name: v.string(),
+    description: v.optional(v.string()),
+    publishingProvider: v.optional(publishingProviderValidator),
+    defaultPlatforms: v.optional(v.array(platformValidator)),
+  },
+  handler: async (ctx, args) => {
+    return await createWorkflow(ctx, {
+      userId: args.userId,
       brandId: args.brandId,
       socialAccountId: args.socialAccountId,
       name: args.name,
@@ -294,6 +351,42 @@ export const createFromTemplate = mutation({
 
     return await createWorkflow(ctx, {
       userId,
+      brandId: args.brandId,
+      socialAccountId: args.socialAccountId,
+      name: args.name?.trim() || template.name,
+      description: args.description ?? `MCP template draft: ${template.name}`,
+      publishingPolicy: args.publishingPolicy ?? {
+        provider: template.defaultPublishingProvider,
+        autoPublish: false,
+        defaultPlatforms: ["tiktok"],
+      },
+      graph: asWorkflowGraphDoc(graph),
+    });
+  },
+});
+
+export const createFromTemplateForMcp = internalMutation({
+  args: {
+    userId: v.string(),
+    templateId: v.string(),
+    brandId: v.optional(v.id("brands")),
+    socialAccountId: v.optional(v.id("socialAccounts")),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    creativeRequest: v.optional(v.string()),
+    publishingPolicy: v.optional(publishingPolicyValidator),
+  },
+  handler: async (ctx, args) => {
+    const template = listWorkflowTemplates().find((candidate) => candidate.id === args.templateId);
+    if (!template) throw new Error("Workflow template not found");
+
+    const graph = createWorkflowGraphFromTemplate(
+      template.id as WorkflowTemplateId,
+      { creativeRequest: args.creativeRequest }
+    );
+
+    return await createWorkflow(ctx, {
+      userId: args.userId,
       brandId: args.brandId,
       socialAccountId: args.socialAccountId,
       name: args.name?.trim() || template.name,
@@ -354,6 +447,52 @@ export const updateMetadata = mutation({
   },
 });
 
+export const updateMetadataForMcp = internalMutation({
+  args: {
+    userId: v.string(),
+    id: v.id("workflows"),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    socialAccountId: v.optional(v.union(v.id("socialAccounts"), v.null())),
+    trigger: v.optional(workflowTriggerValidator),
+    scheduleConfig: v.optional(scheduleConfigValidator),
+    approvalPolicy: v.optional(approvalPolicyValidator),
+    publishingPolicy: v.optional(publishingPolicyValidator),
+  },
+  handler: async (ctx, args) => {
+    const workflow = await getOwnedWorkflow(ctx, args.id, args.userId);
+
+    if (args.socialAccountId) {
+      await assertOwnedSocialAccount(ctx, {
+        socialAccountId: args.socialAccountId,
+        brandId: workflow.brandId,
+        userId: args.userId,
+      });
+    }
+
+    const patch: Partial<WorkflowDoc> = {
+      updatedAt: Date.now(),
+    };
+    if (args.name !== undefined) {
+      const name = args.name.trim();
+      if (!name) throw new Error("Workflow name is required");
+      patch.name = name;
+    }
+    if (args.description !== undefined) patch.description = args.description.trim() || undefined;
+    if (args.socialAccountId !== undefined) patch.socialAccountId = args.socialAccountId ?? undefined;
+    if (args.trigger !== undefined) patch.trigger = args.trigger;
+    if (args.scheduleConfig !== undefined) patch.scheduleConfig = args.scheduleConfig;
+    if (args.approvalPolicy !== undefined) patch.approvalPolicy = args.approvalPolicy;
+    if (args.publishingPolicy !== undefined) patch.publishingPolicy = args.publishingPolicy;
+    if (workflow.isActive && (args.trigger !== undefined || args.scheduleConfig !== undefined)) {
+      patch.nextRunAt = nextScheduledRunAt({ ...workflow, ...patch });
+    }
+
+    await ctx.db.patch(workflow._id, patch);
+    return workflow._id;
+  },
+});
+
 export const updateGraph = mutation({
   args: {
     id: v.id("workflows"),
@@ -362,6 +501,19 @@ export const updateGraph = mutation({
   handler: async (ctx, args) => {
     const userId = requireUserId(await ctx.auth.getUserIdentity());
     const workflow = await getOwnedWorkflow(ctx, args.id, userId);
+    await patchWorkflowGraph(ctx, workflow, args.graph);
+    return workflow._id;
+  },
+});
+
+export const updateGraphForMcp = internalMutation({
+  args: {
+    userId: v.string(),
+    id: v.id("workflows"),
+    graph: workflowGraphValidator,
+  },
+  handler: async (ctx, args) => {
+    const workflow = await getOwnedWorkflow(ctx, args.id, args.userId);
     await patchWorkflowGraph(ctx, workflow, args.graph);
     return workflow._id;
   },
@@ -551,5 +703,15 @@ export const runWorkflow = mutation({
     assertValidGraph(workflow.graph);
 
     return await createWorkflowRun(ctx, { userId, workflow });
+  },
+});
+
+export const runWorkflowForMcp = internalMutation({
+  args: { userId: v.string(), workflowId: v.id("workflows") },
+  handler: async (ctx, args) => {
+    const workflow = await getOwnedWorkflow(ctx, args.workflowId, args.userId);
+    assertValidGraph(workflow.graph);
+
+    return await createWorkflowRun(ctx, { userId: args.userId, workflow });
   },
 });

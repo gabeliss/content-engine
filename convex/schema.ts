@@ -124,6 +124,20 @@ export default defineSchema({
     .index("by_provider_category", ["provider", "category"])
     .index("by_provider_model", ["provider", "modelId"]),
 
+  mcpApiKeys: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    keyPrefix: v.string(),
+    keyHash: v.string(),
+    scopes: v.array(v.string()),
+    revokedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_key_hash", ["keyHash"]),
+
   socialAccounts: defineTable({
     userId: v.string(),
     brandId: v.optional(v.id("brands")),

@@ -81,6 +81,7 @@ export function WorkflowCanvasPage() {
     workflowId ? { workflowId: workflowId as Id<"workflows"> } : "skip"
   );
   const updateGraph = useMutation(api.workflows.definitions.updateGraph);
+  const updateNodePositions = useMutation(api.workflows.definitions.updateNodePositions);
   const createManualRun = useMutation(api.workflows.runs.createManualRun);
   const setWorkflowActive = useMutation(api.workflows.definitions.setActive);
   const uploadReferenceImage = useAction(api.storage.files.uploadBase64ImageWithMetadata);
@@ -91,11 +92,14 @@ export function WorkflowCanvasPage() {
   const [isCreatingRun, setIsCreatingRun] = useState(false);
   const [isUpdatingActiveState, setIsUpdatingActiveState] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
+  const [layoutSaveRequestId, setLayoutSaveRequestId] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState("");
   const [runActionStatus, setRunActionStatus] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<Id<"workflowRuns"> | null>(null);
   const [openDrawer, setOpenDrawer] = useState<"node" | "execution" | null>(null);
+  const layoutSaveTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const isDirtyRef = useRef(false);
 
   const flowNodes = useMemo(
     () => (workflow ? toFlowNodes(workflow.graph as WorkflowGraph) : []),
@@ -160,16 +164,18 @@ export function WorkflowCanvasPage() {
     api.artifacts.records.list,
     selectedRun ? { workflowRunId: selectedRun._id } : "skip"
   );
+  const canvasRunNodeStates = openDrawer === "execution" ? selectedRunNodeStates : undefined;
   const nodesWithExecutionState = useMemo(
     () =>
       nodes.map((node) => ({
         ...node,
         data: {
           ...node.data,
-          executionStatus: nodeExecutionStatus(node.id, selectedRunNodeStates),
+          executionStatus: nodeExecutionStatus(node.id, canvasRunNodeStates),
+          isSelected: node.id === selectedNodeId && openDrawer === "node",
         },
       })),
-    [nodes, selectedRunNodeStates]
+    [canvasRunNodeStates, nodes, openDrawer, selectedNodeId]
   );
   const selectedNodeRunState = selectedNode
     ? selectedRunNodeStates?.find((state) => state.nodeId === selectedNode.id) ?? null
@@ -179,14 +185,50 @@ export function WorkflowCanvasPage() {
     : [];
 
   useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  useEffect(() => {
     if (!workflow) return;
+    if (isDirtyRef.current) return;
 
     setNodes(flowNodes);
     setEdges(flowEdges);
     setIsDirty(false);
+    setLayoutSaveRequestId(0);
     setSaveStatus("");
     setConnectionStatus("");
   }, [flowEdges, flowNodes, setEdges, setNodes, workflow]);
+
+  useEffect(() => {
+    if (!layoutSaveRequestId || !workflow) return;
+
+    if (layoutSaveTimeoutRef.current) {
+      window.clearTimeout(layoutSaveTimeoutRef.current);
+    }
+
+    layoutSaveTimeoutRef.current = window.setTimeout(() => {
+      layoutSaveTimeoutRef.current = null;
+      setLayoutSaveRequestId(0);
+
+      void updateNodePositions({
+        id: workflow._id,
+        positions: nodes.map((node) => ({
+          nodeId: node.id,
+          position: node.position,
+        })),
+      }).catch(() => {
+        setSaveStatus("Unable to save canvas layout.");
+      });
+    }, 700);
+
+    return () => {
+      if (layoutSaveTimeoutRef.current) {
+        window.clearTimeout(layoutSaveTimeoutRef.current);
+        layoutSaveTimeoutRef.current = null;
+      }
+    };
+  }, [layoutSaveRequestId, nodes, updateNodePositions, workflow]);
 
   useEffect(() => {
     if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
@@ -208,9 +250,8 @@ export function WorkflowCanvasPage() {
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowFlowNode>[]) => {
-      if (changes.some((change) => change.type === "position" || change.type === "dimensions")) {
-        setIsDirty(true);
-        setSaveStatus("");
+      if (changes.some((change) => change.type === "position")) {
+        setLayoutSaveRequestId((currentRequestId) => currentRequestId + 1);
       }
 
       onNodesChange(changes);
@@ -411,6 +452,7 @@ export function WorkflowCanvasPage() {
 
       await updateGraph({ id: workflow._id, graph });
       setIsDirty(false);
+      setLayoutSaveRequestId(0);
       setSaveStatus("Saved");
       setConnectionStatus("");
     } catch (error) {
@@ -519,12 +561,10 @@ export function WorkflowCanvasPage() {
       <WorkflowCanvasHeader
         canRun={Boolean(graphValidation?.valid)}
         canSave={Boolean(draftGraphValidation?.valid)}
-        edgeCount={edges.length}
         isCreatingRun={isCreatingRun}
         isDirty={isDirty}
         isSaving={isSaving}
         isUpdatingActiveState={isUpdatingActiveState}
-        nodeCount={nodes.length}
         onCreateManualRun={() => {
           setOpenDrawer("execution");
           void handleCreateManualRun();
@@ -585,21 +625,13 @@ export function WorkflowCanvasPage() {
         />
 
         <WorkflowExecutionPanel
-          graphValidation={graphValidation}
-          isCreatingRun={isCreatingRun}
-          isDirty={isDirty}
           isOpen={openDrawer === "execution"}
           onClose={() => setOpenDrawer(null)}
-          onCreateRun={() => {
-            void handleCreateManualRun();
-          }}
           onSelectRun={setSelectedRunId}
-          runActionStatus={runActionStatus}
           selectedRun={selectedRun}
           selectedRunArtifacts={selectedRunArtifacts}
           selectedRunEvents={selectedRunEvents}
           selectedRunNodeStates={selectedRunNodeStates}
-          workflow={workflow}
           workflowRuns={workflowRuns}
         />
       </div>

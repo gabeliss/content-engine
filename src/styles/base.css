@@ -3,6 +3,7 @@
     color-scheme: light;
     --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
     --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, monospace;
 
     --color-page: oklch(96.7% 0.012 232);
     --color-page-quiet: oklch(94.4% 0.014 232);

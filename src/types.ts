@@ -5,8 +5,6 @@ export type CreativeAssetId = Id<"creativeAssets">;
 export type PersonaId = Id<"personas">;
 export type SocialAccountId = Id<"socialAccounts">;
 export type WorkflowId = Id<"workflows">;
-export type WorkflowRunId = Id<"workflowRuns">;
-export type DistributionPlanId = Id<"distributionPlans">;
 export type ContentRequestId = Id<"contentRequests">;
 
 export type PublishingProvider = "postiz" | "post_bridge" | "manual";
@@ -32,7 +30,6 @@ export type CreativeAssetKind =
   | "other";
 
 export type ArtifactDoc = Doc<"artifacts">;
-export type DistributionPlanDoc = Doc<"distributionPlans">;
 export type WorkflowDoc = Doc<"workflows">;
 export type WorkflowRunDoc = Doc<"workflowRuns">;
 export type ContentRequestDoc = Doc<"contentRequests">;

@@ -5,12 +5,10 @@ import type { Doc } from "../../../convex/_generated/dataModel";
 type WorkflowCanvasHeaderProps = {
   canRun: boolean;
   canSave: boolean;
-  edgeCount: number;
   isCreatingRun: boolean;
   isDirty: boolean;
   isSaving: boolean;
   isUpdatingActiveState: boolean;
-  nodeCount: number;
   onCreateManualRun: () => void;
   onSaveGraph: () => void;
   onToggleActive: () => void;
@@ -23,12 +21,10 @@ type WorkflowCanvasHeaderProps = {
 export function WorkflowCanvasHeader({
   canRun,
   canSave,
-  edgeCount,
   isCreatingRun,
   isDirty,
   isSaving,
   isUpdatingActiveState,
-  nodeCount,
   onCreateManualRun,
   onSaveGraph,
   onToggleActive,
@@ -46,12 +42,9 @@ export function WorkflowCanvasHeader({
         </Link>
         <div>
           <h1>{workflow.name}</h1>
-          <p>{workflow.description || "Workflow canvas"}</p>
         </div>
       </div>
       <div className="workflow-canvas-stats">
-        <span>{nodeCount} nodes</span>
-        <span>{edgeCount} edges</span>
         <span>{workflow.isActive ? "Active" : "Paused"}</span>
         {workflow.nextRunAt ? (
           <span>Next {new Date(workflow.nextRunAt).toLocaleString()}</span>

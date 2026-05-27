@@ -32,6 +32,7 @@ export type WorkflowCanvasNodeExecutionStatus =
 export type WorkflowCanvasNodeData = Record<string, unknown> & {
   config: Record<string, unknown>;
   executionStatus?: WorkflowCanvasNodeExecutionStatus;
+  isSelected?: boolean;
   label: string;
   model?: string;
   provider?: WorkflowProviderName;

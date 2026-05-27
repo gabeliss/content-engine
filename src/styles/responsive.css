@@ -48,6 +48,7 @@
   .metric-grid,
   .two-column,
   .form-grid,
+  .settings-access-grid,
   .filter-grid {
     grid-template-columns: 1fr;
   }

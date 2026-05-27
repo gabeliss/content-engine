@@ -128,6 +128,80 @@
   grid-column: 1 / -1;
 }
 
+.inline-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.inline-field input {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.icon-button.danger:hover,
+.icon-button.danger:focus-visible {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.entity-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.compact-list {
+  gap: var(--space-2);
+}
+
+.entity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  padding: var(--space-3);
+}
+
+.entity-row strong,
+.entity-row p {
+  overflow-wrap: anywhere;
+}
+
+.entity-row p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.settings-mcp-panel {
+  width: min(100%, 62rem);
+}
+
+.settings-access-grid {
+  display: grid;
+  grid-template-columns: minmax(20rem, 1fr) minmax(12rem, 16rem) auto;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.settings-endpoint-field,
+.settings-generated-key-field,
+.settings-access-grid > .muted {
+  grid-column: 1 / -1;
+}
+
+.settings-endpoint-field input,
+.settings-generated-key-field input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .field,
 .revision-field {
   display: grid;

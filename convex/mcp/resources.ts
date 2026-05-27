@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, type QueryCtx } from "../_generated/server";
+import { internalQuery, query, type QueryCtx } from "../_generated/server";
 import {
   WORKFLOW_GRAPH_SCHEMA_VERSION,
   WORKFLOW_NODE_TYPES,
@@ -629,44 +629,62 @@ export const list = query({
   },
 });
 
+export const listForMcp = internalQuery({
+  args: { userId: v.string() },
+  handler: async (_ctx, _args) => {
+    return RESOURCE_DEFINITIONS.map(resourceDescriptor);
+  },
+});
+
+async function readResourceForUser(ctx: QueryCtx, userId: string, uri: string) {
+  const resource = RESOURCE_DEFINITIONS.find((candidate) => candidate.uri === uri);
+  if (!resource) throw new Error("MCP resource not found");
+
+  switch (resource.uri) {
+    case "content-engine://architecture/guide":
+      return resourceContent(resource, `${architectureGuide()}\n`);
+    case "content-engine://workflows/graph-schema":
+      return jsonResource(resource, workflowGraphSchema());
+    case "content-engine://workflows/node-catalog":
+      return jsonResource(resource, listWorkflowNodeDefinitions());
+    case "content-engine://workflows/templates":
+      return jsonResource(resource, listWorkflowTemplates());
+    case "content-engine://prompts/agent-recipes":
+      return jsonResource(resource, agentRecipes(WORKFLOW_AGENT_PRESETS));
+    case "content-engine://knowledge/prompting/ai-ugc":
+      return jsonResource(resource, aiUgcPromptingGuide());
+    case "content-engine://knowledge/prompting/transformation":
+      return jsonResource(resource, transformationPromptingGuide());
+    case "content-engine://knowledge/prompting/slideshow":
+      return jsonResource(resource, slideshowPromptingGuide());
+    case "content-engine://knowledge/prompting/video":
+      return jsonResource(resource, videoPromptingGuide());
+    case "content-engine://knowledge/node-selection":
+      return jsonResource(resource, nodeSelectionHeuristics());
+    case "content-engine://providers/model-catalog":
+      return jsonResource(resource, await modelCatalog(ctx));
+    case "content-engine://accounts/brands":
+      return jsonResource(resource, await brandSummaries(ctx, userId));
+    case "content-engine://accounts/personas":
+      return jsonResource(resource, await personaSummaries(ctx, userId));
+    case "content-engine://accounts/creative-assets":
+      return jsonResource(resource, await creativeAssetSummaries(ctx, userId));
+    default:
+      throw new Error("MCP resource not found");
+  }
+}
+
 export const read = query({
   args: { uri: v.string() },
   handler: async (ctx, args) => {
     const userId = requireUserId(await ctx.auth.getUserIdentity());
-    const resource = RESOURCE_DEFINITIONS.find((candidate) => candidate.uri === args.uri);
-    if (!resource) throw new Error("MCP resource not found");
+    return await readResourceForUser(ctx, userId, args.uri);
+  },
+});
 
-    switch (resource.uri) {
-      case "content-engine://architecture/guide":
-        return resourceContent(resource, `${architectureGuide()}\n`);
-      case "content-engine://workflows/graph-schema":
-        return jsonResource(resource, workflowGraphSchema());
-      case "content-engine://workflows/node-catalog":
-        return jsonResource(resource, listWorkflowNodeDefinitions());
-      case "content-engine://workflows/templates":
-        return jsonResource(resource, listWorkflowTemplates());
-      case "content-engine://prompts/agent-recipes":
-        return jsonResource(resource, agentRecipes(WORKFLOW_AGENT_PRESETS));
-      case "content-engine://knowledge/prompting/ai-ugc":
-        return jsonResource(resource, aiUgcPromptingGuide());
-      case "content-engine://knowledge/prompting/transformation":
-        return jsonResource(resource, transformationPromptingGuide());
-      case "content-engine://knowledge/prompting/slideshow":
-        return jsonResource(resource, slideshowPromptingGuide());
-      case "content-engine://knowledge/prompting/video":
-        return jsonResource(resource, videoPromptingGuide());
-      case "content-engine://knowledge/node-selection":
-        return jsonResource(resource, nodeSelectionHeuristics());
-      case "content-engine://providers/model-catalog":
-        return jsonResource(resource, await modelCatalog(ctx));
-      case "content-engine://accounts/brands":
-        return jsonResource(resource, await brandSummaries(ctx, userId));
-      case "content-engine://accounts/personas":
-        return jsonResource(resource, await personaSummaries(ctx, userId));
-      case "content-engine://accounts/creative-assets":
-        return jsonResource(resource, await creativeAssetSummaries(ctx, userId));
-      default:
-        throw new Error("MCP resource not found");
-    }
+export const readForMcp = internalQuery({
+  args: { userId: v.string(), uri: v.string() },
+  handler: async (ctx, args) => {
+    return await readResourceForUser(ctx, args.userId, args.uri);
   },
 });

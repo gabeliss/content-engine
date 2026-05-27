@@ -64,6 +64,7 @@
 }
 
 .nav-link {
+  position: relative;
   display: grid;
   grid-template-columns: 1.25rem minmax(0, 1fr);
   align-items: center;
@@ -170,7 +171,7 @@
 }
 
 .app-shell-canvas .brand-mark span:last-child,
-.app-shell-canvas .nav-link span,
+.app-shell-canvas .nav-link-label,
 .app-shell-canvas .user-meta > div:not(.avatar),
 .app-shell-canvas .quiet-button {
   display: none;

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { action, mutation, query, type MutationCtx } from "../_generated/server";
+import { action, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -105,6 +105,91 @@ async function collectRunArtifacts(ctx: MutationCtx, runId: Id<"workflowRuns">, 
   return artifacts.filter((artifact) => artifact.userId === userId);
 }
 
+async function listRunsForUser(
+  ctx: QueryCtx,
+  args: {
+    userId: string;
+    workflowId?: Id<"workflows">;
+    status?: string;
+    limit?: number;
+  }
+) {
+  const limit = Math.max(1, Math.min(args.limit ?? 50, 100));
+  let runs: RunDoc[];
+
+  if (args.workflowId) {
+    const workflow = await ctx.db.get(args.workflowId);
+    if (!workflow || workflow.userId !== args.userId) return [];
+    runs = await ctx.db
+      .query("workflowRuns")
+      .withIndex("by_workflow", (q) => q.eq("workflowId", args.workflowId!))
+      .order("desc")
+      .collect();
+  } else {
+    runs = await ctx.db
+      .query("workflowRuns")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .collect();
+  }
+
+  return runs
+    .filter((run) => !args.status || run.status === args.status)
+    .slice(0, limit)
+    .map(runSummary);
+}
+
+async function inspectRunForUser(
+  ctx: QueryCtx,
+  args: { userId: string; runId: Id<"workflowRuns"> }
+) {
+  const run = await ctx.db.get(args.runId);
+  if (!run || run.userId !== args.userId) return null;
+
+  const [workflow, nodeStates, events, artifacts, distributionPlans] = await Promise.all([
+    ctx.db.get(run.workflowId),
+    ctx.db
+      .query("workflowRunNodeStates")
+      .withIndex("by_run", (q) => q.eq("workflowRunId", args.runId))
+      .collect(),
+    ctx.db
+      .query("workflowRunEvents")
+      .withIndex("by_run", (q) => q.eq("workflowRunId", args.runId))
+      .collect(),
+    ctx.db
+      .query("artifacts")
+      .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.runId))
+      .collect(),
+    ctx.db
+      .query("distributionPlans")
+      .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.runId))
+      .collect(),
+  ]);
+
+  return {
+    run: runSummary(run),
+    workflow: workflow && workflow.userId === args.userId
+      ? {
+          workflowId: workflow._id,
+          name: workflow.name,
+          isActive: workflow.isActive,
+        }
+      : null,
+    nodeStates: nodeStates
+      .filter((state) => state.userId === args.userId)
+      .sort((a, b) => a.createdAt - b.createdAt),
+    events: events
+      .filter((event) => event.userId === args.userId)
+      .sort((a, b) => a.createdAt - b.createdAt),
+    artifacts: artifacts
+      .filter((artifact) => artifact.userId === args.userId)
+      .map(artifactSummary),
+    distributionPlans: distributionPlans
+      .filter((plan) => plan.userId === args.userId)
+      .map(distributionPlanSummary),
+  };
+}
+
 export const listRuns = query({
   args: {
     workflowId: v.optional(v.id("workflows")),
@@ -113,29 +198,19 @@ export const listRuns = query({
   },
   handler: async (ctx, args) => {
     const userId = requireUserId(await ctx.auth.getUserIdentity());
-    const limit = Math.max(1, Math.min(args.limit ?? 50, 100));
-    let runs: RunDoc[];
+    return await listRunsForUser(ctx, { ...args, userId });
+  },
+});
 
-    if (args.workflowId) {
-      const workflow = await ctx.db.get(args.workflowId);
-      if (!workflow || workflow.userId !== userId) return [];
-      runs = await ctx.db
-        .query("workflowRuns")
-        .withIndex("by_workflow", (q) => q.eq("workflowId", args.workflowId!))
-        .order("desc")
-        .collect();
-    } else {
-      runs = await ctx.db
-        .query("workflowRuns")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .order("desc")
-        .collect();
-    }
-
-    return runs
-      .filter((run) => !args.status || run.status === args.status)
-      .slice(0, limit)
-      .map(runSummary);
+export const listRunsForMcp = internalQuery({
+  args: {
+    userId: v.string(),
+    workflowId: v.optional(v.id("workflows")),
+    status: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await listRunsForUser(ctx, args);
   },
 });
 
@@ -143,51 +218,14 @@ export const inspectRun = query({
   args: { runId: v.id("workflowRuns") },
   handler: async (ctx, args) => {
     const userId = requireUserId(await ctx.auth.getUserIdentity());
-    const run = await ctx.db.get(args.runId);
-    if (!run || run.userId !== userId) return null;
+    return await inspectRunForUser(ctx, { ...args, userId });
+  },
+});
 
-    const [workflow, nodeStates, events, artifacts, distributionPlans] = await Promise.all([
-      ctx.db.get(run.workflowId),
-      ctx.db
-        .query("workflowRunNodeStates")
-        .withIndex("by_run", (q) => q.eq("workflowRunId", args.runId))
-        .collect(),
-      ctx.db
-        .query("workflowRunEvents")
-        .withIndex("by_run", (q) => q.eq("workflowRunId", args.runId))
-        .collect(),
-      ctx.db
-        .query("artifacts")
-        .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.runId))
-        .collect(),
-      ctx.db
-        .query("distributionPlans")
-        .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.runId))
-        .collect(),
-    ]);
-
-    return {
-      run: runSummary(run),
-      workflow: workflow && workflow.userId === userId
-        ? {
-            workflowId: workflow._id,
-            name: workflow.name,
-            isActive: workflow.isActive,
-          }
-        : null,
-      nodeStates: nodeStates
-        .filter((state) => state.userId === userId)
-        .sort((a, b) => a.createdAt - b.createdAt),
-      events: events
-        .filter((event) => event.userId === userId)
-        .sort((a, b) => a.createdAt - b.createdAt),
-      artifacts: artifacts
-        .filter((artifact) => artifact.userId === userId)
-        .map(artifactSummary),
-      distributionPlans: distributionPlans
-        .filter((plan) => plan.userId === userId)
-        .map(distributionPlanSummary),
-    };
+export const inspectRunForMcp = internalQuery({
+  args: { userId: v.string(), runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await inspectRunForUser(ctx, args);
   },
 });
 

@@ -16,8 +16,6 @@ function portOffset(index: number, count: number): number {
 }
 
 function roleBorderClass(role: string) {
-  if (role === "runner") return "border-[oklch(58%_0.12_150)]";
-  if (role === "terminal") return "border-[oklch(52%_0.105_174)]";
   if (role === "annotation") return "border-dashed bg-[oklch(98%_0.012_92_/_0.94)]";
   return "border-[var(--color-border)]";
 }
@@ -41,10 +39,11 @@ export function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
     <div
       className={cx(
         "relative grid w-fit min-w-40 max-w-64 gap-[var(--space-2)] rounded-[var(--radius-md)] border bg-[oklch(99%_0.004_232_/_0.96)] p-[var(--space-3)] shadow-[0_14px_34px_oklch(20%_0.025_232_/_0.08)]",
-        "min-h-[4.55rem]",
+        "min-h-[4.55rem] place-content-center justify-items-center text-center",
         showModelStatus && "min-w-[12.75rem]",
         roleBorderClass(definition.role),
-        executionClass(data.executionStatus)
+        executionClass(data.executionStatus),
+        data.isSelected && "border-[var(--color-primary)] shadow-[0_0_0_3px_oklch(45%_0.105_174_/_0.22),0_18px_42px_oklch(20%_0.025_232_/_0.14)]"
       )}
     >
       {hasInputHandle ? (
@@ -57,19 +56,21 @@ export function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
         />
       ) : null}
 
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-[var(--space-2)] font-[760] text-[var(--color-ink)]">
+      <div className="inline-flex max-w-full items-center justify-center gap-[var(--space-2)] font-[760] text-[var(--color-ink)]">
         <span className="grid size-7 place-items-center rounded-[var(--radius-sm)] bg-[var(--color-primary-soft)] text-[var(--color-primary-strong)]">
           <Icon size={16} />
         </span>
-        <span className="min-w-0 truncate">{data.label}</span>
+        <span className="min-w-0 max-w-[10rem] whitespace-normal break-words leading-[1.2]">
+          {data.label}
+        </span>
       </div>
       {data.executionStatus ? (
-        <span className="w-fit rounded-[var(--radius-sm)] bg-[var(--color-page-quiet)] px-[var(--space-2)] py-[0.1rem] text-[0.66rem] font-[830] capitalize text-[var(--color-ink-soft)]">
+        <span className="mx-auto w-fit rounded-[var(--radius-sm)] bg-[var(--color-page-quiet)] px-[var(--space-2)] py-[0.1rem] text-[0.66rem] font-[830] capitalize text-[var(--color-ink-soft)]">
           {data.executionStatus}
         </span>
       ) : null}
       {showModelStatus ? (
-        <div className="grid border-t border-[var(--color-border)] pt-[var(--space-2)]">
+        <div className="grid w-full border-t border-[var(--color-border)] pt-[var(--space-2)] text-center">
           <strong className="min-w-0 truncate text-[0.78rem] font-[780] leading-[1.2] text-[var(--color-ink-muted)]">
             {String(data.model)}
           </strong>

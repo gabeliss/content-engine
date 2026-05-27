@@ -253,6 +253,46 @@ export const updateGraph = mutation({
   },
 });
 
+export const updateNodePositions = mutation({
+  args: {
+    id: v.id("workflows"),
+    positions: v.array(
+      v.object({
+        nodeId: v.string(),
+        position: v.object({
+          x: v.number(),
+          y: v.number(),
+        }),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const workflow = await ctx.db.get(args.id);
+    if (!workflow || workflow.userId !== identity.subject) {
+      throw new Error("Workflow not found");
+    }
+
+    const positionsByNodeId = new Map(
+      args.positions.map((position) => [position.nodeId, position.position])
+    );
+    const graph = workflow.graph;
+
+    await ctx.db.patch(args.id, {
+      graph: {
+        ...graph,
+        nodes: graph.nodes.map((node) => {
+          const position = positionsByNodeId.get(node.id);
+          return position ? { ...node, position } : node;
+        }),
+      },
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const setActive = mutation({
   args: {
     id: v.id("workflows"),

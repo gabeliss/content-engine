@@ -59,8 +59,10 @@ export function WorkflowCanvasBoard({
           onNodeClick={(_event, node) => onSelectNode(node)}
           onNodesChange={onNodesChange}
           onPaneClick={onPaneClick}
-          panOnScroll
+          panOnDrag
+          panOnScroll={false}
           proOptions={{ hideAttribution: true }}
+          zoomOnScroll
         >
           <Background color="oklch(75% 0.034 220)" gap={22} size={1.2} />
           <MiniMap pannable zoomable />

@@ -1,5 +1,20 @@
 import type { ArtifactDoc } from "../types";
 
+function previewAspectRatio(artifact: ArtifactDoc) {
+  const data = artifact.data && typeof artifact.data === "object"
+    ? (artifact.data as Record<string, unknown>)
+    : {};
+
+  if (typeof data.aspectRatio === "string") return data.aspectRatio.replace(":", " / ");
+
+  const dimensions = data.dimensions && typeof data.dimensions === "object"
+    ? (data.dimensions as Record<string, unknown>)
+    : data;
+  const width = typeof dimensions.width === "number" ? dimensions.width : undefined;
+  const height = typeof dimensions.height === "number" ? dimensions.height : undefined;
+  return width && height ? `${width} / ${height}` : undefined;
+}
+
 export function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
   const data = artifact.data && typeof artifact.data === "object"
     ? (artifact.data as Record<string, unknown>)
@@ -17,8 +32,12 @@ export function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
       artifact.type === "thumbnail") &&
     imageUrl
   ) {
+    const aspectRatio = previewAspectRatio(artifact);
     return (
-      <div className="artifact-preview image-preview">
+      <div
+        className="artifact-preview image-preview library-media-preview"
+        style={aspectRatio ? { aspectRatio } : undefined}
+      >
         <img src={imageUrl} alt={artifact.title || "Generated image"} />
       </div>
     );
