@@ -172,17 +172,13 @@ export function WorkflowCanvasPage() {
         data: {
           ...node.data,
           executionStatus: nodeExecutionStatus(node.id, canvasRunNodeStates),
-          isSelected: node.id === selectedNodeId && openDrawer === "node",
+          isSelected:
+            node.id === selectedNodeId &&
+            (openDrawer === "node" || openDrawer === "execution"),
         },
       })),
     [canvasRunNodeStates, nodes, openDrawer, selectedNodeId]
   );
-  const selectedNodeRunState = selectedNode
-    ? selectedRunNodeStates?.find((state) => state.nodeId === selectedNode.id) ?? null
-    : null;
-  const selectedNodeRunEvents = selectedNode
-    ? selectedRunEvents?.filter((event) => event.nodeId === selectedNode.id) ?? []
-    : [];
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -311,6 +307,11 @@ export function WorkflowCanvasPage() {
   const handleSelectNode = useCallback(
     (node: WorkflowFlowNode) => {
       setSelectedNodeId(node.id);
+
+      if (openDrawer === "execution") {
+        return;
+      }
+
       setOpenDrawer("node");
 
       if (node.data.model) return;
@@ -337,7 +338,7 @@ export function WorkflowCanvasPage() {
       setSaveStatus("");
       setConnectionStatus("");
     },
-    [setNodes]
+    [openDrawer, setNodes]
   );
 
   const isValidConnection = useCallback(
@@ -613,13 +614,10 @@ export function WorkflowCanvasPage() {
           selectedModelPickerOptions={selectedModelPickerOptions}
           selectedNode={selectedNode}
           selectedNodeDefinition={selectedNodeDefinition}
-          selectedNodeRunEvents={selectedNodeRunEvents}
-          selectedNodeRunState={selectedNodeRunState}
           selectedProviderCatalogName={selectedProviderCatalogName}
           selectedProviderModel={selectedProviderModel}
           selectedProviderModels={selectedProviderModels}
           selectedPrimaryConfigFields={selectedPrimaryConfigFields}
-          selectedRun={selectedRun}
           showModelControl={showModelControl}
           showProviderControl={showProviderControl}
         />
@@ -628,6 +626,11 @@ export function WorkflowCanvasPage() {
           isOpen={openDrawer === "execution"}
           onClose={() => setOpenDrawer(null)}
           onSelectRun={setSelectedRunId}
+          selectedCanvasNode={
+            selectedNode
+              ? { id: selectedNode.id, label: selectedNode.data.label }
+              : null
+          }
           selectedRun={selectedRun}
           selectedRunArtifacts={selectedRunArtifacts}
           selectedRunEvents={selectedRunEvents}

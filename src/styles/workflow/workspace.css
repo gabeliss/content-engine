@@ -186,13 +186,17 @@
   background: oklch(99% 0.004 232 / 0.98);
 }
 
+.workflow-side-drawer.workflow-node-inspector {
+  padding-top: 0;
+}
+
 .workflow-node-inspector-header {
   position: sticky;
   top: 0;
   z-index: 2;
   grid-template-columns: 2rem minmax(0, 1fr) 2.25rem;
   align-items: start;
-  margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) 0;
+  margin: 0 calc(var(--space-4) * -1) 0;
   border-bottom: 1px solid var(--color-border);
   background: oklch(99% 0.004 232 / 0.98);
   padding: var(--space-4);

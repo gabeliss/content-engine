@@ -15,7 +15,6 @@ import type { WorkflowNodeCatalogEntry } from "../../lib/workflow/workflowNodeCa
 import type { WorkflowSelectOption } from "./WorkflowSelect";
 import { WorkflowSelect } from "./WorkflowSelect";
 import { fallbackWorkflowNodeIcon, workflowNodeIcons } from "./workflowNodeIcons";
-import { formatStatus, formatTimestamp, type WorkflowRunDoc } from "./workflowRunFormat";
 
 const providerOptions: Array<{ value: WorkflowProviderName; label: string }> = [
   { value: "bulkapis", label: "BulkAPIs" },
@@ -63,13 +62,10 @@ export type WorkflowNodeInspectorProps = {
   selectedModelPickerOptions: WorkflowSelectOption[];
   selectedNode: WorkflowFlowNode | null;
   selectedNodeDefinition: WorkflowNodeCatalogEntry | null;
-  selectedNodeRunEvents: Doc<"workflowRunEvents">[];
-  selectedNodeRunState: Doc<"workflowRunNodeStates"> | null;
   selectedProviderCatalogName?: string;
   selectedProviderModel: Doc<"providerModels"> | null;
   selectedProviderModels: Doc<"providerModels">[] | undefined;
   selectedPrimaryConfigFields: ConfigField[];
-  selectedRun: WorkflowRunDoc | null;
   showModelControl: boolean;
   showProviderControl: boolean;
 };
@@ -84,18 +80,14 @@ export function WorkflowNodeInspector({
   selectedModelPickerOptions,
   selectedNode,
   selectedNodeDefinition,
-  selectedNodeRunEvents,
-  selectedNodeRunState,
   selectedProviderCatalogName,
   selectedProviderModel,
   selectedProviderModels,
   selectedPrimaryConfigFields,
-  selectedRun,
   showModelControl,
   showProviderControl,
 }: WorkflowNodeInspectorProps) {
   const showRetentionControl = selectedNode?.data.type !== "comment";
-  const showRunDebugSection = selectedNode?.data.type !== "comment";
 
   return (
     <aside
@@ -263,55 +255,6 @@ export function WorkflowNodeInspector({
             </div>
           ) : null}
 
-          {showRunDebugSection ? (
-            <div className="workflow-inspector-group">
-              <div className="workflow-inspector-section-heading">
-                <h3>Run Debug</h3>
-                <span>
-                  {selectedNodeRunState
-                    ? formatStatus(selectedNodeRunState.status)
-                    : selectedRun
-                      ? formatStatus(selectedRun.status)
-                      : "No run"}
-                </span>
-              </div>
-              {selectedNodeRunState ? (
-                <div className="workflow-node-state-card">
-                  <span>{formatStatus(selectedNodeRunState.status)}</span>
-                  <strong>
-                    {selectedNodeRunState.startedAt
-                      ? formatTimestamp(selectedNodeRunState.startedAt)
-                      : "Not started"}
-                  </strong>
-                  {selectedNodeRunState.errorMessage ? (
-                    <p>{selectedNodeRunState.errorMessage}</p>
-                  ) : selectedNodeRunState.blockedByNodeIds?.length ? (
-                    <p>Blocked by {selectedNodeRunState.blockedByNodeIds.join(", ")}</p>
-                  ) : (
-                    <p>
-                      {selectedNodeRunState.dependencyNodeIds.length
-                        ? `Depends on ${selectedNodeRunState.dependencyNodeIds.join(", ")}`
-                        : "No upstream dependencies"}
-                    </p>
-                  )}
-                </div>
-              ) : null}
-              {selectedNodeRunEvents.length ? (
-                <div className="workflow-node-event-list">
-                  {selectedNodeRunEvents.map((event) => (
-                    <div className="workflow-node-event" key={event._id}>
-                      <span>{formatStatus(event.type)}</span>
-                      <p>{event.message}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="workflow-inspector-empty">
-                  No node events or debug artifacts for the selected run yet.
-                </p>
-              )}
-            </div>
-          ) : null}
         </>
       ) : (
         <div className="workflow-inspector-empty-state">

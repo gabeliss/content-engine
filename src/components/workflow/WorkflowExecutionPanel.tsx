@@ -224,6 +224,7 @@ export type WorkflowExecutionPanelProps = {
   isOpen: boolean;
   onClose: () => void;
   onSelectRun: (runId: Id<"workflowRuns">) => void;
+  selectedCanvasNode: { id: string; label: string } | null;
   selectedRun: WorkflowRunDoc | null;
   selectedRunArtifacts: Doc<"artifacts">[] | undefined;
   selectedRunEvents: Doc<"workflowRunEvents">[] | undefined;
@@ -235,6 +236,7 @@ export function WorkflowExecutionPanel({
   isOpen,
   onClose,
   onSelectRun,
+  selectedCanvasNode,
   selectedRun,
   selectedRunArtifacts,
   selectedRunEvents,
@@ -256,6 +258,19 @@ export function WorkflowExecutionPanel({
   const deliverySummary = packageArtifacts.length
     ? packageArtifacts.map(packageDeliverySummary).join(" · ")
     : undefined;
+  const selectedNodeState = selectedCanvasNode
+    ? selectedRunNodeStates?.find((state) => state.nodeId === selectedCanvasNode.id) ?? null
+    : null;
+  const selectedNodeEvents = selectedCanvasNode
+    ? selectedRunEvents?.filter((event) => event.nodeId === selectedCanvasNode.id) ?? []
+    : [];
+  const selectedNodeStatus = selectedNodeState
+    ? formatStatus(selectedNodeState.status)
+    : selectedCanvasNode
+      ? selectedRunNodeStates
+        ? "No state"
+        : "Loading"
+      : undefined;
 
   return (
     <section
@@ -344,6 +359,28 @@ export function WorkflowExecutionPanel({
 
               {selectedRun.errorMessage ? (
                 <p className="workflow-execution-warning">{selectedRun.errorMessage}</p>
+              ) : null}
+
+              {selectedCanvasNode ? (
+                <div className="grid gap-[var(--space-2)] rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-page)] p-[var(--space-3)]">
+                  <div className="workflow-execution-section-heading">
+                    <h3>Selected Node</h3>
+                    <span>{selectedNodeStatus}</span>
+                  </div>
+                  <strong className="text-[0.86rem] font-[800] text-[var(--color-ink)]">
+                    {selectedNodeState?.label ?? selectedCanvasNode.label}
+                  </strong>
+                  <p className="m-0 text-[0.78rem] leading-[1.35] text-[var(--color-ink-muted)]">
+                    {selectedNodeState?.errorMessage ||
+                      (selectedNodeState?.blockedByNodeIds?.length
+                        ? `Blocked by ${selectedNodeState.blockedByNodeIds.join(", ")}`
+                        : selectedNodeState
+                          ? `${selectedNodeState.dependencyNodeIds.length} dependencies · ${selectedNodeEvents.length} events`
+                          : selectedRunNodeStates
+                            ? "No execution state recorded for this node in the selected run."
+                            : "Loading node execution state...")}
+                  </p>
+                </div>
               ) : null}
 
               <div className="grid gap-[var(--space-3)]">

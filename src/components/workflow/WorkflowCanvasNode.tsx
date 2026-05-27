@@ -39,7 +39,7 @@ export function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
     <div
       className={cx(
         "relative grid w-fit min-w-40 max-w-64 gap-[var(--space-2)] rounded-[var(--radius-md)] border bg-[oklch(99%_0.004_232_/_0.96)] p-[var(--space-3)] shadow-[0_14px_34px_oklch(20%_0.025_232_/_0.08)]",
-        "min-h-[4.55rem] place-content-center justify-items-center text-center",
+        "min-h-[4.55rem] cursor-pointer place-content-center justify-items-center text-center",
         showModelStatus && "min-w-[12.75rem]",
         roleBorderClass(definition.role),
         executionClass(data.executionStatus),
