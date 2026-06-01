@@ -191,7 +191,7 @@ export default defineSchema({
 
   contentRequests: defineTable({
     userId: v.string(),
-    brandId: v.id("brands"),
+    brandId: v.optional(v.id("brands")),
     socialAccountId: v.optional(v.id("socialAccounts")),
     contentFormat: contentFormatValidator,
     prompt: v.string(),

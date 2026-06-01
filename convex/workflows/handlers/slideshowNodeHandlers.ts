@@ -390,19 +390,20 @@ export async function executeSlideshowNode({
     const platform = textFromInputValue(inputs.platform?.value);
     const tone = textFromInputValue(inputs.tone?.value);
     const brandContext = objectValue(inputs.brand_context?.value);
+    const fallbackBrand = context.brand;
     const planningBrand = {
-      ...context.brand,
-      name: textFromInputValue(brandContext.name) ?? context.brand.name,
-      audience: textFromInputValue(brandContext.audience) ?? context.brand.audience,
-      voice: textFromInputValue(brandContext.voice) ?? context.brand.voice,
+      ...fallbackBrand,
+      name: textFromInputValue(brandContext.name) ?? fallbackBrand?.name ?? "Unbranded",
+      audience: textFromInputValue(brandContext.audience) ?? fallbackBrand?.audience,
+      voice: textFromInputValue(brandContext.voice) ?? fallbackBrand?.voice,
       visualStyle:
-        textFromInputValue(brandContext.visualStyle) ?? context.brand.visualStyle,
+        textFromInputValue(brandContext.visualStyle) ?? fallbackBrand?.visualStyle,
       constraints: Array.isArray(brandContext.constraints)
         ? brandContext.constraints.flatMap((constraint) => {
             const text = textFromInputValue(constraint);
             return text ? [text] : [];
           })
-        : context.brand.constraints,
+        : fallbackBrand?.constraints,
     };
     const references = plannerReferencesFromInputs(resolvedInputs);
     const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [

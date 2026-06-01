@@ -7,22 +7,12 @@ import type { WorkflowNodeCatalogEntry } from "../../lib/workflow/workflowNodeCa
 import {
   imageModelUiContractFromModel,
   modelCategoryForNodeType,
-  providerModelCapabilityTags,
-  providerModelSourceLabel,
-  recommendationMapForNodeType,
 } from "../../lib/workflow/workflowModelCatalog";
 import { configFieldsForNode } from "../../lib/workflow/workflowConfigFields";
-
-const BULKAPIS_IMAGE_MODEL_FALLBACKS = [
-  { modelId: "nano-banana-2", displayName: "Nano Banana 2" },
-  { modelId: "nano-banana-pro", displayName: "Nano Banana Pro" },
-  { modelId: "nano-banana-edit", displayName: "Nano Banana Edit" },
-  { modelId: "seedream-4.5", displayName: "Seedream 4.5" },
-  { modelId: "gpt-image-2", displayName: "GPT Image 2" },
-  { modelId: "gpt-image-2-edit", displayName: "GPT Image 2 Edit" },
-  { modelId: "gpt-image-1.5", displayName: "GPT Image 1.5" },
-  { modelId: "flux-2-pro", displayName: "Flux-2 Pro" },
-];
+import {
+  modelOptionSourcesForNode,
+  richModelPickerOptions,
+} from "../../lib/workflow/workflowModelPickerOptions";
 
 type ProviderCatalogName = Exclude<WorkflowProviderName, "postiz" | "post_bridge">;
 
@@ -64,14 +54,10 @@ export function useWorkflowNodeModelControls({
       : "skip"
   );
   const selectedModelOptions = useMemo(() => {
-    if (selectedNode?.data.type === "image_generation" && !selectedProviderModels?.length) {
-      return BULKAPIS_IMAGE_MODEL_FALLBACKS;
-    }
-
-    return (selectedProviderModels ?? []).map((model) => ({
-      modelId: model.modelId,
-      displayName: model.displayName,
-    }));
+    return modelOptionSourcesForNode({
+      nodeType: selectedNode?.data.type,
+      providerModels: selectedProviderModels,
+    });
   }, [selectedNode?.data.type, selectedProviderModels]);
   const selectedProviderModel = useMemo(
     () =>
@@ -81,44 +67,12 @@ export function useWorkflowNodeModelControls({
     [selectedNode?.data.model, selectedProviderModels]
   );
   const selectedModelPickerOptions = useMemo(() => {
-    const options = selectedModelOptions.map((model) => {
-      const modelDoc = selectedProviderModels?.find(
-        (providerModel) => providerModel.modelId === model.modelId
-      );
-      const recommendation = selectedNode
-        ? recommendationMapForNodeType(selectedNode.data.type)?.[model.modelId]
-        : undefined;
-
-      return {
-        value: model.modelId,
-        label: model.displayName,
-        description: recommendation?.note ?? modelDoc?.description,
-        meta: providerModelSourceLabel(modelDoc),
-        recommendationTag: recommendation?.tag,
-        tags: providerModelCapabilityTags(modelDoc, selectedNode?.data.type),
-        rank: recommendation?.rank ?? 1000,
-      };
-    }).sort((a, b) => {
-      if (a.rank !== b.rank) return a.rank - b.rank;
-      return a.label.localeCompare(b.label);
+    return richModelPickerOptions({
+      modelOptions: selectedModelOptions,
+      nodeType: selectedNode?.data.type,
+      providerModels: selectedProviderModels,
+      selectedModel: selectedNode?.data.model,
     });
-
-    if (
-      selectedNode?.data.model &&
-      !options.some((option) => option.value === selectedNode.data.model)
-    ) {
-      options.unshift({
-        value: selectedNode.data.model,
-        label: selectedNode.data.model,
-        description: "This model is saved on the node but is not in the current catalog.",
-        meta: undefined,
-        recommendationTag: undefined,
-        tags: ["Saved model"],
-        rank: 0,
-      });
-    }
-
-    return options;
   }, [selectedModelOptions, selectedNode, selectedProviderModels]);
   const selectedImageModelUiContract = useMemo(
     () =>

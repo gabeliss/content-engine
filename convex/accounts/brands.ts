@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { internalQuery, mutation, query } from "../_generated/server";
 
 const brandFields = {
   name: v.string(),
@@ -37,6 +37,13 @@ export const get = query({
     if (!brand || brand.userId !== identity.subject) return null;
 
     return brand;
+  },
+});
+
+export const getForRunner = internalQuery({
+  args: { id: v.id("brands") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
   },
 });
 

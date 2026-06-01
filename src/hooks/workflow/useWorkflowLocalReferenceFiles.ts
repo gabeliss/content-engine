@@ -150,6 +150,17 @@ export function useWorkflowLocalReferenceFiles({
         };
       }
 
+      if (fieldKey === "localStartFrameImages" || fieldKey === "localEndFrameImages") {
+        return {
+          accept: "image/*",
+          disabled: selectedNode.data.config.imageFromInputNode === true,
+          disabledCopy: "Using image data from a connected input node.",
+          kind: "image",
+          multiple: false,
+          maxCount: 1,
+        };
+      }
+
       if (fieldKey === "localReferenceVideos") {
         return {
           accept: "video/*",

@@ -24,6 +24,7 @@ const hiddenImageGenerationConfigKeys = new Set([
   "audioUrl",
   "end_frame",
   "end_frame_url",
+  "first_frame_url",
   "image_input",
   "input_url",
   "image_url",
@@ -42,8 +43,10 @@ const hiddenImageGenerationConfigKeys = new Set([
   "resolution",
   "seed",
   "song_url",
+  "last_frame_url",
   "start_frame",
   "start_frame_url",
+  "tail_image_url",
   "upscale_factor",
   "video_url",
   "video_urls",
@@ -76,9 +79,11 @@ const primaryConfigFieldKeys = new Set([
   "imageUrl",
   "imageFromInputNode",
   "intervalHours",
+  "localEndFrameImages",
   "localReferenceAudios",
   "localReferenceImages",
   "localReferenceVideos",
+  "localStartFrameImages",
   "maxDurationSeconds",
   "maxTokens",
   "mediaFromInputNode",
@@ -110,6 +115,7 @@ const primaryConfigFieldKeys = new Set([
   "seed",
   "slideCount",
   "startFrameUrl",
+  "startEndFrameMode",
   "systemPrompt",
   "temperature",
   "text",
@@ -304,7 +310,7 @@ function friendlyConfigFieldKeysForNode(
     case "comment":
       return ["text"];
     case "media":
-      return ["artifactIds", "creativeAssetIds", "personaIds", "uploadedMedia"];
+      return ["uploadedMedia", "personaIds"];
     case "llm":
       return ["systemPrompt", "promptFromInputNode", "prompt", "responseFormat", "temperature", "maxTokens"];
     case "ai_agent":
@@ -312,7 +318,19 @@ function friendlyConfigFieldKeysForNode(
     case "image_generation":
       return ["promptFromInputNode", "prompt", "imageFromInputNode", "localReferenceImages", "aspectRatio", "count"];
     case "video_generation":
-      return ["promptFromInputNode", "prompt", "imageFromInputNode", "localReferenceImages", "localReferenceVideos", "aspectRatio", "durationSeconds", "resolution"];
+      return [
+        "promptFromInputNode",
+        "prompt",
+        "imageFromInputNode",
+        "localReferenceImages",
+        "startEndFrameMode",
+        "localStartFrameImages",
+        "localEndFrameImages",
+        "localReferenceVideos",
+        "aspectRatio",
+        "durationSeconds",
+        "resolution",
+      ];
     case "audio_generation":
       return ["mode", "textFromInputNode", "text", "voiceFromInputNode", "localReferenceAudios", "voice", "temperature", "cfgScale", "removeSilence"];
     case "lipsync":
@@ -356,6 +374,7 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
     case "promptFromInputNode":
     case "removeSilence":
     case "requestFromInputNode":
+    case "startEndFrameMode":
     case "textFromInputNode":
     case "turboMode":
     case "voiceFromInputNode":
@@ -375,6 +394,8 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
                     ? "Request from input node"
                     : key === "textFromInputNode"
                       ? "Text from input node"
+                      : key === "startEndFrameMode"
+                        ? "Start/end frame mode"
                       : key === "voiceFromInputNode"
                         ? "Voice from input node"
                         : defaultField.label,
@@ -423,9 +444,11 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
     case "creativeAssetIds":
     case "personaIds":
     case "knowledgeBase":
+    case "localEndFrameImages":
     case "localReferenceAudios":
     case "localReferenceImages":
     case "localReferenceVideos":
+    case "localStartFrameImages":
     case "lockedDetails":
     case "avoid":
     case "platforms":
@@ -434,13 +457,28 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
         ...defaultField,
         label: key === "localReferenceImages"
           ? "Reference images"
-          : key === "localReferenceVideos"
-            ? "Reference videos"
-            : key === "localReferenceAudios"
-              ? "Reference audio"
-              : defaultField.label,
+          : key === "localStartFrameImages"
+            ? "Start frame"
+            : key === "localEndFrameImages"
+              ? "End frame"
+              : key === "localReferenceVideos"
+                ? "Reference videos"
+                : key === "localReferenceAudios"
+                  ? "Reference audio"
+                  : key === "uploadedMedia"
+                    ? "Reference files"
+                    : key === "personaIds"
+                      ? "Personas"
+                      : defaultField.label,
         type: "json",
-        advanced: !["localReferenceImages", "localReferenceVideos", "localReferenceAudios", "uploadedMedia"].includes(key),
+        advanced: ![
+          "localEndFrameImages",
+          "localReferenceImages",
+          "localReferenceVideos",
+          "localReferenceAudios",
+          "localStartFrameImages",
+          "uploadedMedia",
+        ].includes(key),
       };
     default:
       return defaultField;
@@ -465,11 +503,25 @@ function imageConfigFieldHiddenByContract(
 function configFieldHiddenForNode(
   type: WorkflowNodeType,
   key: string,
+  config: Record<string, unknown>,
   selectedModel: ProviderModelDoc | null,
   imageContract?: ImageModelUiContract | null
 ): boolean {
   if (hiddenImageGenerationConfigKeys.has(key)) return true;
+  if (
+    type === "media" &&
+    ["artifactIds", "creativeAssetIds", "referenceInstructions"].includes(key)
+  ) {
+    return true;
+  }
   if (type === "image_generation" && imageConfigFieldHiddenByContract(key, selectedModel, imageContract)) return true;
+  if (type === "video_generation") {
+    if (key === "localReferenceImages" && config.startEndFrameMode === true) return true;
+    if (
+      (key === "localStartFrameImages" || key === "localEndFrameImages") &&
+      config.startEndFrameMode !== true
+    ) return true;
+  }
   if (!selectedModel) return false;
   if (type === "video_generation" && ["aspectRatio", "durationSeconds", "resolution"].includes(key)) return true;
   if (type === "lipsync" && ["resolution", "turboMode"].includes(key)) return true;
@@ -488,12 +540,12 @@ export function configFieldsForNode(
   const modelSchemaFields = schemaFieldsFromRecordSchema(selectedModel?.schemaSnapshot?.inputSchema);
 
   for (const field of modelSchemaFields) {
-    if (configFieldHiddenForNode(type, field.key, selectedModel, imageContract)) continue;
+    if (configFieldHiddenForNode(type, field.key, config, selectedModel, imageContract)) continue;
     fieldsByKey.set(field.key, field);
   }
 
   for (const key of friendlyConfigFieldKeysForNode(type, config)) {
-    if (configFieldHiddenForNode(type, key, selectedModel, imageContract)) continue;
+    if (configFieldHiddenForNode(type, key, config, selectedModel, imageContract)) continue;
     if (!fieldsByKey.has(key)) {
       const field = friendlyConfigFieldForKey(key, config);
       fieldsByKey.set(key, key === "prompt" && imageContract?.prompt.required ? { ...field, required: true } : field);
@@ -501,14 +553,25 @@ export function configFieldsForNode(
   }
 
   for (const key of Object.keys(config)) {
-    if (configFieldHiddenForNode(type, key, selectedModel, imageContract)) continue;
+    if (configFieldHiddenForNode(type, key, config, selectedModel, imageContract)) continue;
     if (!fieldsByKey.has(key)) fieldsByKey.set(key, friendlyConfigFieldForKey(key, config));
   }
 
   return [...fieldsByKey.values()].sort((a, b) => {
     const fieldOrderByType: Partial<Record<WorkflowNodeType, string[]>> = {
       image_generation: ["imageFromInputNode", "localReferenceImages", "promptFromInputNode", "prompt", "aspectRatio", "count"],
-      video_generation: ["imageFromInputNode", "localReferenceImages", "localReferenceVideos", "promptFromInputNode", "prompt", "aspectRatio", "durationSeconds"],
+      video_generation: [
+        "imageFromInputNode",
+        "startEndFrameMode",
+        "localReferenceImages",
+        "localStartFrameImages",
+        "localEndFrameImages",
+        "localReferenceVideos",
+        "promptFromInputNode",
+        "prompt",
+        "aspectRatio",
+        "durationSeconds",
+      ],
       audio_generation: ["mode", "textFromInputNode", "text", "voiceFromInputNode", "localReferenceAudios", "voice"],
       lipsync: ["imageFromInputNode", "localReferenceImages", "localReferenceVideos", "audioFromInputNode", "localReferenceAudios", "resolution", "turboMode"],
       ai_video_editor: ["mediaFromInputNode", "uploadedMedia", "promptFromInputNode", "prompt", "renderMode", "systemPrompt", "knowledgeBase", "aspectRatio", "maxDurationSeconds"],

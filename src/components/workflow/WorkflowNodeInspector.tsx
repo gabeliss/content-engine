@@ -50,6 +50,38 @@ function configSectionTitleForNodeType(type: WorkflowNodeType): string {
   return "Config";
 }
 
+function renderConfigFieldsWithPairs(
+  fields: ConfigField[],
+  renderConfigField: (field: ConfigField) => ReactNode
+) {
+  const rendered: ReactNode[] = [];
+  let index = 0;
+
+  while (index < fields.length) {
+    const field = fields[index];
+    const nextField = fields[index + 1];
+
+    if (field.key === "localStartFrameImages" && nextField?.key === "localEndFrameImages") {
+      rendered.push(
+        <div
+          className="grid min-w-0 gap-[var(--space-3)] sm:grid-cols-2"
+          key="start-end-frame-pair"
+        >
+          {renderConfigField(field)}
+          {renderConfigField(nextField)}
+        </div>
+      );
+      index += 2;
+      continue;
+    }
+
+    rendered.push(<div key={field.key}>{renderConfigField(field)}</div>);
+    index += 1;
+  }
+
+  return rendered;
+}
+
 export type WorkflowNodeInspectorProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -87,7 +119,9 @@ export function WorkflowNodeInspector({
   showModelControl,
   showProviderControl,
 }: WorkflowNodeInspectorProps) {
-  const showRetentionControl = selectedNode?.data.type !== "comment";
+  const showRetentionControl = selectedNode
+    ? !["comment", "media", "runner"].includes(selectedNode.data.type)
+    : false;
 
   return (
     <aside
@@ -199,7 +233,7 @@ export function WorkflowNodeInspector({
             </div>
 
             {selectedPrimaryConfigFields.length ? (
-              selectedPrimaryConfigFields.map((field) => renderConfigField(field))
+              renderConfigFieldsWithPairs(selectedPrimaryConfigFields, renderConfigField)
             ) : (
               <p className="workflow-inspector-empty">This node has no static config yet.</p>
             )}
@@ -210,7 +244,7 @@ export function WorkflowNodeInspector({
                   <h3>Advanced</h3>
                   <span>{selectedAdvancedConfigFields.length} fields</span>
                 </div>
-                {selectedAdvancedConfigFields.map((field) => renderConfigField(field))}
+                {renderConfigFieldsWithPairs(selectedAdvancedConfigFields, renderConfigField)}
               </div>
             ) : null}
           </div>

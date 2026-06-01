@@ -26,6 +26,7 @@ import type {
 } from "../lib/workflow/workflowGraph";
 import {
   cloneConfig,
+  inferCanvasConnectionPorts,
   nextEdgeId,
   nextNodeId,
   nextNodePosition,
@@ -356,12 +357,29 @@ export function WorkflowCanvasPage() {
         return;
       }
 
+      const inferredPorts = inferCanvasConnectionPorts(connection, nodes);
+      if (!inferredPorts) {
+        setConnectionStatus("Connection references an unknown port.");
+        return;
+      }
+
       setEdges((currentEdges) =>
         addEdge(
           {
             ...connection,
-            id: nextEdgeId(connection, currentEdges),
+            id: nextEdgeId(
+              {
+                ...connection,
+                sourceHandle: inferredPorts.sourcePort.id,
+                targetHandle: inferredPorts.targetPort.id,
+              },
+              currentEdges
+            ),
             animated: false,
+            data: {
+              sourcePort: inferredPorts.sourcePort.id,
+              targetPort: inferredPorts.targetPort.id,
+            },
             deletable: true,
             type: "bezier",
           },

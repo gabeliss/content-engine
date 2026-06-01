@@ -61,6 +61,7 @@ export async function executeVideoGenerationNode({
     const provider = getModelProvider(providerName);
     const promptFromInputNode = config.promptFromInputNode === true;
     const imageFromInputNode = config.imageFromInputNode === true;
+    const startEndFrameMode = config.startEndFrameMode === true;
     const prompt = promptFromInputNode && inputs.prompt?.source === "config"
       ? ""
       : textFromInputValue(inputs.prompt?.value);
@@ -71,15 +72,17 @@ export async function executeVideoGenerationNode({
     const aspectRatio = textFromInputValue(inputs.aspectRatio?.value);
     const durationSeconds = numberFromInputValue(inputs.durationSeconds?.value);
     const startFrameAssets = referenceAssetsFromInputs(resolvedInputs, [
+      ...(startEndFrameMode && !imageFromInputNode ? ["localStartFrameImages"] : []),
       "start_frame",
       "startFrameUrl",
     ]);
     const endFrameAssets = referenceAssetsFromInputs(resolvedInputs, [
+      ...(startEndFrameMode && !imageFromInputNode ? ["localEndFrameImages"] : []),
       "end_frame",
       "endFrameUrl",
     ]);
     const imageAssets = referenceAssetsFromInputs(resolvedInputs, [
-      ...(imageFromInputNode ? [] : ["localReferenceImages"]),
+      ...(imageFromInputNode || startEndFrameMode ? [] : ["localReferenceImages"]),
       "image",
       "imageUrl",
       "reference_image",
@@ -100,6 +103,8 @@ export async function executeVideoGenerationNode({
     ]);
     const sourceArtifactIds = artifactIdsFromInputs(resolvedInputs, [
       "localReferenceImages",
+      "localStartFrameImages",
+      "localEndFrameImages",
       "localReferenceVideos",
       "image",
       "start_frame",
@@ -113,7 +118,10 @@ export async function executeVideoGenerationNode({
       "prompt",
       "promptFromInputNode",
       "imageFromInputNode",
+      "startEndFrameMode",
       "localReferenceImages",
+      "localStartFrameImages",
+      "localEndFrameImages",
       "localReferenceVideos",
       "aspectRatio",
       "durationSeconds",
@@ -129,10 +137,13 @@ export async function executeVideoGenerationNode({
     if (startFrameUrl) {
       providerInput.start_frame_url = startFrameUrl;
       providerInput.start_image_url = startFrameUrl;
+      providerInput.first_frame_url = startFrameUrl;
     }
     if (endFrameUrl) {
       providerInput.end_frame_url = endFrameUrl;
       providerInput.end_image_url = endFrameUrl;
+      providerInput.last_frame_url = endFrameUrl;
+      providerInput.tail_image_url = endFrameUrl;
     }
     if (referenceVideoUrl) {
       providerInput.reference_video_url = referenceVideoUrl;

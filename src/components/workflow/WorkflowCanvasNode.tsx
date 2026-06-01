@@ -1,18 +1,13 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { getWorkflowNodeDefinition } from "../../lib/workflow/workflowNodeCatalog";
 import { modelCategoryForNodeType } from "../../lib/workflow/workflowModelCatalog";
+import { WORKFLOW_CANVAS_OUTPUT_HANDLE_ID } from "../../lib/workflow/workflowCanvasGraph";
 import { WORKFLOW_CANVAS_INPUT_HANDLE_ID } from "../../lib/workflow/workflowPortMapping";
 import type { WorkflowFlowNode } from "../../lib/workflow/workflowCanvasGraph";
 import { fallbackWorkflowNodeIcon, workflowNodeIcons } from "./workflowNodeIcons";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
-}
-
-function portOffset(index: number, count: number): number {
-  if (count <= 1) return 50;
-  const available = 68;
-  return 16 + (available / (count - 1)) * index;
 }
 
 function roleBorderClass(role: string) {
@@ -77,16 +72,15 @@ export function WorkflowCanvasNode({ data }: NodeProps<WorkflowFlowNode>) {
         </div>
       ) : null}
 
-      {definition.outputPorts.map((port, index) => (
+      {definition.outputPorts.length ? (
         <Handle
           className="!size-[0.65rem] !border-2 !border-[var(--color-surface-raised)] !bg-[var(--color-primary)] !right-[-0.34rem]"
-          id={port.id}
-          key={port.id}
+          id={WORKFLOW_CANVAS_OUTPUT_HANDLE_ID}
           position={Position.Right}
-          style={{ top: `${portOffset(index, definition.outputPorts.length)}%` }}
+          style={{ top: "50%" }}
           type="source"
         />
-      ))}
+      ) : null}
     </div>
   );
 }

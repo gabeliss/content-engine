@@ -79,7 +79,7 @@ export const list = query({
 
 export const createSlideshow = mutation({
   args: {
-    brandId: v.id("brands"),
+    brandId: v.optional(v.id("brands")),
     socialAccountId: v.optional(v.id("socialAccounts")),
     prompt: v.string(),
     requestedRenderingMode: requestedRenderingModeValidator(),
@@ -97,8 +97,10 @@ export const createSlideshow = mutation({
     const prompt = args.prompt.trim();
     if (!prompt) throw new Error("Prompt is required");
 
-    const brand = await ctx.db.get(args.brandId);
-    if (!brand || brand.userId !== userId) throw new Error("Brand not found");
+    if (args.brandId) {
+      const brand = await ctx.db.get(args.brandId);
+      if (!brand || brand.userId !== userId) throw new Error("Brand not found");
+    }
 
     if (args.socialAccountId) {
       const account = await ctx.db.get(args.socialAccountId);
@@ -108,7 +110,7 @@ export const createSlideshow = mutation({
     const referenceAssets = [];
     for (const reference of args.referenceAssets ?? []) {
       const asset = await ctx.db.get(reference.assetId);
-      if (!asset || asset.userId !== userId || asset.brandId !== args.brandId) {
+      if (!asset || asset.userId !== userId || (args.brandId && asset.brandId !== args.brandId)) {
         throw new Error("Reference asset not found");
       }
       const instruction = reference.instruction?.trim() || referenceInstructionFromMetadata(asset) || asset.description || "";
@@ -229,16 +231,20 @@ export const getExecutionContext = internalQuery({
     const request = await ctx.db.get(args.requestId);
     if (!request) return null;
 
-    const brand = await ctx.db.get(request.brandId);
+    const brand = request.brandId ? await ctx.db.get(request.brandId) : null;
     const socialAccount = request.socialAccountId
       ? await ctx.db.get(request.socialAccountId)
       : null;
 
-    if (!brand) return null;
+    if (request.brandId && !brand) return null;
     const referenceAssets = [];
     for (const reference of request.referenceAssets ?? []) {
       const asset = await ctx.db.get(reference.assetId);
-      if (!asset || asset.userId !== request.userId || asset.brandId !== request.brandId) continue;
+      if (
+        !asset ||
+        asset.userId !== request.userId ||
+        (request.brandId && asset.brandId !== request.brandId)
+      ) continue;
       referenceAssets.push({
         asset,
         instruction: reference.instruction,
@@ -272,7 +278,11 @@ export const getSlideRegenerationContext = internalQuery({
     const referenceAssets = [];
     for (const reference of request.referenceAssets ?? []) {
       const asset = await ctx.db.get(reference.assetId);
-      if (!asset || asset.userId !== args.userId || asset.brandId !== request.brandId) continue;
+      if (
+        !asset ||
+        asset.userId !== args.userId ||
+        (request.brandId && asset.brandId !== request.brandId)
+      ) continue;
       referenceAssets.push(asset);
     }
 

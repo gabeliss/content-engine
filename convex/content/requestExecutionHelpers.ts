@@ -75,7 +75,7 @@ export function referenceAssetIdsForSlide(
 export function planPromptForMode(args: {
   prompt: string;
   revisionPrompt?: string;
-  brand: Doc<"brands">;
+  brand?: Doc<"brands"> | null;
   socialAccount?: Doc<"socialAccounts"> | null;
   requestedRenderingMode: RequestedRenderingMode;
   references: PlannerReference[];
