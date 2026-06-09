@@ -9,6 +9,7 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
+import { ensureCurrentUser } from "../auth/users";
 import { storeGeneratedAsset } from "./assetStorage";
 import {
   IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
@@ -30,6 +31,10 @@ import type {
   ModelProvider,
 } from "../providers/model";
 import { contentRequestStatusValidator } from "../validators";
+import {
+  requireWorkspaceMember,
+  resolveWritableWorkspace,
+} from "../workspaces/workspaces";
 import { waitForGeneratedImage } from "../workflows/runtime/generationWaiters";
 import {
   createRequestArtifact,
@@ -66,9 +71,18 @@ function currentUserId(identity: { subject: string } | null) {
 }
 
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { workspaceId: v.optional(v.id("workspaces")) },
+  handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, userId);
+      return await ctx.db
+        .query("contentRequests")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect();
+    }
+
     return await ctx.db
       .query("contentRequests")
       .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -79,6 +93,7 @@ export const list = query({
 
 export const createSlideshow = mutation({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     socialAccountId: v.optional(v.id("socialAccounts")),
     prompt: v.string(),
@@ -93,24 +108,54 @@ export const createSlideshow = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = currentUserId(await ctx.auth.getUserIdentity());
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
     const prompt = args.prompt.trim();
     if (!prompt) throw new Error("Prompt is required");
 
+    const brand = args.brandId ? await ctx.db.get(args.brandId) : null;
     if (args.brandId) {
-      const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== userId) throw new Error("Brand not found");
+      if (!brand) throw new Error("Brand not found");
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+      } else if (brand.userId !== userId) {
+        throw new Error("Brand not found");
+      }
     }
 
+    const account = args.socialAccountId ? await ctx.db.get(args.socialAccountId) : null;
     if (args.socialAccountId) {
-      const account = await ctx.db.get(args.socialAccountId);
-      if (!account || account.userId !== userId) throw new Error("Social account not found");
+      if (!account) throw new Error("Social account not found");
+      if (account.workspaceId) {
+        await requireWorkspaceMember(ctx, account.workspaceId, userId);
+      } else if (account.userId !== userId) {
+        throw new Error("Social account not found");
+      }
+      if (brand && account.brandId && account.brandId !== brand._id) {
+        throw new Error("Social account does not belong to the selected brand");
+      }
+    }
+    const workspace = args.workspaceId || brand?.workspaceId || account?.workspaceId
+      ? await resolveWritableWorkspace(
+        ctx,
+        userId,
+        args.workspaceId ?? brand?.workspaceId ?? account?.workspaceId
+      )
+      : personalWorkspace;
+    if (brand?.workspaceId && brand.workspaceId !== workspace._id) {
+      throw new Error("Brand does not belong to this workspace");
+    }
+    if (account?.workspaceId && account.workspaceId !== workspace._id) {
+      throw new Error("Social account does not belong to this workspace");
     }
 
     const referenceAssets = [];
     for (const reference of args.referenceAssets ?? []) {
       const asset = await ctx.db.get(reference.assetId);
-      if (!asset || asset.userId !== userId || (args.brandId && asset.brandId !== args.brandId)) {
+      if (
+        !asset ||
+        (asset.workspaceId ? asset.workspaceId !== workspace._id : asset.userId !== userId) ||
+        (args.brandId && asset.brandId !== args.brandId)
+      ) {
         throw new Error("Reference asset not found");
       }
       const instruction = reference.instruction?.trim() || referenceInstructionFromMetadata(asset) || asset.description || "";
@@ -123,6 +168,7 @@ export const createSlideshow = mutation({
     const now = Date.now();
     const requestId = await ctx.db.insert("contentRequests", {
       userId,
+      workspaceId: workspace._id,
       brandId: args.brandId,
       socialAccountId: args.socialAccountId,
       contentFormat: "slideshow",
@@ -147,12 +193,17 @@ export const reviseSlideshow = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const request = await ctx.db.get(args.id);
-    if (!request || request.userId !== userId) throw new Error("Content request not found");
+    if (!request) throw new Error("Content request not found");
+    if (request.workspaceId) {
+      await requireWorkspaceMember(ctx, request.workspaceId, userId);
+    } else if (request.userId !== userId) {
+      throw new Error("Content request not found");
+    }
     const revisionPrompt = args.revisionPrompt.trim();
     if (!revisionPrompt) throw new Error("Revision prompt is required");
 
-    await deleteArtifactsForRequest(ctx, { requestId: args.id, userId });
-    await deleteSlideshowsForRequest(ctx, { requestId: args.id, userId });
+    await deleteArtifactsForRequest(ctx, { requestId: args.id, userId: request.userId });
+    await deleteSlideshowsForRequest(ctx, { requestId: args.id, userId: request.userId });
     await ctx.db.patch(args.id, {
       revisionPrompt,
       status: "queued",
@@ -171,7 +222,14 @@ export const save = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const request = await ctx.db.get(args.id);
-    if (!request || request.userId !== userId) throw new Error("Content request not found");
+    if (!request) throw new Error("Content request not found");
+    if (request.workspaceId) {
+      await requireWorkspaceMember(ctx, request.workspaceId, userId);
+    } else if (request.userId !== userId) {
+      throw new Error("Content request not found");
+    }
+    const ownsRequestChild = (row: { userId: string; workspaceId?: Id<"workspaces"> }) =>
+      request.workspaceId ? row.workspaceId === request.workspaceId : row.userId === userId;
 
     const now = Date.now();
     const artifacts = await ctx.db
@@ -180,7 +238,7 @@ export const save = mutation({
       .collect();
 
     for (const artifact of artifacts) {
-      if (artifact.userId !== userId) continue;
+      if (!ownsRequestChild(artifact)) continue;
       await ctx.db.patch(artifact._id, {
         lifecycle: "saved",
         reviewStatus: "approved",
@@ -193,7 +251,7 @@ export const save = mutation({
       .withIndex("by_content_request", (q) => q.eq("contentRequestId", args.id))
       .collect();
     for (const slideshow of slideshows) {
-      if (slideshow.userId !== userId) continue;
+      if (!ownsRequestChild(slideshow)) continue;
       await ctx.db.patch(slideshow._id, {
         status: "saved",
         savedAt: now,
@@ -214,10 +272,15 @@ export const discard = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const request = await ctx.db.get(args.id);
-    if (!request || request.userId !== userId) throw new Error("Content request not found");
+    if (!request) throw new Error("Content request not found");
+    if (request.workspaceId) {
+      await requireWorkspaceMember(ctx, request.workspaceId, userId);
+    } else if (request.userId !== userId) {
+      throw new Error("Content request not found");
+    }
 
-    await deleteArtifactsForRequest(ctx, { requestId: args.id, userId });
-    await deleteSlideshowsForRequest(ctx, { requestId: args.id, userId });
+    await deleteArtifactsForRequest(ctx, { requestId: args.id, userId: request.userId });
+    await deleteSlideshowsForRequest(ctx, { requestId: args.id, userId: request.userId });
     await ctx.db.patch(args.id, {
       status: "discarded",
       updatedAt: Date.now(),
@@ -242,7 +305,9 @@ export const getExecutionContext = internalQuery({
       const asset = await ctx.db.get(reference.assetId);
       if (
         !asset ||
-        asset.userId !== request.userId ||
+        (asset.workspaceId
+          ? asset.workspaceId !== request.workspaceId
+          : asset.userId !== request.userId) ||
         (request.brandId && asset.brandId !== request.brandId)
       ) continue;
       referenceAssets.push({

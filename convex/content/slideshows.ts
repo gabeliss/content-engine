@@ -7,6 +7,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { publishingProviderValidator, slideshowStatusValidator } from "../validators";
+import { requireWorkspaceMember } from "../workspaces/workspaces";
 
 const DEFAULT_PUBLISHING_PROVIDER = "postiz";
 
@@ -17,30 +18,58 @@ function currentUserId(identity: { subject: string } | null) {
 
 export const list = query({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     contentRequestId: v.optional(v.id("contentRequests")),
     workflowRunId: v.optional(v.id("workflowRuns")),
   },
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
 
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, userId);
+      return await ctx.db
+        .query("slideshows")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect();
+    }
+
     if (args.contentRequestId) {
+      const request = await ctx.db.get(args.contentRequestId);
+      if (!request) return [];
+      if (request.workspaceId) {
+        await requireWorkspaceMember(ctx, request.workspaceId, userId);
+      } else if (request.userId !== userId) {
+        return [];
+      }
       const rows = await ctx.db
         .query("slideshows")
         .withIndex("by_content_request", (q) =>
           q.eq("contentRequestId", args.contentRequestId!)
         )
         .collect();
-      return rows.filter((row) => row.userId === userId);
+      return rows.filter((row) =>
+        request.workspaceId ? row.workspaceId === request.workspaceId : row.userId === userId
+      );
     }
 
     if (args.workflowRunId) {
+      const run = await ctx.db.get(args.workflowRunId);
+      if (!run) return [];
+      if (run.workspaceId) {
+        await requireWorkspaceMember(ctx, run.workspaceId, userId);
+      } else if (run.userId !== userId) {
+        return [];
+      }
       const rows = await ctx.db
         .query("slideshows")
         .withIndex("by_workflow_run", (q) =>
           q.eq("workflowRunId", args.workflowRunId!)
         )
         .collect();
-      return rows.filter((row) => row.userId === userId);
+      return rows.filter((row) =>
+        run.workspaceId ? row.workspaceId === run.workspaceId : row.userId === userId
+      );
     }
 
     return await ctx.db
@@ -75,6 +104,7 @@ export const listForContentRequest = internalQuery({
 export const createFromRunner = internalMutation({
   args: {
     userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     socialAccountId: v.optional(v.id("socialAccounts")),
     contentRequestId: v.optional(v.id("contentRequests")),
@@ -85,9 +115,20 @@ export const createFromRunner = internalMutation({
     spec: v.any(),
   },
   handler: async (ctx, args) => {
+    const request = args.contentRequestId ? await ctx.db.get(args.contentRequestId) : null;
+    const run = args.workflowRunId ? await ctx.db.get(args.workflowRunId) : null;
+    const workflow = args.workflowId ? await ctx.db.get(args.workflowId) : null;
+    const brand = args.brandId ? await ctx.db.get(args.brandId) : null;
+    const workspaceId =
+      args.workspaceId ??
+      request?.workspaceId ??
+      run?.workspaceId ??
+      workflow?.workspaceId ??
+      brand?.workspaceId;
     const now = Date.now();
     return await ctx.db.insert("slideshows", {
       ...args,
+      workspaceId,
       status: args.status ?? "preview",
       createdAt: now,
       updatedAt: now,
@@ -127,7 +168,12 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const slideshow = await ctx.db.get(args.id);
-    if (!slideshow || slideshow.userId !== userId) {
+    if (!slideshow) {
+      throw new Error("Slideshow not found");
+    }
+    if (slideshow.workspaceId) {
+      await requireWorkspaceMember(ctx, slideshow.workspaceId, userId);
+    } else if (slideshow.userId !== userId) {
       throw new Error("Slideshow not found");
     }
     await ctx.db.delete(args.id);
@@ -157,7 +203,12 @@ export const createDraftDistributionPlanFromRenderedSlides = mutation({
   handler: async (ctx, args): Promise<Id<"distributionPlans">> => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const slideshow = await ctx.db.get(args.slideshowId);
-    if (!slideshow || slideshow.userId !== userId) {
+    if (!slideshow) {
+      throw new Error("Slideshow not found");
+    }
+    if (slideshow.workspaceId) {
+      await requireWorkspaceMember(ctx, slideshow.workspaceId, userId);
+    } else if (slideshow.userId !== userId) {
       throw new Error("Slideshow not found");
     }
     if (slideshow.status !== "saved") {
@@ -172,7 +223,12 @@ export const createDraftDistributionPlanFromRenderedSlides = mutation({
     );
     for (const socialAccountId of socialAccountIds) {
       const account = await ctx.db.get(socialAccountId);
-      if (!account || account.userId !== userId) {
+      if (
+        !account ||
+        (slideshow.workspaceId
+          ? account.workspaceId !== slideshow.workspaceId
+          : account.userId !== userId)
+      ) {
         throw new Error("Social account not found");
       }
     }
@@ -182,7 +238,12 @@ export const createDraftDistributionPlanFromRenderedSlides = mutation({
     for (const slide of [...args.slides].sort((first, second) => first.index - second.index)) {
       if (slide.sourceImageArtifactId) {
         const sourceArtifact = await ctx.db.get(slide.sourceImageArtifactId);
-        if (!sourceArtifact || sourceArtifact.userId !== userId) {
+        if (
+          !sourceArtifact ||
+          (slideshow.workspaceId
+            ? sourceArtifact.workspaceId !== slideshow.workspaceId
+            : sourceArtifact.userId !== userId)
+        ) {
           throw new Error("Source image artifact not found");
         }
       }
@@ -192,6 +253,7 @@ export const createDraftDistributionPlanFromRenderedSlides = mutation({
       artifactIds.push(
         await ctx.db.insert("artifacts", {
           userId,
+          workspaceId: slideshow.workspaceId,
           brandId: slideshow.brandId,
           contentRequestId: slideshow.contentRequestId,
           workflowId: slideshow.workflowId,
@@ -225,6 +287,7 @@ export const createDraftDistributionPlanFromRenderedSlides = mutation({
     const caption = args.caption?.trim() || slideshow.title;
     return await ctx.db.insert("distributionPlans", {
       userId,
+      workspaceId: slideshow.workspaceId,
       brandId: slideshow.brandId,
       workflowId: slideshow.workflowId,
       workflowRunId: slideshow.workflowRunId,

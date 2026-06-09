@@ -5,6 +5,7 @@ import {
   mutation,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -14,6 +15,33 @@ import {
   reviewStatusValidator,
 } from "../validators";
 import { ensureCurrentUser } from "../auth/users";
+import {
+  requireWorkspaceMember,
+  resolveWritableWorkspace,
+} from "../workspaces/workspaces";
+
+type WorkspaceOwnedRecord = {
+  userId: string;
+  workspaceId?: Id<"workspaces">;
+};
+
+async function hasRecordAccess(
+  ctx: QueryCtx | MutationCtx,
+  record: WorkspaceOwnedRecord,
+  userId: string
+) {
+  if (record.workspaceId) {
+    await requireWorkspaceMember(ctx, record.workspaceId, userId);
+    return true;
+  }
+  return record.userId === userId;
+}
+
+function sameOwnershipScope(record: WorkspaceOwnedRecord, scope: WorkspaceOwnedRecord) {
+  return scope.workspaceId
+    ? record.workspaceId === scope.workspaceId
+    : record.userId === scope.userId;
+}
 
 function reviewResolution(
   artifacts: Array<{ reviewStatus: string } | null>
@@ -147,6 +175,7 @@ async function reconcileApprovalForArtifact(
     if (resolution !== "pending" && statusChanged) {
       await ctx.db.insert("workflowRunEvents", {
         userId: artifact.userId,
+        workspaceId: artifact.workspaceId,
         workflowRunId: artifact.workflowRunId,
         workflowId: artifact.workflowId,
         type: "approval_resolved",
@@ -166,6 +195,7 @@ async function reconcileApprovalForArtifact(
 
 export const list = query({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     contentRequestId: v.optional(v.id("contentRequests")),
     workflowRunId: v.optional(v.id("workflowRuns")),
@@ -176,9 +206,19 @@ export const list = query({
     if (!identity) return [];
     const userId = identity.subject;
 
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, userId);
+      const artifacts = await ctx.db
+        .query("artifacts")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect();
+      return artifacts.filter((artifact) => args.includeDebug || isLibraryArtifact(artifact));
+    }
+
     if (args.workflowRunId) {
       const run = await ctx.db.get(args.workflowRunId);
-      if (!run || run.userId !== userId) return [];
+      if (!run || !(await hasRecordAccess(ctx, run, userId))) return [];
 
       const artifacts = await ctx.db
         .query("artifacts")
@@ -186,12 +226,12 @@ export const list = query({
           q.eq("workflowRunId", args.workflowRunId!)
         )
         .collect();
-      return artifacts.filter((artifact) => artifact.userId === userId);
+      return artifacts.filter((artifact) => sameOwnershipScope(artifact, run));
     }
 
     if (args.contentRequestId) {
       const request = await ctx.db.get(args.contentRequestId);
-      if (!request || request.userId !== userId) return [];
+      if (!request || !(await hasRecordAccess(ctx, request, userId))) return [];
 
       const artifacts = await ctx.db
         .query("artifacts")
@@ -201,14 +241,14 @@ export const list = query({
         .collect();
       return artifacts.filter(
         (artifact) =>
-          artifact.userId === userId &&
+          sameOwnershipScope(artifact, request) &&
           (args.includeDebug || isLibraryArtifact(artifact))
       );
     }
 
     if (args.brandId) {
       const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== userId) return [];
+      if (!brand || !(await hasRecordAccess(ctx, brand, userId))) return [];
 
       const artifacts = await ctx.db
         .query("artifacts")
@@ -216,7 +256,7 @@ export const list = query({
         .collect();
       return artifacts.filter(
         (artifact) =>
-          artifact.userId === userId &&
+          sameOwnershipScope(artifact, brand) &&
           (args.includeDebug || isLibraryArtifact(artifact))
       );
     }
@@ -258,7 +298,9 @@ export const getRegenerationContext = internalQuery({
   },
   handler: async (ctx, args) => {
     const artifact = await ctx.db.get(args.artifactId);
-    if (!artifact || artifact.userId !== args.userId) return null;
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, args.userId))) {
+      return null;
+    }
 
     const parentArtifacts = await Promise.all(
       (artifact.parentArtifactIds ?? []).map((parentArtifactId) =>
@@ -273,7 +315,7 @@ export const getRegenerationContext = internalQuery({
       artifact,
       parentArtifacts: parentArtifacts.filter(
         (parentArtifact): parentArtifact is Doc<"artifacts"> =>
-          Boolean(parentArtifact && parentArtifact.userId === args.userId)
+          Boolean(parentArtifact && sameOwnershipScope(parentArtifact, artifact))
       ),
       workflow,
     };
@@ -282,6 +324,7 @@ export const getRegenerationContext = internalQuery({
 
 export const create = mutation({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     contentRequestId: v.optional(v.id("contentRequests")),
     workflowId: v.optional(v.id("workflows")),
@@ -298,12 +341,32 @@ export const create = mutation({
     reviewStatus: v.optional(reviewStatusValidator),
   },
   handler: async (ctx, args) => {
-    const { userId } = await ensureCurrentUser(ctx);
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
+    const linkedRequest = args.contentRequestId ? await ctx.db.get(args.contentRequestId) : null;
+    const linkedRun = args.workflowRunId ? await ctx.db.get(args.workflowRunId) : null;
+    const linkedWorkflow = args.workflowId ? await ctx.db.get(args.workflowId) : null;
+    const linkedBrand = args.brandId ? await ctx.db.get(args.brandId) : null;
+    const workspace = args.workspaceId ||
+      linkedRequest?.workspaceId ||
+      linkedRun?.workspaceId ||
+      linkedWorkflow?.workspaceId ||
+      linkedBrand?.workspaceId
+      ? await resolveWritableWorkspace(
+        ctx,
+        userId,
+        args.workspaceId ??
+          linkedRequest?.workspaceId ??
+          linkedRun?.workspaceId ??
+          linkedWorkflow?.workspaceId ??
+          linkedBrand?.workspaceId
+      )
+      : personalWorkspace;
 
     const now = Date.now();
     return await ctx.db.insert("artifacts", {
       userId,
       ...args,
+      workspaceId: workspace._id,
       reviewStatus: args.reviewStatus ?? "not_required",
       createdAt: now,
       updatedAt: now,
@@ -314,6 +377,7 @@ export const create = mutation({
 export const createFromRunner = internalMutation({
   args: {
     userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     contentRequestId: v.optional(v.id("contentRequests")),
     workflowId: v.optional(v.id("workflows")),
@@ -330,9 +394,20 @@ export const createFromRunner = internalMutation({
     reviewStatus: v.optional(reviewStatusValidator),
   },
   handler: async (ctx, args) => {
+    const linkedRequest = args.contentRequestId ? await ctx.db.get(args.contentRequestId) : null;
+    const linkedRun = args.workflowRunId ? await ctx.db.get(args.workflowRunId) : null;
+    const linkedWorkflow = args.workflowId ? await ctx.db.get(args.workflowId) : null;
+    const linkedBrand = args.brandId ? await ctx.db.get(args.brandId) : null;
+    const workspaceId =
+      args.workspaceId ??
+      linkedRequest?.workspaceId ??
+      linkedRun?.workspaceId ??
+      linkedWorkflow?.workspaceId ??
+      linkedBrand?.workspaceId;
     const now = Date.now();
     return await ctx.db.insert("artifacts", {
       ...args,
+      workspaceId,
       reviewStatus: args.reviewStatus ?? "not_required",
       createdAt: now,
       updatedAt: now,
@@ -350,7 +425,7 @@ export const updateFromRunner = internalMutation({
   },
   handler: async (ctx, args) => {
     const artifact = await ctx.db.get(args.artifactId);
-    if (!artifact || artifact.userId !== args.userId) {
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, args.userId))) {
       throw new Error("Artifact not found");
     }
 
@@ -376,7 +451,7 @@ export const setReviewStatus = mutation({
     const { userId } = await ensureCurrentUser(ctx);
 
     const artifact = await ctx.db.get(args.id);
-    if (!artifact || artifact.userId !== userId) {
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, userId))) {
       throw new Error("Artifact not found");
     }
 
@@ -399,7 +474,7 @@ export const saveToLibrary = mutation({
     const { userId } = await ensureCurrentUser(ctx);
 
     const artifact = await ctx.db.get(args.id);
-    if (!artifact || artifact.userId !== userId) {
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, userId))) {
       throw new Error("Artifact not found");
     }
 
@@ -420,7 +495,7 @@ export const requestRevision = mutation({
     const { userId } = await ensureCurrentUser(ctx);
 
     const artifact = await ctx.db.get(args.id);
-    if (!artifact || artifact.userId !== userId) {
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, userId))) {
       throw new Error("Artifact not found");
     }
 
@@ -440,6 +515,7 @@ export const requestRevision = mutation({
     if (artifact.workflowRunId && artifact.workflowId) {
       await ctx.db.insert("workflowRunEvents", {
         userId: artifact.userId,
+        workspaceId: artifact.workspaceId,
         workflowRunId: artifact.workflowRunId,
         workflowId: artifact.workflowId,
         type: "revision_requested",
@@ -467,7 +543,7 @@ export const remove = mutation({
     const { userId } = await ensureCurrentUser(ctx);
 
     const artifact = await ctx.db.get(args.id);
-    if (!artifact || artifact.userId !== userId) {
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, userId))) {
       throw new Error("Artifact not found");
     }
 
@@ -480,7 +556,7 @@ export const remove = mutation({
         .collect();
 
       for (const plan of plans) {
-        if (plan.userId !== userId) continue;
+        if (!sameOwnershipScope(plan, artifact)) continue;
         if (!plan.artifactIds.some((artifactId) => artifactId === args.id)) {
           continue;
         }

@@ -153,6 +153,7 @@ export async function createRequestArtifact(
 ): Promise<Id<"artifacts">> {
   return await ctx.runMutation(internal.artifacts.records.createFromRunner, {
     userId: args.request.userId,
+    workspaceId: args.request.workspaceId,
     brandId: args.request.brandId,
     contentRequestId: args.request._id,
     parentArtifactIds: args.parentArtifactIds,

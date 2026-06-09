@@ -1,5 +1,10 @@
 import { v } from "convex/values";
 import { internalQuery, mutation, query } from "../_generated/server";
+import { ensureCurrentUser } from "../auth/users";
+import {
+  requireWorkspaceMember,
+  resolveWritableWorkspace,
+} from "../workspaces/workspaces";
 
 const brandFields = {
   name: v.string(),
@@ -15,15 +20,27 @@ const brandFields = {
 };
 
 export const list = query({
-  handler: async (ctx) => {
+  args: { workspaceId: v.optional(v.id("workspaces")) },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
 
-    return await ctx.db
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, identity.subject);
+      return await ctx.db
+        .query("brands")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect();
+    }
+
+    const userBrands = await ctx.db
       .query("brands")
       .withIndex("by_user", (q) => q.eq("userId", identity.subject))
       .order("desc")
       .collect();
+
+    return userBrands;
   },
 });
 
@@ -34,7 +51,12 @@ export const get = query({
     if (!identity) return null;
 
     const brand = await ctx.db.get(args.id);
-    if (!brand || brand.userId !== identity.subject) return null;
+    if (!brand) return null;
+    if (brand.workspaceId) {
+      await requireWorkspaceMember(ctx, brand.workspaceId, identity.subject);
+    } else if (brand.userId !== identity.subject) {
+      return null;
+    }
 
     return brand;
   },
@@ -48,15 +70,23 @@ export const getForRunner = internalQuery({
 });
 
 export const create = mutation({
-  args: brandFields,
+  args: {
+    workspaceId: v.optional(v.id("workspaces")),
+    ...brandFields,
+  },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
+    const workspace = args.workspaceId
+      ? await resolveWritableWorkspace(ctx, userId, args.workspaceId)
+      : personalWorkspace;
+    const { workspaceId, ...brandArgs } = args;
+    void workspaceId;
 
     const now = Date.now();
     return await ctx.db.insert("brands", {
-      userId: identity.subject,
-      ...args,
+      userId,
+      workspaceId: workspace._id,
+      ...brandArgs,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -84,7 +114,12 @@ export const update = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const brand = await ctx.db.get(args.id);
-    if (!brand || brand.userId !== identity.subject) {
+    if (!brand) {
+      throw new Error("Brand not found");
+    }
+    if (brand.workspaceId) {
+      await requireWorkspaceMember(ctx, brand.workspaceId, identity.subject);
+    } else if (brand.userId !== identity.subject) {
       throw new Error("Brand not found");
     }
 
@@ -109,7 +144,12 @@ export const remove = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const brand = await ctx.db.get(args.id);
-    if (!brand || brand.userId !== identity.subject) {
+    if (!brand) {
+      throw new Error("Brand not found");
+    }
+    if (brand.workspaceId) {
+      await requireWorkspaceMember(ctx, brand.workspaceId, identity.subject);
+    } else if (brand.userId !== identity.subject) {
       throw new Error("Brand not found");
     }
 

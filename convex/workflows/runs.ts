@@ -7,23 +7,41 @@ import {
   workflowRunProviderJobValidator,
   workflowRunStatusValidator,
 } from "../validators";
+import { requireWorkspaceMember } from "../workspaces/workspaces";
 import { createWorkflowRun } from "./runCreation";
 
 const terminalNodeStatuses = new Set(["succeeded", "failed", "blocked", "skipped"]);
 
 export const list = query({
-  args: { workflowId: v.optional(v.id("workflows")) },
+  args: {
+    workspaceId: v.optional(v.id("workspaces")),
+    workflowId: v.optional(v.id("workflows")),
+  },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
 
     if (args.workflowId) {
       const workflow = await ctx.db.get(args.workflowId);
-      if (!workflow || workflow.userId !== identity.subject) return [];
+      if (!workflow) return [];
+      if (workflow.workspaceId) {
+        await requireWorkspaceMember(ctx, workflow.workspaceId, identity.subject);
+      } else if (workflow.userId !== identity.subject) {
+        return [];
+      }
 
       return await ctx.db
         .query("workflowRuns")
         .withIndex("by_workflow", (q) => q.eq("workflowId", args.workflowId!))
+        .order("desc")
+        .collect();
+    }
+
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, identity.subject);
+      return await ctx.db
+        .query("workflowRuns")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .order("desc")
         .collect();
     }
@@ -43,7 +61,12 @@ export const getEvents = query({
     if (!identity) return [];
 
     const run = await ctx.db.get(args.workflowRunId);
-    if (!run || run.userId !== identity.subject) return [];
+    if (!run) return [];
+    if (run.workspaceId) {
+      await requireWorkspaceMember(ctx, run.workspaceId, identity.subject);
+    } else if (run.userId !== identity.subject) {
+      return [];
+    }
 
     return await ctx.db
       .query("workflowRunEvents")
@@ -59,7 +82,12 @@ export const getNodeStates = query({
     if (!identity) return [];
 
     const run = await ctx.db.get(args.workflowRunId);
-    if (!run || run.userId !== identity.subject) return [];
+    if (!run) return [];
+    if (run.workspaceId) {
+      await requireWorkspaceMember(ctx, run.workspaceId, identity.subject);
+    } else if (run.userId !== identity.subject) {
+      return [];
+    }
 
     const states = await ctx.db
       .query("workflowRunNodeStates")
@@ -77,7 +105,12 @@ export const createManualRun = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const workflow = await ctx.db.get(args.workflowId);
-    if (!workflow || workflow.userId !== identity.subject) {
+    if (!workflow) {
+      throw new Error("Workflow not found");
+    }
+    if (workflow.workspaceId) {
+      await requireWorkspaceMember(ctx, workflow.workspaceId, identity.subject);
+    } else if (workflow.userId !== identity.subject) {
       throw new Error("Workflow not found");
     }
 
@@ -95,16 +128,23 @@ export const remove = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const run = await ctx.db.get(args.id);
-    if (!run || run.userId !== identity.subject) {
+    if (!run) {
       throw new Error("Workflow run not found");
     }
+    if (run.workspaceId) {
+      await requireWorkspaceMember(ctx, run.workspaceId, identity.subject);
+    } else if (run.userId !== identity.subject) {
+      throw new Error("Workflow run not found");
+    }
+    const ownsChild = (child: { userId: string; workspaceId?: typeof run.workspaceId }) =>
+      run.workspaceId ? child.workspaceId === run.workspaceId : child.userId === identity.subject;
 
     const metrics = await ctx.db
       .query("postMetrics")
       .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.id))
       .collect();
     for (const metric of metrics) {
-      if (metric.userId === identity.subject) {
+      if (ownsChild(metric)) {
         await ctx.db.delete(metric._id);
       }
     }
@@ -114,7 +154,7 @@ export const remove = mutation({
       .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.id))
       .collect();
     for (const plan of plans) {
-      if (plan.userId === identity.subject) {
+      if (ownsChild(plan)) {
         await ctx.db.delete(plan._id);
       }
     }
@@ -124,7 +164,7 @@ export const remove = mutation({
       .withIndex("by_workflow_run", (q) => q.eq("workflowRunId", args.id))
       .collect();
     for (const artifact of artifacts) {
-      if (artifact.userId === identity.subject) {
+      if (ownsChild(artifact)) {
         await ctx.db.delete(artifact._id);
       }
     }
@@ -134,7 +174,7 @@ export const remove = mutation({
       .withIndex("by_run", (q) => q.eq("workflowRunId", args.id))
       .collect();
     for (const event of events) {
-      if (event.userId === identity.subject) {
+      if (ownsChild(event)) {
         await ctx.db.delete(event._id);
       }
     }
@@ -144,7 +184,7 @@ export const remove = mutation({
       .withIndex("by_run", (q) => q.eq("workflowRunId", args.id))
       .collect();
     for (const nodeState of nodeStates) {
-      if (nodeState.userId === identity.subject) {
+      if (ownsChild(nodeState)) {
         await ctx.db.delete(nodeState._id);
       }
     }
@@ -306,8 +346,10 @@ export const recordEvent = internalMutation({
     data: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.workflowRunId);
     await ctx.db.insert("workflowRunEvents", {
       ...args,
+      workspaceId: run?.workspaceId,
       createdAt: Date.now(),
     });
   },

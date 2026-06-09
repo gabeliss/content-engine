@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import { action, internalMutation, mutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { ensureCurrentUser } from "../auth/users";
 import { getPublishingProvider } from "../providers";
+import {
+  requireWorkspaceMember,
+  resolveWritableWorkspace,
+} from "../workspaces/workspaces";
 import {
   platformValidator,
   publishingProviderValidator,
@@ -9,9 +14,19 @@ import {
 } from "../validators";
 
 export const list = query({
-  handler: async (ctx) => {
+  args: { workspaceId: v.optional(v.id("workspaces")) },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
+
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, identity.subject);
+      return await ctx.db
+        .query("socialAccounts")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect();
+    }
 
     return await ctx.db
       .query("socialAccounts")
@@ -28,7 +43,12 @@ export const listByBrand = query({
     if (!identity) return [];
 
     const brand = await ctx.db.get(args.brandId);
-    if (!brand || brand.userId !== identity.subject) return [];
+    if (!brand) return [];
+    if (brand.workspaceId) {
+      await requireWorkspaceMember(ctx, brand.workspaceId, identity.subject);
+    } else if (brand.userId !== identity.subject) {
+      return [];
+    }
 
     return await ctx.db
       .query("socialAccounts")
@@ -68,6 +88,7 @@ function normalizePlatform(platform: string):
 export const syncProviderAccounts = action({
   args: {
     provider: publishingProviderValidator,
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
   },
   handler: async (ctx, args) => {
@@ -96,6 +117,7 @@ export const syncProviderAccounts = action({
 
     await ctx.runMutation(internal.accounts.socialAccounts.upsertSyncedAccounts, {
       userId: identity.subject,
+      workspaceId: args.workspaceId,
       brandId: args.brandId,
       provider: args.provider,
       accounts,
@@ -113,6 +135,7 @@ export const syncProviderAccounts = action({
 
 export const upsertManual = mutation({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     provider: publishingProviderValidator,
     platform: platformValidator,
@@ -125,14 +148,24 @@ export const upsertManual = mutation({
     metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
 
+    const brand = args.brandId ? await ctx.db.get(args.brandId) : null;
     if (args.brandId) {
-      const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== identity.subject) {
+      if (!brand) {
         throw new Error("Brand not found");
       }
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+      } else if (brand.userId !== userId) {
+        throw new Error("Brand not found");
+      }
+    }
+    const workspace = args.workspaceId || brand?.workspaceId
+      ? await resolveWritableWorkspace(ctx, userId, args.workspaceId ?? brand?.workspaceId)
+      : personalWorkspace;
+    if (brand?.workspaceId && brand.workspaceId !== workspace._id) {
+      throw new Error("Brand does not belong to this workspace");
     }
 
     const now = Date.now();
@@ -141,10 +174,11 @@ export const upsertManual = mutation({
       .withIndex("by_external_account", (q) =>
         q.eq("provider", args.provider).eq("externalAccountId", args.externalAccountId)
       )
-      .filter((q) => q.eq(q.field("userId"), identity.subject))
+      .filter((q) => q.eq(q.field("userId"), userId))
       .first();
 
     const accountFields = {
+      workspaceId: workspace._id,
       brandId: args.brandId,
       provider: args.provider,
       platform: args.platform,
@@ -165,7 +199,7 @@ export const upsertManual = mutation({
     }
 
     return await ctx.db.insert("socialAccounts", {
-      userId: identity.subject,
+      userId,
       ...accountFields,
       createdAt: now,
     });
@@ -175,6 +209,7 @@ export const upsertManual = mutation({
 export const upsertSyncedAccounts = internalMutation({
   args: {
     userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     provider: publishingProviderValidator,
     syncedAt: v.number(),
@@ -192,12 +227,22 @@ export const upsertSyncedAccounts = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const brand = args.brandId ? await ctx.db.get(args.brandId) : null;
     if (args.brandId) {
-      const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== args.userId) {
+      if (!brand) {
+        throw new Error("Brand not found");
+      }
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, args.userId);
+      } else if (brand.userId !== args.userId) {
         throw new Error("Brand not found");
       }
     }
+    const workspace = await resolveWritableWorkspace(
+      ctx,
+      args.userId,
+      args.workspaceId ?? brand?.workspaceId
+    );
 
     const existingAccounts = await ctx.db
       .query("socialAccounts")
@@ -213,6 +258,7 @@ export const upsertSyncedAccounts = internalMutation({
     for (const account of args.accounts) {
       const existing = existingByExternalId.get(account.externalAccountId);
       const fields = {
+        workspaceId: workspace._id,
         brandId: args.brandId ?? existing?.brandId,
         provider: args.provider,
         platform: account.platform,
@@ -259,14 +305,27 @@ export const assignBrand = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const account = await ctx.db.get(args.id);
-    if (!account || account.userId !== identity.subject) {
+    if (!account) {
+      throw new Error("Social account not found");
+    }
+    if (account.workspaceId) {
+      await requireWorkspaceMember(ctx, account.workspaceId, identity.subject);
+    } else if (account.userId !== identity.subject) {
       throw new Error("Social account not found");
     }
 
     if (args.brandId) {
       const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== identity.subject) {
+      if (!brand) {
         throw new Error("Brand not found");
+      }
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, identity.subject);
+      } else if (brand.userId !== identity.subject) {
+        throw new Error("Brand not found");
+      }
+      if (account.workspaceId && brand.workspaceId && account.workspaceId !== brand.workspaceId) {
+        throw new Error("Brand does not belong to this account workspace");
       }
     }
 
@@ -284,7 +343,12 @@ export const remove = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const account = await ctx.db.get(args.id);
-    if (!account || account.userId !== identity.subject) {
+    if (!account) {
+      throw new Error("Social account not found");
+    }
+    if (account.workspaceId) {
+      await requireWorkspaceMember(ctx, account.workspaceId, identity.subject);
+    } else if (account.userId !== identity.subject) {
       throw new Error("Social account not found");
     }
 

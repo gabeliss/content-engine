@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { ensureCurrentUser } from "../auth/users";
+import { requireWorkspaceMember } from "../workspaces/workspaces";
 import { personaTypeValidator } from "../validators";
 
 type PersonaAssetField = "sourceAssetIds" | "generatedAssetIds" | "voiceAssetIds";
@@ -16,7 +18,12 @@ async function assertOwnedBrand(
   userId: string
 ) {
   const brand = await ctx.db.get(brandId);
-  if (!brand || brand.userId !== userId) throw new Error("Brand not found");
+  if (!brand) throw new Error("Brand not found");
+  if (brand.workspaceId) {
+    await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+  } else if (brand.userId !== userId) {
+    throw new Error("Brand not found");
+  }
   return brand;
 }
 
@@ -30,6 +37,7 @@ async function validateCreativeAssets(
     assetIds: Id<"creativeAssets">[];
     userId: string;
     brandId: Id<"brands">;
+    workspaceId?: Id<"workspaces">;
     field: PersonaAssetField;
   }
 ) {
@@ -37,7 +45,13 @@ async function validateCreativeAssets(
   const assets = await Promise.all(assetIds.map((assetId) => ctx.db.get(assetId)));
 
   for (const asset of assets) {
-    if (!asset || asset.userId !== args.userId || asset.brandId !== args.brandId) {
+    if (
+      !asset ||
+      asset.brandId !== args.brandId ||
+      (asset.workspaceId
+        ? asset.workspaceId !== args.workspaceId
+        : asset.userId !== args.userId)
+    ) {
       throw new Error("Persona asset not found");
     }
 
@@ -80,16 +94,33 @@ function personaSummary(persona: Doc<"personas">) {
 }
 
 export const list = query({
-  args: { brandId: v.optional(v.id("brands")) },
+  args: {
+    workspaceId: v.optional(v.id("workspaces")),
+    brandId: v.optional(v.id("brands")),
+  },
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
 
     if (args.brandId) {
       const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== userId) return [];
+      if (!brand) return [];
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+      } else if (brand.userId !== userId) {
+        return [];
+      }
       return await ctx.db
         .query("personas")
         .withIndex("by_brand", (q) => q.eq("brandId", args.brandId!))
+        .order("desc")
+        .collect();
+    }
+
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, userId);
+      return await ctx.db
+        .query("personas")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .order("desc")
         .collect();
     }
@@ -107,7 +138,12 @@ export const get = query({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const persona = await ctx.db.get(args.id);
-    if (!persona || persona.userId !== userId) return null;
+    if (!persona) return null;
+    if (persona.workspaceId) {
+      await requireWorkspaceMember(ctx, persona.workspaceId, userId);
+    } else if (persona.userId !== userId) {
+      return null;
+    }
     return persona;
   },
 });
@@ -127,8 +163,9 @@ export const create = mutation({
     metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const userId = currentUserId(await ctx.auth.getUserIdentity());
-    await assertOwnedBrand(ctx, args.brandId, userId);
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
+    const brand = await assertOwnedBrand(ctx, args.brandId, userId);
+    const workspaceId = brand.workspaceId ?? personalWorkspace._id;
 
     const name = args.name.trim();
     if (!name) throw new Error("Persona name is required");
@@ -137,24 +174,28 @@ export const create = mutation({
       assetIds: args.sourceAssetIds ?? [],
       userId,
       brandId: args.brandId,
+      workspaceId,
       field: "sourceAssetIds",
     });
     const generatedAssetIds = await validateCreativeAssets(ctx, {
       assetIds: args.generatedAssetIds ?? [],
       userId,
       brandId: args.brandId,
+      workspaceId,
       field: "generatedAssetIds",
     });
     const voiceAssetIds = await validateCreativeAssets(ctx, {
       assetIds: args.voiceAssetIds ?? [],
       userId,
       brandId: args.brandId,
+      workspaceId,
       field: "voiceAssetIds",
     });
 
     const now = Date.now();
     return await ctx.db.insert("personas", {
       userId,
+      workspaceId,
       brandId: args.brandId,
       name,
       personaType: args.personaType ?? "ai_influencer",
@@ -189,8 +230,14 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const persona = await ctx.db.get(args.id);
-    if (!persona || persona.userId !== userId) throw new Error("Persona not found");
-    await assertOwnedBrand(ctx, persona.brandId, userId);
+    if (!persona) throw new Error("Persona not found");
+    if (persona.workspaceId) {
+      await requireWorkspaceMember(ctx, persona.workspaceId, userId);
+    } else if (persona.userId !== userId) {
+      throw new Error("Persona not found");
+    }
+    const brand = await assertOwnedBrand(ctx, persona.brandId, userId);
+    const workspaceId = persona.workspaceId ?? brand.workspaceId;
 
     const patch: Partial<Doc<"personas">> = {
       updatedAt: Date.now(),
@@ -212,6 +259,7 @@ export const update = mutation({
         assetIds: args.sourceAssetIds,
         userId,
         brandId: persona.brandId,
+        workspaceId,
         field: "sourceAssetIds",
       });
     }
@@ -220,6 +268,7 @@ export const update = mutation({
         assetIds: args.generatedAssetIds,
         userId,
         brandId: persona.brandId,
+        workspaceId,
         field: "generatedAssetIds",
       });
     }
@@ -228,6 +277,7 @@ export const update = mutation({
         assetIds: args.voiceAssetIds,
         userId,
         brandId: persona.brandId,
+        workspaceId,
         field: "voiceAssetIds",
       });
     }
@@ -242,7 +292,12 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const persona = await ctx.db.get(args.id);
-    if (!persona || persona.userId !== userId) throw new Error("Persona not found");
+    if (!persona) throw new Error("Persona not found");
+    if (persona.workspaceId) {
+      await requireWorkspaceMember(ctx, persona.workspaceId, userId);
+    } else if (persona.userId !== userId) {
+      throw new Error("Persona not found");
+    }
     await ctx.db.delete(args.id);
   },
 });
@@ -252,7 +307,12 @@ export const summarize = query({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const persona = await ctx.db.get(args.id);
-    if (!persona || persona.userId !== userId) return null;
+    if (!persona) return null;
+    if (persona.workspaceId) {
+      await requireWorkspaceMember(ctx, persona.workspaceId, userId);
+    } else if (persona.userId !== userId) {
+      return null;
+    }
     return personaSummary(persona);
   },
 });

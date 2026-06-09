@@ -9,10 +9,15 @@ import {
 import { internal } from "../_generated/api";
 import { getPublishingProvider } from "../providers";
 import type { Doc } from "../_generated/dataModel";
+import { ensureCurrentUser } from "../auth/users";
 import {
   distributionStatusValidator,
   publishingProviderValidator,
 } from "../validators";
+import {
+  requireWorkspaceMember,
+  resolveWritableWorkspace,
+} from "../workspaces/workspaces";
 import { replaceArtifactInPlan } from "./approval";
 import {
   compactMetrics,
@@ -22,9 +27,19 @@ import {
 } from "./publishInput";
 
 export const list = query({
-  handler: async (ctx) => {
+  args: { workspaceId: v.optional(v.id("workspaces")) },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
+
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, identity.subject);
+      return await ctx.db
+        .query("distributionPlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect();
+    }
 
     return await ctx.db
       .query("distributionPlans")
@@ -66,6 +81,7 @@ export const getPublishContext = internalQuery({
 
 export const create = mutation({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.id("brands"),
     workflowId: v.optional(v.id("workflows")),
     workflowRunId: v.optional(v.id("workflowRuns")),
@@ -79,18 +95,54 @@ export const create = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
 
     const brand = await ctx.db.get(args.brandId);
-    if (!brand || brand.userId !== identity.subject) {
+    if (!brand) {
       throw new Error("Brand not found");
     }
+    if (brand.workspaceId) {
+      await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+    } else if (brand.userId !== userId) {
+      throw new Error("Brand not found");
+    }
+    const workspace = args.workspaceId || brand.workspaceId
+      ? await resolveWritableWorkspace(ctx, userId, args.workspaceId ?? brand.workspaceId)
+      : personalWorkspace;
+    if (brand.workspaceId && brand.workspaceId !== workspace._id) {
+      throw new Error("Brand does not belong to this workspace");
+    }
+
+    for (const artifactId of args.artifactIds) {
+      const artifact = await ctx.db.get(artifactId);
+      if (
+        !artifact ||
+        (artifact.workspaceId
+          ? artifact.workspaceId !== workspace._id
+          : artifact.userId !== userId)
+      ) {
+        throw new Error("Artifact not found");
+      }
+    }
+    for (const socialAccountId of args.socialAccountIds) {
+      const account = await ctx.db.get(socialAccountId);
+      if (
+        !account ||
+        (account.workspaceId
+          ? account.workspaceId !== workspace._id
+          : account.userId !== userId)
+      ) {
+        throw new Error("Social account not found");
+      }
+    }
+    const { workspaceId, ...planArgs } = args;
+    void workspaceId;
 
     const now = Date.now();
     return await ctx.db.insert("distributionPlans", {
-      userId: identity.subject,
-      ...args,
+      userId,
+      workspaceId: workspace._id,
+      ...planArgs,
       status: args.status ?? "draft",
       createdAt: now,
       updatedAt: now,
@@ -101,6 +153,7 @@ export const create = mutation({
 export const createFromRunner = internalMutation({
   args: {
     userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     workflowId: v.optional(v.id("workflows")),
     workflowRunId: v.optional(v.id("workflowRuns")),
@@ -114,9 +167,18 @@ export const createFromRunner = internalMutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    const run = args.workflowRunId ? await ctx.db.get(args.workflowRunId) : null;
+    const workflow = args.workflowId ? await ctx.db.get(args.workflowId) : null;
+    const brand = args.brandId ? await ctx.db.get(args.brandId) : null;
+    const workspaceId =
+      args.workspaceId ??
+      run?.workspaceId ??
+      workflow?.workspaceId ??
+      brand?.workspaceId;
     const now = Date.now();
     return await ctx.db.insert("distributionPlans", {
       ...args,
+      workspaceId,
       status: args.status ?? "draft",
       createdAt: now,
       updatedAt: now,
@@ -137,7 +199,12 @@ export const updateStatus = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const plan = await ctx.db.get(args.id);
-    if (!plan || plan.userId !== identity.subject) {
+    if (!plan) {
+      throw new Error("Distribution plan not found");
+    }
+    if (plan.workspaceId) {
+      await requireWorkspaceMember(ctx, plan.workspaceId, identity.subject);
+    } else if (plan.userId !== identity.subject) {
       throw new Error("Distribution plan not found");
     }
 
@@ -158,7 +225,12 @@ export const remove = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const plan = await ctx.db.get(args.id);
-    if (!plan || plan.userId !== identity.subject) {
+    if (!plan) {
+      throw new Error("Distribution plan not found");
+    }
+    if (plan.workspaceId) {
+      await requireWorkspaceMember(ctx, plan.workspaceId, identity.subject);
+    } else if (plan.userId !== identity.subject) {
       throw new Error("Distribution plan not found");
     }
 
@@ -167,7 +239,7 @@ export const remove = mutation({
       .withIndex("by_distribution_plan", (q) => q.eq("distributionPlanId", args.id))
       .collect();
     for (const metric of metrics) {
-      if (metric.userId === identity.subject) {
+      if (plan.workspaceId ? metric.workspaceId === plan.workspaceId : metric.userId === identity.subject) {
         await ctx.db.delete(metric._id);
       }
     }

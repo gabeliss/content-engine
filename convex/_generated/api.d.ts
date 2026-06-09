@@ -88,6 +88,7 @@ import type * as workflows_runtime_outputRefs from "../workflows/runtime/outputR
 import type * as workflows_runtime_providerInputs from "../workflows/runtime/providerInputs.js";
 import type * as workflows_runtime_publishPackaging from "../workflows/runtime/publishPackaging.js";
 import type * as workflows_scheduling from "../workflows/scheduling.js";
+import type * as workspaces_workspaces from "../workspaces/workspaces.js";
 
 import type {
   ApiFromModules,
@@ -176,6 +177,7 @@ declare const fullApi: ApiFromModules<{
   "workflows/runtime/providerInputs": typeof workflows_runtime_providerInputs;
   "workflows/runtime/publishPackaging": typeof workflows_runtime_publishPackaging;
   "workflows/scheduling": typeof workflows_scheduling;
+  "workspaces/workspaces": typeof workspaces_workspaces;
 }>;
 
 /**

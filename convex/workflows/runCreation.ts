@@ -36,6 +36,7 @@ export async function createWorkflowRun(
   const trigger = args.trigger ?? "manual";
   const runId = await ctx.db.insert("workflowRuns", {
     userId: args.userId,
+    workspaceId: args.workflow.workspaceId,
     workflowId: args.workflow._id,
     brandId: args.workflow.brandId,
     socialAccountId: args.workflow.socialAccountId,
@@ -50,6 +51,7 @@ export async function createWorkflowRun(
   for (const node of args.workflow.graph.nodes) {
     await ctx.db.insert("workflowRunNodeStates", {
       userId: args.userId,
+      workspaceId: args.workflow.workspaceId,
       workflowRunId: runId,
       workflowId: args.workflow._id,
       nodeId: node.id,
@@ -64,6 +66,7 @@ export async function createWorkflowRun(
 
   await ctx.db.insert("workflowRunEvents", {
     userId: args.userId,
+    workspaceId: args.workflow.workspaceId,
     workflowRunId: runId,
     workflowId: args.workflow._id,
     type: "run_created",

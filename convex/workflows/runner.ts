@@ -472,8 +472,10 @@ export const createPlaceholderArtifact = internalMutation({
     outputPorts: v.array(v.string()),
   },
   handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.workflowRunId);
     return await ctx.db.insert("artifacts", {
       userId: args.userId,
+      workspaceId: run?.workspaceId,
       brandId: args.brandId,
       workflowId: args.workflowId,
       workflowRunId: args.workflowRunId,
@@ -516,8 +518,10 @@ export const createPostPackageArtifact = internalMutation({
     packageData: v.any(),
   },
   handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.workflowRunId);
     return await ctx.db.insert("artifacts", {
       userId: args.userId,
+      workspaceId: run?.workspaceId,
       brandId: args.brandId,
       workflowId: args.workflowId,
       workflowRunId: args.workflowRunId,

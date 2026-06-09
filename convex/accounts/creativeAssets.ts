@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 import { action, internalQuery, mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { ensureCurrentUser } from "../auth/users";
 import { storeGeneratedAsset } from "../content/assetStorage";
 import { getModelProvider } from "../providers";
 import type { GeneratedAsset, ModelProvider } from "../providers/model";
+import { requireWorkspaceMember } from "../workspaces/workspaces";
 import {
   creativeAssetKindValidator,
   creativeAssetMediaTypeValidator,
@@ -112,16 +114,33 @@ export const generatePreview = action({
 });
 
 export const list = query({
-  args: { brandId: v.optional(v.id("brands")) },
+  args: {
+    workspaceId: v.optional(v.id("workspaces")),
+    brandId: v.optional(v.id("brands")),
+  },
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
 
     if (args.brandId) {
       const brand = await ctx.db.get(args.brandId);
-      if (!brand || brand.userId !== userId) return [];
+      if (!brand) return [];
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+      } else if (brand.userId !== userId) {
+        return [];
+      }
       return await ctx.db
         .query("creativeAssets")
         .withIndex("by_brand", (q) => q.eq("brandId", args.brandId!))
+        .order("desc")
+        .collect();
+    }
+
+    if (args.workspaceId) {
+      await requireWorkspaceMember(ctx, args.workspaceId, userId);
+      return await ctx.db
+        .query("creativeAssets")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .order("desc")
         .collect();
     }
@@ -154,9 +173,14 @@ export const create = mutation({
     mimeType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = currentUserId(await ctx.auth.getUserIdentity());
+    const { userId, personalWorkspace } = await ensureCurrentUser(ctx);
     const brand = await ctx.db.get(args.brandId);
-    if (!brand || brand.userId !== userId) throw new Error("Brand not found");
+    if (!brand) throw new Error("Brand not found");
+    if (brand.workspaceId) {
+      await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+    } else if (brand.userId !== userId) {
+      throw new Error("Brand not found");
+    }
 
     const name = args.name.trim();
     const storageUrl = args.storageUrl.trim();
@@ -166,6 +190,7 @@ export const create = mutation({
     const now = Date.now();
     return await ctx.db.insert("creativeAssets", {
       userId,
+      workspaceId: brand.workspaceId ?? personalWorkspace._id,
       brandId: args.brandId,
       name,
       assetKind: args.assetKind ?? "other",
@@ -199,7 +224,12 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const asset = await ctx.db.get(args.id);
-    if (!asset || asset.userId !== userId) throw new Error("Reference asset not found");
+    if (!asset) throw new Error("Reference asset not found");
+    if (asset.workspaceId) {
+      await requireWorkspaceMember(ctx, asset.workspaceId, userId);
+    } else if (asset.userId !== userId) {
+      throw new Error("Reference asset not found");
+    }
 
     const metadata =
       args.instruction === undefined
@@ -225,7 +255,12 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await ctx.auth.getUserIdentity());
     const asset = await ctx.db.get(args.id);
-    if (!asset || asset.userId !== userId) throw new Error("Reference asset not found");
+    if (!asset) throw new Error("Reference asset not found");
+    if (asset.workspaceId) {
+      await requireWorkspaceMember(ctx, asset.workspaceId, userId);
+    } else if (asset.userId !== userId) {
+      throw new Error("Reference asset not found");
+    }
 
     const storageId = storageIdFromUrl(asset.storageUrl);
     if (storageId) {
