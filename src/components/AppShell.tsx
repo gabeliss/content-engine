@@ -2,6 +2,7 @@ import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { BrainCircuit, BriefcaseBusiness, LogOut, Settings } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
+import type { Id } from "../../convex/_generated/dataModel";
 import { navItems } from "../app/navigation";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 
@@ -57,8 +58,7 @@ export function Sidebar() {
 
         <div
           className={[
-            "mb-[var(--space-4)] grid gap-[var(--space-2)] rounded-[var(--radius-md)]",
-            "border border-[var(--color-sidebar-border)] bg-[oklch(100%_0_0_/_0.045)] p-[var(--space-3)]",
+            "mb-[var(--space-4)] grid gap-[var(--space-2)] border-b border-[var(--color-sidebar-border)] pb-[var(--space-4)]",
             "max-[900px]:mb-[var(--space-3)]",
             isWorkflowCanvasRoute ? "hidden" : "",
           ].filter(Boolean).join(" ")}
@@ -69,10 +69,14 @@ export function Sidebar() {
             </span>
             <select
               aria-label="Active workspace"
-              className="min-h-[2.35rem] w-full min-w-0 rounded-[var(--radius-sm)] border border-[oklch(100%_0_0_/_0.1)] bg-[oklch(12%_0.028_220)] px-[var(--space-2)] text-[0.82rem] font-[650] text-[var(--color-sidebar-text)]"
+              className="min-h-[2.45rem] w-full min-w-0 rounded-[var(--radius-sm)] border border-[oklch(100%_0_0_/_0.1)] bg-[oklch(8%_0.025_220)] px-[var(--space-2)] text-[0.82rem] font-[680] text-[var(--color-sidebar-text)] outline-none focus:border-[oklch(76%_0.11_150)]"
               disabled={isWorkspaceLoading || !workspaces?.length}
+              title={activeWorkspace?.name ?? "Active workspace"}
               value={activeWorkspaceId ?? ""}
-              onChange={(event) => setActiveWorkspaceId(event.target.value as typeof activeWorkspaceId)}
+              onChange={(event) => {
+                if (!event.target.value) return;
+                setActiveWorkspaceId(event.target.value as Id<"workspaces">);
+              }}
             >
               {!activeWorkspaceId ? <option value="">Loading</option> : null}
               {workspaces?.map(({ workspace }) => (
@@ -90,7 +94,7 @@ export function Sidebar() {
             {activeMembership ? <span>{activeMembership.role}</span> : null}
           </div>
           <Link
-            className="inline-flex min-h-[2rem] items-center justify-center gap-[var(--space-2)] rounded-[var(--radius-sm)] text-[0.78rem] font-[650] text-[var(--color-sidebar-text)] no-underline hover:bg-[oklch(100%_0_0_/_0.06)]"
+            className="inline-flex min-h-[2.1rem] items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] px-[var(--space-2)] text-[0.8rem] font-[700] text-[var(--color-sidebar-text)] no-underline hover:bg-[oklch(100%_0_0_/_0.055)]"
             to="/settings"
           >
             <Settings size={14} />
