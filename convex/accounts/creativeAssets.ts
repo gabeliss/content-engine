@@ -163,7 +163,8 @@ export const getForRunner = internalQuery({
 
 export const create = mutation({
   args: {
-    brandId: v.id("brands"),
+    workspaceId: v.optional(v.id("workspaces")),
+    brandId: v.optional(v.id("brands")),
     name: v.string(),
     assetKind: v.optional(creativeAssetKindValidator),
     mediaType: v.optional(creativeAssetMediaTypeValidator),
@@ -175,12 +176,21 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const { userId, defaultWorkspace } = await ensureCurrentUser(ctx);
-    const brand = await ctx.db.get(args.brandId);
-    if (!brand) throw new Error("Brand not found");
-    if (brand.workspaceId) {
-      await requireWorkspaceMember(ctx, brand.workspaceId, userId);
-    } else if (brand.userId !== userId) {
-      throw new Error("Brand not found");
+    const brand = args.brandId ? await ctx.db.get(args.brandId) : null;
+    if (args.brandId) {
+      if (!brand) throw new Error("Brand not found");
+      if (brand.workspaceId) {
+        await requireWorkspaceMember(ctx, brand.workspaceId, userId);
+      } else if (brand.userId !== userId) {
+        throw new Error("Brand not found");
+      }
+    }
+    const workspaceId = args.workspaceId ?? brand?.workspaceId ?? defaultWorkspace._id;
+    if (workspaceId) {
+      await requireWorkspaceMember(ctx, workspaceId, userId);
+    }
+    if (brand?.workspaceId && brand.workspaceId !== workspaceId) {
+      throw new Error("Brand does not belong to this workspace");
     }
 
     const name = args.name.trim();
@@ -191,7 +201,7 @@ export const create = mutation({
     const now = Date.now();
     return await ctx.db.insert("creativeAssets", {
       userId,
-      workspaceId: brand.workspaceId ?? defaultWorkspace._id,
+      workspaceId,
       brandId: args.brandId,
       name,
       assetKind: args.assetKind ?? "other",

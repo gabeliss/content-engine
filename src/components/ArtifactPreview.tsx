@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { ArtifactDoc } from "../types";
+import { MediaLightbox, type MediaLightboxItem } from "./MediaLightbox";
 
 function previewAspectRatio(artifact: ArtifactDoc) {
   const data = artifact.data && typeof artifact.data === "object"
@@ -16,6 +18,7 @@ function previewAspectRatio(artifact: ArtifactDoc) {
 }
 
 export function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
+  const [lightboxImage, setLightboxImage] = useState<MediaLightboxItem | null>(null);
   const data = artifact.data && typeof artifact.data === "object"
     ? (artifact.data as Record<string, unknown>)
     : {};
@@ -33,13 +36,26 @@ export function ArtifactPreview({ artifact }: { artifact: ArtifactDoc }) {
     imageUrl
   ) {
     const aspectRatio = previewAspectRatio(artifact);
+    const title = artifact.title || "Generated image";
     return (
-      <div
-        className="artifact-preview image-preview library-media-preview"
-        style={aspectRatio ? { aspectRatio } : undefined}
-      >
-        <img src={imageUrl} alt={artifact.title || "Generated image"} />
-      </div>
+      <>
+        <button
+          aria-label={`View ${title}`}
+          className="artifact-preview image-preview library-media-preview block w-full cursor-zoom-in border-0 bg-transparent p-0 text-left focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2"
+          onClick={() => {
+            setLightboxImage({
+              src: imageUrl,
+              title,
+              meta: [artifact.provider, artifact.model].filter(Boolean).join(" · "),
+            });
+          }}
+          style={aspectRatio ? { aspectRatio } : undefined}
+          type="button"
+        >
+          <img src={imageUrl} alt={title} />
+        </button>
+        <MediaLightbox media={lightboxImage} onClose={() => setLightboxImage(null)} />
+      </>
     );
   }
 

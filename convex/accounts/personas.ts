@@ -47,7 +47,7 @@ async function validateCreativeAssets(
   for (const asset of assets) {
     if (
       !asset ||
-      asset.brandId !== args.brandId ||
+      (asset.brandId && asset.brandId !== args.brandId) ||
       (asset.workspaceId
         ? asset.workspaceId !== args.workspaceId
         : asset.userId !== args.userId)

@@ -114,7 +114,7 @@ function creativeAssetToSelectable(asset: Doc<"creativeAssets">): SelectableLibr
     mimeType,
     mediaKind: mediaKindFromAsset(asset),
     prompt: asset.description ?? asset.usageNotes,
-    brandId: String(asset.brandId),
+    brandId: asset.brandId ? String(asset.brandId) : undefined,
     createdAt: asset.createdAt,
   };
 }
@@ -152,9 +152,10 @@ function workflowExportAssetsFromArtifacts(
       id: `workflow_export:${String(artifact._id)}:${artifactId ?? index}`,
       source: "workflow_export",
       sourceId: artifactId ?? String(artifact._id),
-      title: typeof item.title === "string" && item.title.trim()
-        ? item.title.trim()
-        : "Workflow export",
+      title: sourceArtifact?.title?.trim() ||
+        (typeof item.title === "string" && item.title.trim()
+          ? item.title.trim()
+          : "Workflow export"),
       storageUrl,
       mimeType,
       mediaKind: sourceArtifact

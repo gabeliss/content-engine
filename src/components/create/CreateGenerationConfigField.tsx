@@ -1,4 +1,3 @@
-import type { ChangeEvent } from "react";
 import {
   ReferenceAssetField,
   type SelectableLibraryAsset,
@@ -12,6 +11,10 @@ import {
   type ConfigField,
   type LocalReferenceFileKind,
 } from "../../lib/workflow/workflowConfigFields";
+import {
+  ReferenceAliasTextarea,
+  type ReferenceMentionOption,
+} from "../references/ReferenceAliasTextarea";
 import { WorkflowSelect } from "../workflow/WorkflowSelect";
 
 export type CreateLocalFileFieldMeta = {
@@ -36,7 +39,7 @@ type CreateGenerationConfigFieldProps = {
     options?: { multiple?: boolean; maxCount?: number }
   ) => void;
   onLocalReferenceFileUpload: (
-    event: ChangeEvent<HTMLInputElement>,
+    files: File[],
     configKey: string,
     kind: LocalReferenceFileKind,
     options?: { multiple?: boolean; maxCount?: number }
@@ -46,6 +49,13 @@ type CreateGenerationConfigFieldProps = {
     fileId: string,
     kind: LocalReferenceFileKind
   ) => void;
+  onUpdateLocalReferenceAlias: (
+    configKey: string,
+    fileId: string,
+    kind: LocalReferenceFileKind,
+    alias: string
+  ) => void;
+  referenceMentionOptions?: ReferenceMentionOption[];
 };
 
 const multilineTextKeys = new Set([
@@ -75,6 +85,8 @@ export function CreateGenerationConfigField({
   onLibraryReferenceSelect,
   onLocalReferenceFileUpload,
   onRemoveLocalReferenceFile,
+  onUpdateLocalReferenceAlias,
+  referenceMentionOptions,
 }: CreateGenerationConfigFieldProps) {
   const value = configFieldValue(field, config);
   const localFileMeta = localFileFieldMeta(field.key);
@@ -107,8 +119,11 @@ export function CreateGenerationConfigField({
           onRemoveFile={(fileId) =>
             onRemoveLocalReferenceFile(field.key, fileId, localFileMeta.kind)
           }
-          onUpload={(event) =>
-            onLocalReferenceFileUpload(event, field.key, localFileMeta.kind, {
+          onUpdateFileAlias={(fileId, alias) =>
+            onUpdateLocalReferenceAlias(field.key, fileId, localFileMeta.kind, alias)
+          }
+          onUpload={(files) =>
+            onLocalReferenceFileUpload(files, field.key, localFileMeta.kind, {
               multiple: localFileMeta.multiple,
               maxCount: localFileMeta.maxCount,
             })
@@ -146,23 +161,21 @@ export function CreateGenerationConfigField({
 
   if (multilineTextKeys.has(field.key)) {
     return (
-      <label className={`${fieldShellClass}${className ? ` ${className}` : ""}`}>
-        <span className={fieldLabelClass}>
-          {field.label}
-          {field.required ? " *" : ""}
-        </span>
-        <textarea
-          className={field.key === "prompt" || field.key === "text" ? promptTextareaClass : textareaClass}
-          onChange={(event) =>
-            onConfigChange(
-              field.key,
-              coerceConfigFieldValue(field, event.target.value, value)
-            )
-          }
-          value={String(value)}
-        />
-        {field.description ? <small className={helperTextClass}>{field.description}</small> : null}
-      </label>
+      <ReferenceAliasTextarea
+        className={className}
+        helperText={field.description}
+        label={field.label}
+        onChange={(nextValue) =>
+          onConfigChange(
+            field.key,
+            coerceConfigFieldValue(field, nextValue, value)
+          )
+        }
+        options={referenceMentionOptions}
+        required={field.required}
+        textareaClassName={field.key === "prompt" || field.key === "text" ? promptTextareaClass : textareaClass}
+        value={String(value)}
+      />
     );
   }
 

@@ -2,6 +2,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import { storeGeneratedAsset } from "../../../content/assetStorage";
 import { getModelProvider } from "../../../providers";
+import { promptWithProviderSafeReferenceAliases } from "../../../../src/lib/references/referenceAliases";
 import { artifactIdsFromInputs } from "../../runtime/artifactInputs";
 import type {
   WorkflowNodeHandlerArgs,
@@ -361,8 +362,9 @@ export async function executeVideoTransformNode({
       throw new Error(`${provider.displayName} does not support AI video render.`);
     }
 
+    const providerPrompt = promptWithProviderSafeReferenceAliases(prompt, mediaAssets, "media");
     const renderResult = await provider.generateVideoRender({
-      prompt,
+      prompt: providerPrompt,
       model,
       systemPrompt,
       knowledgeBase,

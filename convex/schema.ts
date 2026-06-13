@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   approvalPolicyValidator,
+  aiGenerationSettingsValidator,
   artifactLifecycleValidator,
   artifactTypeValidator,
   contentRequestStatusValidator,
@@ -22,6 +23,10 @@ import {
   scheduleConfigValidator,
   slideshowStatusValidator,
   socialAccountStatusValidator,
+  videoAnalysisModeValidator,
+  videoAnalysisSourcePlatformValidator,
+  videoAnalysisSourceTypeValidator,
+  videoAnalysisStatusValidator,
   workflowGraphValidator,
   workflowRunEventTypeValidator,
   workflowRunNodeStatusValidator,
@@ -71,6 +76,7 @@ export default defineSchema({
     ownerUserId: v.string(),
     createdByUserId: v.string(),
     clerkOrganizationId: v.optional(v.string()),
+    aiGenerationSettings: v.optional(aiGenerationSettingsValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -122,7 +128,7 @@ export default defineSchema({
   creativeAssets: defineTable({
     userId: v.string(),
     workspaceId: v.optional(v.id("workspaces")),
-    brandId: v.id("brands"),
+    brandId: v.optional(v.id("brands")),
     name: v.string(),
     assetKind: creativeAssetKindValidator,
     mediaType: creativeAssetMediaTypeValidator,
@@ -197,6 +203,52 @@ export default defineSchema({
     .index("by_provider", ["provider"])
     .index("by_provider_category", ["provider", "category"])
     .index("by_provider_model", ["provider", "modelId"]),
+
+  videoAnalysisJobs: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    sourceType: videoAnalysisSourceTypeValidator,
+    sourcePlatform: videoAnalysisSourcePlatformValidator,
+    sourceUrl: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    storageUrl: v.optional(v.string()),
+    fileName: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    byteLength: v.optional(v.number()),
+    provider: modelProviderValidator,
+    model: v.string(),
+    mode: videoAnalysisModeValidator,
+    customPrompt: v.optional(v.string()),
+    status: videoAnalysisStatusValidator,
+    title: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    transcript: v.optional(v.string()),
+    result: v.optional(v.any()),
+    errorMessage: v.optional(v.string()),
+    savedAt: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  videoAnalysisQuestions: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    jobId: v.id("videoAnalysisJobs"),
+    question: v.string(),
+    answer: v.optional(v.string()),
+    status: videoAnalysisStatusValidator,
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_workspace", ["workspaceId"]),
 
   mcpApiKeys: defineTable({
     userId: v.string(),

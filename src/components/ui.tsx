@@ -172,7 +172,7 @@ export function EntityGrid({
     meta: string;
   }>;
 }) {
-  if (!items) return <div className="empty-state">Loading...</div>;
+  if (!items) return <LoadingState title="Loading" compact />;
   if (items.length === 0) return <div className="empty-state">{empty}</div>;
 
   return (
@@ -189,10 +189,182 @@ export function EntityGrid({
   );
 }
 
+type LoadingSize = "sm" | "md" | "lg";
+
+const loadingSignalSizes: Record<LoadingSize, string> = {
+  sm: "size-4",
+  md: "size-6",
+  lg: "size-9",
+};
+
+export function LoadingSignal({
+  className,
+  label = "Loading",
+  showLabel = false,
+  size = "md",
+}: {
+  className?: string;
+  label?: string;
+  showLabel?: boolean;
+  size?: LoadingSize;
+}) {
+  return (
+    <span
+      aria-label={label}
+      className={[
+        "inline-flex min-w-0 items-center gap-[var(--space-2)] text-current",
+        className,
+      ].filter(Boolean).join(" ")}
+      role="status"
+    >
+      <svg
+        aria-hidden="true"
+        className={`${loadingSignalSizes[size]} shrink-0 overflow-visible`}
+        fill="none"
+        viewBox="0 0 48 48"
+      >
+        <path
+          d="M8 25.5C14.5 16 21 16 27.5 25.5C31.8 31.8 36.2 33.6 40 27.5"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeWidth="4"
+          opacity="0.22"
+        />
+        <path
+          d="M8 25.5C14.5 16 21 16 27.5 25.5C31.8 31.8 36.2 33.6 40 27.5"
+          stroke="currentColor"
+          strokeDasharray="18 56"
+          strokeLinecap="round"
+          strokeWidth="4"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            dur="1.35s"
+            repeatCount="indefinite"
+            values="74;0"
+          />
+        </path>
+        {[8, 24, 40].map((cx, index) => (
+          <circle cx={cx} cy={index === 1 ? 20 : 27.5} fill="currentColor" key={cx} r="3.5">
+            <animate
+              attributeName="opacity"
+              dur="1.35s"
+              repeatCount="indefinite"
+              values="0.28;1;0.28"
+              begin={`${index * 0.18}s`}
+            />
+            <animate
+              attributeName="r"
+              dur="1.35s"
+              repeatCount="indefinite"
+              values="2.8;4.4;2.8"
+              begin={`${index * 0.18}s`}
+            />
+          </circle>
+        ))}
+      </svg>
+      {showLabel ? <span className="truncate">{label}</span> : null}
+    </span>
+  );
+}
+
+export function LoadingState({
+  className,
+  compact = false,
+  detail,
+  title = "Loading",
+}: {
+  className?: string;
+  compact?: boolean;
+  detail?: string;
+  title?: string;
+}) {
+  return (
+    <div
+      aria-busy="true"
+      className={[
+        "grid place-items-center rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border)] bg-[var(--color-page-quiet)] text-center",
+        compact ? "min-h-[5.5rem] p-[var(--space-3)]" : "min-h-[12rem] p-[var(--space-6)]",
+        className,
+      ].filter(Boolean).join(" ")}
+    >
+      <div className="grid max-w-[22rem] justify-items-center gap-[var(--space-3)]">
+        <LoadingSignal className="text-[var(--color-primary)]" label={title} size={compact ? "md" : "lg"} />
+        <div className="grid gap-[var(--space-1)]">
+          <strong className="text-[0.9rem] font-[780] text-[var(--color-ink)]">{title}</strong>
+          {detail ? (
+            <p className="m-0 text-[0.8rem] leading-[1.45] text-[var(--color-ink-muted)]">
+              {detail}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function GenerationLoadingState({
+  className,
+  detail,
+  steps = ["Preparing context", "Running model", "Packaging output"],
+  title = "Generating",
+}: {
+  className?: string;
+  detail?: string;
+  steps?: string[];
+  title?: string;
+}) {
+  return (
+    <div
+      aria-busy="true"
+      className={[
+        "grid min-h-[16rem] content-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[linear-gradient(135deg,var(--color-page),var(--color-page-quiet))] p-[var(--space-4)]",
+        className,
+      ].filter(Boolean).join(" ")}
+    >
+      <div className="mx-auto grid w-full max-w-[24rem] gap-[var(--space-4)]">
+        <div className="grid justify-items-center gap-[var(--space-3)] text-center">
+          <div className="grid size-16 place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)] shadow-[var(--shadow-sm)]">
+            <LoadingSignal label={title} size="lg" />
+          </div>
+          <div className="grid gap-[var(--space-1)]">
+            <strong className="text-[1rem] font-[820] text-[var(--color-ink)]">{title}</strong>
+            {detail ? (
+              <p className="m-0 text-[0.82rem] leading-[1.45] text-[var(--color-ink-muted)]">
+                {detail}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="grid gap-[var(--space-2)]">
+          {steps.map((step, index) => (
+            <div
+              className="grid grid-cols-[1.4rem_minmax(0,1fr)] items-center gap-[var(--space-2)] text-[0.76rem] font-[720] text-[var(--color-ink-soft)]"
+              key={step}
+            >
+              <span
+                className="grid size-5 place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[0.64rem] text-[var(--color-primary)]"
+                aria-hidden="true"
+              >
+                <span className="animate-pulse">{index + 1}</span>
+              </span>
+              <span className="truncate">{step}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function LoadingScreen() {
   return (
-    <div className="center-screen">
-      <span className="loader">Preparing Content Engine...</span>
+    <div className="center-screen" aria-busy="true">
+      <LoadingState
+        className="w-[min(100%,24rem)] border-solid bg-[var(--color-surface)]"
+        detail="Preparing your workspace."
+        title="Preparing Content Engine"
+      />
     </div>
   );
 }

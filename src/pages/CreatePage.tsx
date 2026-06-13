@@ -5,26 +5,42 @@ import {
   FileText,
   Image,
   Library,
-  LoaderCircle,
   Music,
   Sparkles,
   Trash2,
   Video,
   Workflow,
 } from "lucide-react";
-import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { Field, Page, Panel, Select, TextArea } from "../components/ui";
+import {
+  Field,
+  GenerationLoadingState,
+  LoadingSignal,
+  Page,
+  Panel,
+  Select,
+  TextArea,
+} from "../components/ui";
 import {
   CreateGenerationConfigField,
   type CreateLocalFileFieldMeta,
 } from "../components/create/CreateGenerationConfigField";
+import { MediaLightbox, type MediaLightboxItem } from "../components/MediaLightbox";
 import type { SelectableLibraryAsset } from "../components/library/ReferenceAssetField";
+import type { ReferenceMentionOption } from "../components/references/ReferenceAliasTextarea";
 import { WorkflowSelect } from "../components/workflow/WorkflowSelect";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { fileToDataUrl } from "../lib/browser/dataUrl";
+import {
+  generationOperationForConfig,
+  generationOperationsForNodeType,
+  operationConfigPatch,
+  type GenerationOperationId,
+} from "../lib/generation/generationOperations";
+import { assignReferenceAliases } from "../lib/references/referenceAliases";
 import {
   createGenerationFields,
   createGenerationPromptValue,
@@ -41,6 +57,10 @@ import {
   type CreateMode,
 } from "../lib/create/createModes";
 import { DEFAULT_PUBLISHING_PROVIDER } from "../lib/publishingRouting";
+import {
+  generationDefaultForMode,
+  generationModeForCreateMode,
+} from "../lib/providers/aiGenerationDefaults";
 import { createStarterWorkflowGraph } from "../lib/workflow/workflowGraph";
 import {
   localReferenceFilesFromConfig,
@@ -103,10 +123,37 @@ function referenceAssetsFromConfig(
   kind: LocalReferenceFileKind
 ) {
   return localReferenceFilesFromConfig(config, key, kind).map((reference) => ({
+    alias: reference.alias,
     url: reference.storageUrl,
     mimeType: reference.mimeType ?? "application/octet-stream",
     description: reference.title,
   }));
+}
+
+function referenceMentionOptionsFromConfig(
+  config: Record<string, unknown>
+): ReferenceMentionOption[] {
+  const referenceFields: Array<{ key: string; kind: LocalReferenceFileKind }> = [
+    { key: "localReferenceImages", kind: "image" },
+    { key: "localStartFrameImages", kind: "image" },
+    { key: "localEndFrameImages", kind: "image" },
+    { key: "localReferenceVideos", kind: "video" },
+    { key: "localReferenceAudios", kind: "audio" },
+  ];
+  const seenAliases = new Set<string>();
+
+  return referenceFields.flatMap(({ key, kind }) =>
+    localReferenceFilesFromConfig(config, key, kind).flatMap((reference) => {
+      const alias = reference.alias?.trim();
+      if (!alias || seenAliases.has(alias.toLowerCase())) return [];
+      seenAliases.add(alias.toLowerCase());
+      return [{
+        alias,
+        kind,
+        title: reference.title,
+      }];
+    })
+  );
 }
 
 function visibleConfigValues(
@@ -149,6 +196,7 @@ function CreateResultPanel({
   const isError = result.status === "error";
   const isReview = result.status === "review";
   const isSaved = result.status === "saved";
+  const [lightboxImage, setLightboxImage] = useState<MediaLightboxItem | null>(null);
 
   return (
     <aside className="grid content-start rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-page-quiet)] p-[var(--space-4)]">
@@ -162,30 +210,19 @@ function CreateResultPanel({
 
       {isPending ? (
         <div className="mt-[var(--space-3)] grid gap-[var(--space-3)]">
-          {result.kind === "audio" ? (
-            <div className="grid min-h-[7rem] place-items-center rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border)] bg-[var(--color-page)] p-[var(--space-4)]">
-              <div className="flex h-10 items-end gap-1" aria-hidden="true">
-                {[18, 28, 14, 34, 22, 30, 16].map((height, index) => (
-                  <span
-                    className="w-2 animate-pulse rounded-full bg-[var(--color-primary)] opacity-70"
-                    key={`${height}-${index}`}
-                    style={{ height }}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mx-auto grid aspect-[9/16] max-h-[26rem] w-full max-w-[16rem] place-items-center rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border)] bg-[var(--color-page)]">
-              <LoaderCircle
-                className="animate-spin text-[var(--color-primary)]"
-                size={32}
-              />
-            </div>
-          )}
-          <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-page)] p-[var(--space-3)] text-[0.78rem] text-[var(--color-ink-muted)]">
-            <strong className="block text-[var(--color-ink)]">Creating preview</strong>
-            {result.model ? <span>{result.model}</span> : null}
-          </div>
+          <GenerationLoadingState
+            detail={result.model ? `Using ${result.model}.` : "The preview will appear here when it is ready."}
+            steps={
+              result.kind === "audio"
+                ? ["Preparing script", "Synthesizing audio", "Saving preview"]
+                : result.kind === "video"
+                  ? ["Preparing references", "Rendering motion", "Saving preview"]
+                  : result.kind === "slideshow"
+                    ? ["Planning slides", "Queueing request", "Saving draft"]
+                    : ["Preparing prompt", "Generating image", "Saving preview"]
+            }
+            title={mediaPreviewTitle(result.kind)}
+          />
         </div>
       ) : result.url ? (
         result.kind === "video" ? (
@@ -197,11 +234,28 @@ function CreateResultPanel({
         ) : result.kind === "audio" ? (
           <audio className="mt-[var(--space-3)] w-full" controls src={result.url} />
         ) : (
-          <img
-            alt=""
-            className="mt-[var(--space-3)] max-h-[22rem] w-full rounded-[var(--radius-sm)] object-cover"
-            src={result.url}
-          />
+          <>
+            <button
+              aria-label={`View ${result.title}`}
+              className="mt-[var(--space-3)] block w-full cursor-zoom-in rounded-[var(--radius-sm)] border-0 bg-transparent p-0 text-left focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2"
+              onClick={() => {
+                if (!result.url) return;
+                setLightboxImage({
+                  src: result.url,
+                  title: result.title,
+                  meta: result.model,
+                });
+              }}
+              type="button"
+            >
+              <img
+                alt=""
+                className="max-h-[22rem] w-full rounded-[var(--radius-sm)] object-cover"
+                src={result.url}
+              />
+            </button>
+            <MediaLightbox media={lightboxImage} onClose={() => setLightboxImage(null)} />
+          </>
         )
       ) : null}
 
@@ -224,8 +278,12 @@ function CreateResultPanel({
             onClick={() => onSave(result)}
             type="button"
           >
-            <Check size={16} />
-            {isReviewActionPending ? "Saving..." : "Save"}
+            {isReviewActionPending ? (
+              <LoadingSignal label="Saving" size="sm" />
+            ) : (
+              <Check size={16} />
+            )}
+            {isReviewActionPending ? "Saving" : "Save"}
           </button>
           <button
             className="secondary-button text-[var(--color-danger)]"
@@ -233,8 +291,12 @@ function CreateResultPanel({
             onClick={() => onReject(result)}
             type="button"
           >
-            <Trash2 size={16} />
-            {isReviewActionPending ? "Rejecting..." : "Reject"}
+            {isReviewActionPending ? (
+              <LoadingSignal label="Rejecting" size="sm" />
+            ) : (
+              <Trash2 size={16} />
+            )}
+            {isReviewActionPending ? "Rejecting" : "Reject"}
           </button>
         </div>
       ) : null}
@@ -267,16 +329,21 @@ export function CreatePage() {
 
   const [mode, setMode] = useState<CreateMode>("image");
   const modeDefinition = getCreateModeDefinition(mode);
-  const modelCatalog = useQuery(
-    api.providers.modelCatalog.list,
-    modeDefinition.modelCategory
-      ? { provider: "bulkapis", category: modeDefinition.modelCategory }
-      : "skip"
-  );
+  const createGenerationMode = generationModeForCreateMode(mode);
+  const createGenerationDefault = createGenerationMode
+    ? generationDefaultForMode(activeWorkspace?.aiGenerationSettings, createGenerationMode)
+    : null;
+  const selectedCreateProvider = createGenerationDefault?.provider ?? "bulkapis";
   const [brandId, setBrandId] = useState("");
   const [prompt, setPrompt] = useState("");
   const [name, setName] = useState("");
-  const [model, setModel] = useState(modeDefinition.defaultModel ?? "");
+  const [model, setModel] = useState("");
+  const modelCatalog = useQuery(
+    api.providers.modelCatalog.list,
+    modeDefinition.modelCategory
+      ? { provider: selectedCreateProvider, category: modeDefinition.modelCategory }
+      : "skip"
+  );
   const [generationConfig, setGenerationConfig] = useState<Record<string, unknown>>(
     defaultCreateGenerationConfig("image")
   );
@@ -295,15 +362,31 @@ export function CreatePage() {
         .slice(0, 4) ?? [],
     [workflows]
   );
-  const selectedModel = model || modeDefinition.defaultModel || "";
+  const selectedModel = model;
   const createNodeType = workflowNodeTypeForCreateMode(mode);
+  const selectedGenerationOperation = useMemo(
+    () => generationOperationForConfig(createNodeType, generationConfig),
+    [createNodeType, generationConfig]
+  );
+  const generationOperationOptions = useMemo(
+    () =>
+      generationOperationsForNodeType(createNodeType).map((operation) => ({
+        value: operation.id,
+        label: operation.label,
+        description: operation.description,
+      })),
+    [createNodeType]
+  );
   const modelOptionSources = modelOptionSourcesForNode({
     nodeType: createNodeType,
+    operationId: selectedGenerationOperation?.id,
+    providerName: selectedCreateProvider,
     providerModels: modelCatalog,
   });
   const availableModels = richModelPickerOptions({
     modelOptions: modelOptionSources,
     nodeType: createNodeType,
+    operationId: selectedGenerationOperation?.id,
     providerModels: modelCatalog,
     selectedModel,
   });
@@ -334,6 +417,10 @@ export function CreatePage() {
     () => groupCreateGenerationFields(generationFields),
     [generationFields]
   );
+  const referenceMentionOptions = useMemo(
+    () => referenceMentionOptionsFromConfig(generationConfig),
+    [generationConfig]
+  );
   const currentPrompt = isCreateGenerationMode(mode)
     ? createGenerationPromptValue(mode, generationConfig)
     : prompt.trim();
@@ -345,10 +432,13 @@ export function CreatePage() {
         })
     : Boolean(currentPrompt);
 
+  useEffect(() => {
+    setModel("");
+  }, [selectedCreateProvider, mode]);
+
   const handleModeChange = (nextMode: CreateMode) => {
-    const nextDefinition = getCreateModeDefinition(nextMode);
     setMode(nextMode);
-    setModel(nextDefinition.defaultModel ?? "");
+    setModel("");
     setGenerationConfig(defaultCreateGenerationConfig(nextMode));
     setPrompt("");
     setName("");
@@ -361,6 +451,15 @@ export function CreatePage() {
       ...current,
       [key]: value,
     }));
+  };
+
+  const handleGenerationOperationChange = (operationId: string) => {
+    const operation = operationId as GenerationOperationId;
+    setGenerationConfig((current) => ({
+      ...current,
+      ...operationConfigPatch(operation),
+    }));
+    setModel("");
   };
 
   const localFileFieldMeta = (fieldKey: string): CreateLocalFileFieldMeta | null => {
@@ -406,13 +505,11 @@ export function CreatePage() {
   };
 
   const handleReferenceUpload = async (
-    event: ChangeEvent<HTMLInputElement>,
+    files: File[],
     configKey: string,
     kind: LocalReferenceFileKind,
     options: { multiple?: boolean; maxCount?: number } = {}
   ) => {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
     if (!files.length) return;
 
     const existingFiles = localReferenceFilesFromConfig(generationConfig, configKey, kind);
@@ -452,12 +549,15 @@ export function CreatePage() {
       );
       setGenerationConfig((current) => ({
         ...current,
-        [configKey]: [
-          ...(options.multiple === false
-            ? []
-            : localReferenceFilesFromConfig(current, configKey, kind)),
-          ...uploaded,
-        ],
+        [configKey]: assignReferenceAliases(
+          [
+            ...(options.multiple === false
+              ? []
+              : localReferenceFilesFromConfig(current, configKey, kind)),
+            ...uploaded,
+          ],
+          kind
+        ),
       }));
       setStatus("");
     } catch (error) {
@@ -476,6 +576,23 @@ export function CreatePage() {
       ...current,
       [configKey]: localReferenceFilesFromConfig(current, configKey, kind).filter(
         (file) => file.id !== fileId
+      ),
+    }));
+  };
+
+  const updateReferenceAlias = (
+    configKey: string,
+    fileId: string,
+    kind: LocalReferenceFileKind,
+    alias: string
+  ) => {
+    setGenerationConfig((current) => ({
+      ...current,
+      [configKey]: assignReferenceAliases(
+        localReferenceFilesFromConfig(current, configKey, kind).map((file) =>
+          file.id === fileId ? { ...file, alias } : file
+        ),
+        kind
       ),
     }));
   };
@@ -519,12 +636,15 @@ export function CreatePage() {
       setStatus("");
       return {
         ...current,
-        [configKey]: [
-          ...(options.multiple === false
-            ? []
-            : localReferenceFilesFromConfig(current, configKey, kind)),
-          ...selectedFiles,
-        ],
+        [configKey]: assignReferenceAliases(
+          [
+            ...(options.multiple === false
+              ? []
+              : localReferenceFilesFromConfig(current, configKey, kind)),
+            ...selectedFiles,
+          ],
+          kind
+        ),
       };
     });
   };
@@ -626,6 +746,20 @@ export function CreatePage() {
         "localReferenceAudios",
         "audio"
       );
+      const generationOperationId = selectedGenerationOperation?.id;
+      const imageReferenceImages =
+        generationOperationId === "image_text_to_image" ? [] : referenceImages;
+      const videoReferenceImages =
+        generationOperationId === "video_start_end_frame"
+          ? [...startFrameImages, ...endFrameImages]
+          : generationOperationId === "video_image_to_video" ||
+              generationOperationId === "video_reference_to_video"
+            ? referenceImages
+            : [];
+      const videoReferenceVideos =
+        generationOperationId === "video_reference_to_video" ? referenceVideos : [];
+      const audioReferenceAudios =
+        generationOperationId === "audio_voice_clone" ? voiceReferenceAudios : [];
       const visibleGenerationConfig = visibleConfigValues(
         generationConfig,
         generationFields.map((field) => field.key)
@@ -673,15 +807,17 @@ export function CreatePage() {
           "aspectRatio",
           "count",
           "localReferenceImages",
+          "generationOperation",
         ]);
         const generated = await generateImage({
+          workspaceId: activeWorkspaceId as Id<"workspaces"> | undefined,
           prompt: creativeRequest,
-          provider: "bulkapis",
+          provider: selectedCreateProvider,
           model: selectedModel || undefined,
           aspectRatio: stringConfigValue(generationConfig.aspectRatio),
           count: numberConfigValue(generationConfig.count) ?? 1,
           providerInput,
-          referenceImages,
+          referenceImages: imageReferenceImages,
         });
         setResult({
           kind: "image",
@@ -705,6 +841,7 @@ export function CreatePage() {
           "localEndFrameImages",
           "localReferenceVideos",
           "startEndFrameMode",
+          "generationOperation",
         ]);
         const startFrameUrl = startFrameImages[0]?.url;
         const endFrameUrl = endFrameImages[0]?.url;
@@ -720,16 +857,15 @@ export function CreatePage() {
           providerInput.tail_image_url = endFrameUrl;
         }
         const generated = await generateVideo({
+          workspaceId: activeWorkspaceId as Id<"workspaces"> | undefined,
           prompt: creativeRequest,
-          provider: "bulkapis",
+          provider: selectedCreateProvider,
           model: selectedModel || undefined,
           aspectRatio: stringConfigValue(generationConfig.aspectRatio),
           durationSeconds: numberConfigValue(generationConfig.durationSeconds),
           providerInput,
-          referenceImages: generationConfig.startEndFrameMode === true
-            ? [...startFrameImages, ...endFrameImages]
-            : referenceImages,
-          referenceVideos,
+          referenceImages: videoReferenceImages,
+          referenceVideos: videoReferenceVideos,
         });
         setResult({
           kind: "video",
@@ -749,14 +885,16 @@ export function CreatePage() {
           "prompt",
           "mode",
           "localReferenceAudios",
+          "generationOperation",
         ]);
         const generated = await generateAudio({
+          workspaceId: activeWorkspaceId as Id<"workspaces"> | undefined,
           text: creativeRequest,
-          provider: "bulkapis",
+          provider: selectedCreateProvider,
           model: selectedModel || undefined,
           mode: stringConfigValue(generationConfig.mode),
           providerInput,
-          voiceReferenceAudios,
+          voiceReferenceAudios: audioReferenceAudios,
         });
         setResult({
           kind: "audio",
@@ -872,12 +1010,26 @@ export function CreatePage() {
                         onLibraryReferenceSelect={handleLibraryReferenceSelect}
                         onLocalReferenceFileUpload={handleReferenceUpload}
                         onRemoveLocalReferenceFile={removeReferenceUpload}
+                        onUpdateLocalReferenceAlias={updateReferenceAlias}
+                        referenceMentionOptions={referenceMentionOptions}
                       />
                     ))}
                   </div>
                 ) : null}
 
                 <div className="grid min-w-0 gap-[var(--space-2)]">
+                  {generationOperationOptions.length > 1 ? (
+                    <>
+                      <span className="text-[0.74rem] font-[780] text-[var(--color-ink-soft)]">Operation</span>
+                      <WorkflowSelect
+                        onChange={handleGenerationOperationChange}
+                        options={generationOperationOptions}
+                        placeholder="Select operation"
+                        rich
+                        value={selectedGenerationOperation?.id ?? ""}
+                      />
+                    </>
+                  ) : null}
                   <span className="text-[0.74rem] font-[780] text-[var(--color-ink-soft)]">Model</span>
                   <WorkflowSelect
                     disabled={!availableModels.length}
@@ -912,6 +1064,8 @@ export function CreatePage() {
                           onLibraryReferenceSelect={handleLibraryReferenceSelect}
                           onLocalReferenceFileUpload={handleReferenceUpload}
                           onRemoveLocalReferenceFile={removeReferenceUpload}
+                          onUpdateLocalReferenceAlias={updateReferenceAlias}
+                          referenceMentionOptions={referenceMentionOptions}
                         />
                       ))}
                     </div>
@@ -936,6 +1090,8 @@ export function CreatePage() {
                           onLibraryReferenceSelect={handleLibraryReferenceSelect}
                           onLocalReferenceFileUpload={handleReferenceUpload}
                           onRemoveLocalReferenceFile={removeReferenceUpload}
+                          onUpdateLocalReferenceAlias={updateReferenceAlias}
+                          referenceMentionOptions={referenceMentionOptions}
                         />
                       ))}
                     </div>
@@ -967,9 +1123,13 @@ export function CreatePage() {
               disabled={!canSubmit || isSubmitting}
               type="submit"
             >
-              <Sparkles size={16} />
+              {isSubmitting ? (
+                <LoadingSignal label="Creating" size="sm" />
+              ) : (
+                <Sparkles size={16} />
+              )}
               {isSubmitting
-                ? "Creating..."
+                ? "Creating"
                 : mode === "workflow"
                   ? "Create workflow draft"
                   : `Create ${mode}`}

@@ -1,7 +1,9 @@
 import type { WorkflowNodeType } from "./workflowGraph";
+import { generationOperationForConfig } from "../generation/generationOperations";
 import { getWorkflowAgentPreset, workflowAgentPresetIds } from "./workflowAgentPresets";
 import { postCompilerPresetIds } from "./postCompilerPresets";
 import type { ImageModelUiContract, ProviderModelDoc } from "./workflowModelCatalog";
+import { assignReferenceAliases } from "../references/referenceAliases";
 
 export type ConfigFieldType = "string" | "number" | "boolean" | "enum" | "json";
 
@@ -52,6 +54,7 @@ const creatorMediaConfigFieldKeysByNodeType: Partial<Record<WorkflowNodeType, Se
 };
 
 const hiddenImageGenerationConfigKeys = new Set([
+  "generationOperation",
   "audio_url",
   "audio_urls",
   "audioUrl",
@@ -559,6 +562,7 @@ function configFieldHiddenForNode(
   selectedModel: ProviderModelDoc | null,
   imageContract?: ImageModelUiContract | null
 ): boolean {
+  const operation = generationOperationForConfig(type, config);
   if (hiddenImageGenerationConfigKeys.has(key)) return true;
   const creatorMediaFieldKeys = creatorMediaConfigFieldKeysByNodeType[type];
   if (creatorMediaFieldKeys && !creatorMediaFieldKeys.has(key)) return true;
@@ -569,12 +573,66 @@ function configFieldHiddenForNode(
     return true;
   }
   if (type === "image_generation" && imageConfigFieldHiddenByContract(key, imageContract)) return true;
-  if (type === "video_generation") {
-    if (key === "localReferenceImages" && config.startEndFrameMode === true) return true;
+  if (type === "image_generation") {
     if (
-      (key === "localStartFrameImages" || key === "localEndFrameImages") &&
-      config.startEndFrameMode !== true
-    ) return true;
+      operation?.id === "image_text_to_image" &&
+      ["imageFromInputNode", "localReferenceImages"].includes(key)
+    ) {
+      return true;
+    }
+  }
+  if (type === "video_generation") {
+    if (operation?.id === "video_text_to_video") {
+      if (
+        [
+          "imageFromInputNode",
+          "startEndFrameMode",
+          "localReferenceImages",
+          "localStartFrameImages",
+          "localEndFrameImages",
+          "localReferenceVideos",
+        ].includes(key)
+      ) {
+        return true;
+      }
+    }
+    if (operation?.id === "video_image_to_video") {
+      if (
+        [
+          "startEndFrameMode",
+          "localStartFrameImages",
+          "localEndFrameImages",
+          "localReferenceVideos",
+        ].includes(key)
+      ) {
+        return true;
+      }
+    }
+    if (operation?.id === "video_reference_to_video") {
+      if (
+        [
+          "imageFromInputNode",
+          "startEndFrameMode",
+          "localStartFrameImages",
+          "localEndFrameImages",
+        ].includes(key)
+      ) {
+        return true;
+      }
+    }
+    if (operation?.id === "video_start_end_frame") {
+      if (["imageFromInputNode", "localReferenceImages", "localReferenceVideos"].includes(key)) {
+        return true;
+      }
+    }
+  }
+  if (type === "audio_generation") {
+    if (
+      operation?.id !== "audio_voice_clone" &&
+      ["voiceFromInputNode", "localReferenceAudios", "voice"].includes(key)
+    ) {
+      return true;
+    }
   }
   if (!selectedModel) return false;
   if (type === "video_generation" && key === "resolution") return true;
@@ -676,7 +734,7 @@ export function localReferenceFilesFromConfig(
   const value = config[key];
   if (!Array.isArray(value)) return [];
 
-  return value.flatMap((item) => {
+  const references = value.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const record = item as Record<string, unknown>;
     const storageUrl = record.storageUrl ?? record.url;
@@ -688,10 +746,13 @@ export function localReferenceFilesFromConfig(
       title: typeof record.title === "string" ? record.title : "Reference file",
       mimeType: typeof record.mimeType === "string" ? record.mimeType : undefined,
       kind: typeof record.kind === "string" ? record.kind : fallbackKind,
+      alias: typeof record.alias === "string" ? record.alias : undefined,
       source: typeof record.source === "string" ? record.source : undefined,
       sourceId: typeof record.sourceId === "string" ? record.sourceId : undefined,
     }];
   });
+
+  return assignReferenceAliases(references, fallbackKind);
 }
 
 export function formatConfigFieldTextareaValue(value: unknown): string {

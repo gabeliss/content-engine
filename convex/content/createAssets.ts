@@ -14,6 +14,10 @@ import {
   waitForGeneratedVideo,
 } from "../workflows/runtime/generationWaiters";
 import {
+  promptWithProviderSafeReferenceAliases,
+  promptWithReferenceManifest,
+} from "../../src/lib/references/referenceAliases";
+import {
   imageModelUiContractForRun,
   imageProviderInputFromModelSchema,
 } from "../workflows/runtime/providerInputs";
@@ -21,12 +25,14 @@ import {
 const referenceAssetValidator = v.object({
   url: v.string(),
   mimeType: v.string(),
+  alias: v.optional(v.string()),
   description: v.optional(v.string()),
 });
 
 type CreateReferenceAsset = {
   url: string;
   mimeType: string;
+  alias?: string;
   description?: string;
 };
 
@@ -53,8 +59,37 @@ function referenceAssetsFromArgs(references: CreateReferenceAsset[]): ReferenceA
     .map((reference) => ({
       url: reference.url.trim(),
       mimeType: reference.mimeType.trim(),
+      alias: reference.alias?.trim() || undefined,
       description: reference.description?.trim() || undefined,
     }));
+}
+
+async function referenceAssetsForProvider(
+  providerName: string,
+  references: ReferenceAsset[]
+): Promise<ReferenceAsset[]> {
+  if (providerName !== "gemini" || !references.length) return references;
+
+  return await Promise.all(
+    references.map(async (reference) => {
+      if (reference.base64Data || !reference.url) return reference;
+
+      const response = await fetch(reference.url);
+      if (!response.ok) return reference;
+
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+
+      return {
+        ...reference,
+        base64Data: btoa(binary),
+        mimeType: response.headers.get("content-type") || reference.mimeType,
+      };
+    })
+  );
 }
 
 function providerInputFromArgs(value: unknown): Record<string, unknown> {
@@ -75,6 +110,7 @@ function defaultTitle(prompt: string, fallback: string) {
 
 export const generateImage = action({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     prompt: v.string(),
     provider: v.optional(modelProviderValidator),
@@ -94,14 +130,17 @@ export const generateImage = action({
     const prompt = args.prompt.trim();
     if (!prompt) throw new Error("Prompt is required");
 
-    const providerName = args.provider ?? "bulkapis";
+    const providerName = args.provider ?? "fal";
     const provider = getModelProvider(providerName);
     if (!provider.capabilities.image) {
       throw new Error(`${provider.displayName} does not support image generation.`);
     }
 
     const count = Math.max(1, Math.min(4, Math.floor(args.count ?? 1)));
-    const referenceImages = referenceAssetsFromArgs(args.referenceImages ?? []);
+    const referenceImages = await referenceAssetsForProvider(
+      providerName,
+      referenceAssetsFromArgs(args.referenceImages ?? [])
+    );
     const providerInput = providerInputFromArgs(args.providerInput);
     const providerModel = args.model?.trim()
       ? await ctx.runQuery(internal.providers.modelCatalog.getByProviderModelForRun, {
@@ -118,8 +157,17 @@ export const generateImage = action({
         `This model allows up to ${imageContract.images.maxCount} reference image${imageContract.images.maxCount === 1 ? "" : "s"}.`
       );
     }
+    const providerPrompt = promptWithReferenceManifest(prompt, referenceImages, "image");
+    const providerArguments = {
+      ...imageProviderInputFromModelSchema({
+        model: providerModel,
+        referenceImages,
+        count,
+      }),
+      ...providerInput,
+    };
     const result = await provider.generateImage({
-      prompt,
+      prompt: providerPrompt,
       model: args.model?.trim() || undefined,
       aspectRatio: args.aspectRatio,
       count,
@@ -128,14 +176,8 @@ export const generateImage = action({
         source: "create_page",
         mode: "image",
         referenceImageCount: referenceImages.length,
-        bulkapisInput: {
-          ...imageProviderInputFromModelSchema({
-            model: providerModel,
-            referenceImages,
-            count,
-          }),
-          ...providerInput,
-        },
+        arguments: providerArguments,
+        bulkapisInput: providerArguments,
       },
     });
 
@@ -158,6 +200,7 @@ export const generateImage = action({
       const title = `${defaultTitle(prompt, "Generated image")} ${index + 1}`;
       const artifactId = await ctx.runMutation(internal.artifacts.records.createFromRunner, {
         userId,
+        workspaceId: args.workspaceId,
         brandId: args.brandId,
         type: "image",
         title,
@@ -174,6 +217,8 @@ export const generateImage = action({
           jobId: result.jobId,
           status: "succeeded",
           referenceImageCount: referenceImages.length,
+          userPrompt: prompt,
+          providerPrompt,
           providerMetadata: result.metadata,
         },
         provider: result.metadata.provider,
@@ -194,6 +239,7 @@ export const generateImage = action({
 
 export const generateVideo = action({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     prompt: v.string(),
     provider: v.optional(modelProviderValidator),
@@ -215,7 +261,7 @@ export const generateVideo = action({
     const prompt = args.prompt.trim();
     if (!prompt) throw new Error("Prompt is required");
 
-    const providerName = args.provider ?? "bulkapis";
+    const providerName = args.provider ?? "fal";
     const provider = getModelProvider(providerName);
     if (!provider.capabilities.video) {
       throw new Error(`${provider.displayName} does not support video generation.`);
@@ -232,8 +278,13 @@ export const generateVideo = action({
     if (videoUrls.length > 1) {
       providerInput.reference_video_urls = providerInput.reference_video_urls ?? videoUrls;
     }
-    const result = await provider.generateVideo({
+    const providerPrompt = promptWithProviderSafeReferenceAliases(
       prompt,
+      [...referenceImages, ...referenceVideos],
+      "media"
+    );
+    const result = await provider.generateVideo({
+      prompt: providerPrompt,
       model: args.model?.trim() || undefined,
       aspectRatio: args.aspectRatio,
       durationSeconds: args.durationSeconds,
@@ -243,6 +294,7 @@ export const generateVideo = action({
         mode: "video",
         referenceImageCount: referenceImages.length,
         referenceVideoCount: referenceVideos.length,
+        arguments: providerInput,
         bulkapisInput: providerInput,
       },
     });
@@ -255,6 +307,7 @@ export const generateVideo = action({
     const title = defaultTitle(prompt, "Generated video");
     const artifactId = await ctx.runMutation(internal.artifacts.records.createFromRunner, {
       userId,
+      workspaceId: args.workspaceId,
       brandId: args.brandId,
       type: "video",
       title,
@@ -271,6 +324,8 @@ export const generateVideo = action({
         jobId: result.jobId,
         status: "succeeded",
         referenceImageCount: referenceImages.length,
+        userPrompt: prompt,
+        providerPrompt,
         providerMetadata: result.metadata,
       },
       provider: result.metadata.provider,
@@ -286,6 +341,7 @@ export const generateVideo = action({
 
 export const generateAudio = action({
   args: {
+    workspaceId: v.optional(v.id("workspaces")),
     brandId: v.optional(v.id("brands")),
     text: v.string(),
     provider: v.optional(modelProviderValidator),
@@ -305,7 +361,7 @@ export const generateAudio = action({
     const text = args.text.trim();
     if (!text) throw new Error("Text is required");
 
-    const providerName = args.provider ?? "bulkapis";
+    const providerName = args.provider ?? "fal";
     const provider = getModelProvider(providerName);
     if (!provider.capabilities.audio) {
       throw new Error(`${provider.displayName} does not support audio generation.`);
@@ -328,6 +384,11 @@ export const generateAudio = action({
       metadata: {
         source: "create_page",
         mode: "audio",
+        arguments: {
+          text,
+          mode: args.mode,
+          ...providerInput,
+        },
         bulkapisInput: {
           text,
           mode: args.mode,
@@ -352,6 +413,7 @@ export const generateAudio = action({
     const title = defaultTitle(text, "Generated audio");
     const artifactId = await ctx.runMutation(internal.artifacts.records.createFromRunner, {
       userId,
+      workspaceId: args.workspaceId,
       brandId: args.brandId,
       type: "rendered_asset",
       title,

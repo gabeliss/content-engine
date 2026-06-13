@@ -27,6 +27,7 @@ import {
   type GetJobStatusResult,
   type ModelProvider,
   type ModelProviderName,
+  type ReferenceAsset,
 } from "./model";
 
 type FalQueueSubmitResponse = {
@@ -53,6 +54,8 @@ const DEFAULT_FAL_QUEUE_BASE_URL = "https://queue.fal.run";
 const DEFAULT_FAL_IMAGE_MODEL = "fal-ai/gemini-3.1-flash-image-preview";
 const DEFAULT_FAL_IMAGE_RESOLUTION = "2K";
 const DEFAULT_FAL_VIDEO_MODEL = "fal-ai/ltx-video";
+const DEFAULT_FAL_AUDIO_MODEL = "fal-ai/xai/tts/v1";
+const DEFAULT_FAL_LIPSYNC_MODEL = "fal-ai/bytedance/seedance-2.0/reference-to-video";
 
 function isFalDryRunEnabled(): boolean {
   const value = process.env.FAL_DRY_RUN?.trim().toLowerCase();
@@ -107,6 +110,34 @@ function createFalHttpError(
   );
 }
 
+function createFalResponseDecodeError(
+  operation: string,
+  statusCode: number,
+  contentType: string | null,
+  body: string,
+  cause: unknown
+): ProviderError {
+  const details = body.trim()
+    ? body.trim().slice(0, 500)
+    : `Empty response body${contentType ? ` (${contentType})` : ""}`;
+  return new ProviderError(
+    `fal API returned an invalid response during ${operation}: ${details}`,
+    {
+      kind: "model",
+      provider: FAL_PROVIDER,
+      operation,
+      code: "provider",
+      statusCode,
+      retryable: statusCode >= 500,
+      details: {
+        body: body.slice(0, 2000),
+        contentType,
+        cause: cause instanceof Error ? cause.message : String(cause),
+      },
+    }
+  );
+}
+
 async function falRequest<T>(
   operation: string,
   url: string,
@@ -121,11 +152,24 @@ async function falRequest<T>(
     },
   });
 
+  const contentType = response.headers.get("content-type");
+  const body = await response.text();
+
   if (!response.ok) {
-    throw createFalHttpError(operation, response.status, await response.text());
+    throw createFalHttpError(operation, response.status, body);
   }
 
-  return (await response.json()) as T;
+  try {
+    return JSON.parse(body) as T;
+  } catch (error) {
+    throw createFalResponseDecodeError(
+      operation,
+      response.status,
+      contentType,
+      body,
+      error
+    );
+  }
 }
 
 function createFalDryRunId(prefix: string): string {
@@ -145,6 +189,37 @@ function aspectRatioToFalImageSize(aspectRatio?: string): string | undefined {
   }
 }
 
+function aspectRatioToFalVideoAspectRatio(aspectRatio?: string): "16:9" | "9:16" | "1:1" {
+  const normalized = aspectRatio?.trim();
+  if (normalized === "16:9" || normalized === "9:16" || normalized === "1:1") {
+    return normalized;
+  }
+  if (!normalized) return "9:16";
+
+  const match = normalized.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match) return "9:16";
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return "9:16";
+  }
+  if (width === height) return "1:1";
+  return width > height ? "16:9" : "9:16";
+}
+
+function falVideoAspectRatioPayload(
+  model: string,
+  input: GenerateVideoInput
+): Record<string, unknown> {
+  if (model.includes("image-to-video") && input.referenceImages?.length) {
+    return {};
+  }
+  return {
+    aspect_ratio: aspectRatioToFalVideoAspectRatio(input.aspectRatio),
+  };
+}
+
 function isFalGeminiImageModel(model: string): boolean {
   return model === "fal-ai/gemini-3-pro-image-preview" ||
     model === "fal-ai/gemini-3-pro-image-preview/edit" ||
@@ -162,13 +237,175 @@ function falImageModelForInput(model: string, input: GenerateImageInput): string
   return `${model}/edit`;
 }
 
-function falReferenceImageUrls(input: GenerateImageInput): string[] | undefined {
-  if (!input.referenceImages?.length) return undefined;
-  return input.referenceImages.flatMap((image) => {
-    if (image.url) return [image.url];
-    if (image.base64Data) return [`data:${image.mimeType};base64,${image.base64Data}`];
-    return [];
+function providerArgumentOverrides(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  return metadata?.arguments &&
+    typeof metadata.arguments === "object" &&
+    !Array.isArray(metadata.arguments)
+    ? metadata.arguments as Record<string, unknown>
+    : {};
+}
+
+function falReferenceAssetUrl(asset: ReferenceAsset | undefined): string | undefined {
+  if (!asset) return undefined;
+  if (asset.url) return asset.url;
+  if (asset.base64Data) return `data:${asset.mimeType};base64,${asset.base64Data}`;
+  return undefined;
+}
+
+function falReferenceAssetUrls(
+  assets: ReferenceAsset[] | undefined
+): string[] | undefined {
+  if (!assets?.length) return undefined;
+  const urls = assets.flatMap((asset) => {
+    const url = falReferenceAssetUrl(asset);
+    return url ? [url] : [];
   });
+  return urls.length ? urls : undefined;
+}
+
+function falReferenceImageUrls(input: GenerateImageInput): string[] | undefined {
+  return falReferenceAssetUrls(input.referenceImages);
+}
+
+function addFirstUrlAlias(
+  payload: Record<string, unknown>,
+  key: string,
+  url: string | undefined
+): void {
+  if (url && payload[key] === undefined) payload[key] = url;
+}
+
+function addUrlListAlias(
+  payload: Record<string, unknown>,
+  key: string,
+  urls: string[] | undefined
+): void {
+  if (urls?.length && payload[key] === undefined) payload[key] = urls;
+}
+
+function falImageReferencePayload(input: GenerateImageInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const imageUrls = falReferenceImageUrls(input);
+  const firstImageUrl = imageUrls?.[0];
+
+  addFirstUrlAlias(payload, "image_url", firstImageUrl);
+  addFirstUrlAlias(payload, "reference_image_url", firstImageUrl);
+  addUrlListAlias(payload, "image_urls", imageUrls);
+  addUrlListAlias(payload, "reference_image_urls", imageUrls);
+
+  return payload;
+}
+
+function falVideoReferenceImageUrls(input: GenerateVideoInput): string[] | undefined {
+  return falReferenceAssetUrls(input.referenceImages);
+}
+
+function falVideoReferencePayload(
+  model: string,
+  input: GenerateVideoInput
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const imageUrls = falVideoReferenceImageUrls(input);
+  const firstImageUrl = imageUrls?.[0];
+
+  if (!firstImageUrl) return payload;
+
+  if (model.includes("image-to-video")) {
+    addFirstUrlAlias(payload, "start_image_url", firstImageUrl);
+    addFirstUrlAlias(payload, "image_url", firstImageUrl);
+    addFirstUrlAlias(payload, "first_frame_url", firstImageUrl);
+  } else if (model.includes("reference-to-video")) {
+    addFirstUrlAlias(payload, "reference_image_url", firstImageUrl);
+    addFirstUrlAlias(payload, "image_url", firstImageUrl);
+    addFirstUrlAlias(payload, "start_image_url", firstImageUrl);
+  } else {
+    addFirstUrlAlias(payload, "image_url", firstImageUrl);
+  }
+
+  addUrlListAlias(payload, "image_urls", imageUrls);
+  addUrlListAlias(payload, "reference_image_urls", imageUrls);
+
+  return payload;
+}
+
+function addIfDefined(
+  payload: Record<string, unknown>,
+  key: string,
+  value: unknown
+): void {
+  if (value !== undefined && value !== null && value !== "") {
+    payload[key] = value;
+  }
+}
+
+function falGeneratedAssetMimeType(
+  item: Record<string, unknown>,
+  fallback: string
+): string {
+  if (typeof item.content_type === "string") return item.content_type;
+  if (typeof item.mime_type === "string") return item.mime_type;
+  return fallback;
+}
+
+function addFalAssetsFromList(
+  assets: GeneratedAsset[],
+  list: unknown[],
+  fallbackMimeType: string
+): void {
+  for (const asset of list) {
+    if (!asset || typeof asset !== "object") continue;
+    const item = asset as Record<string, unknown>;
+    if (typeof item.url === "string") {
+      assets.push({
+        url: item.url,
+        data: item.url,
+        mimeType: falGeneratedAssetMimeType(item, fallbackMimeType),
+      });
+    }
+  }
+}
+
+function falAudioPayload(input: GenerateAudioInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    text: input.text,
+  };
+  const audioUrls = falReferenceAssetUrls(input.voiceReferenceAudios);
+
+  addIfDefined(payload, "mode", input.mode);
+  if (audioUrls?.[0]) addIfDefined(payload, "audio_url", audioUrls[0]);
+  if (audioUrls?.[0]) addIfDefined(payload, "voice_url", audioUrls[0]);
+  if (audioUrls?.[0]) addIfDefined(payload, "voice_audio_url", audioUrls[0]);
+  if (audioUrls?.[0]) addIfDefined(payload, "reference_audio_url", audioUrls[0]);
+  addUrlListAlias(payload, "audio_urls", audioUrls);
+  addUrlListAlias(payload, "voice_urls", audioUrls);
+  addUrlListAlias(payload, "reference_audio_urls", audioUrls);
+
+  return {
+    ...payload,
+    ...providerArgumentOverrides(input.metadata),
+  };
+}
+
+function falLipsyncPayload(input: GenerateLipsyncInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const audioUrl = falReferenceAssetUrl(input.audio);
+  const imageUrl = falReferenceAssetUrl(input.image);
+  const videoUrl = falReferenceAssetUrl(input.video);
+
+  addIfDefined(payload, "audio_url", audioUrl);
+  addIfDefined(payload, "source_audio_url", audioUrl);
+  addIfDefined(payload, "image_url", imageUrl);
+  addIfDefined(payload, "source_image_url", imageUrl);
+  addIfDefined(payload, "video_url", videoUrl);
+  addIfDefined(payload, "source_video_url", videoUrl);
+  addIfDefined(payload, "resolution", input.resolution);
+
+  return {
+    ...payload,
+    ...providerArgumentOverrides(input.metadata),
+  };
 }
 
 function mapFalQueueStatus(status: string, hasError: boolean): AsyncJobStatus {
@@ -187,19 +424,11 @@ function normalizeFalAssets(payload: unknown): GeneratedAsset[] {
   const data = payload as Record<string, unknown>;
   const assets: GeneratedAsset[] = [];
 
-  const imageList = Array.isArray(data.images) ? data.images : [];
-  for (const image of imageList) {
-    if (!image || typeof image !== "object") continue;
-    const item = image as Record<string, unknown>;
-    if (typeof item.url === "string") {
-      assets.push({
-        url: item.url,
-        data: item.url,
-        mimeType:
-          typeof item.content_type === "string" ? item.content_type : "image/png",
-      });
-    }
-  }
+  addFalAssetsFromList(
+    assets,
+    Array.isArray(data.images) ? data.images : [],
+    "image/png"
+  );
 
   const singletonKeys = ["image", "video", "audio"] as const;
   for (const key of singletonKeys) {
@@ -210,29 +439,28 @@ function normalizeFalAssets(payload: unknown): GeneratedAsset[] {
       assets.push({
         url: item.url,
         data: item.url,
-        mimeType:
-          typeof item.content_type === "string"
-            ? item.content_type
-            : key === "video"
-              ? "video/mp4"
-              : "application/octet-stream",
+        mimeType: falGeneratedAssetMimeType(
+          item,
+          key === "video"
+            ? "video/mp4"
+            : key === "audio"
+              ? "audio/mpeg"
+              : "image/png"
+        ),
       });
     }
   }
 
-  const videoList = Array.isArray(data.videos) ? data.videos : [];
-  for (const video of videoList) {
-    if (!video || typeof video !== "object") continue;
-    const item = video as Record<string, unknown>;
-    if (typeof item.url === "string") {
-      assets.push({
-        url: item.url,
-        data: item.url,
-        mimeType:
-          typeof item.content_type === "string" ? item.content_type : "video/mp4",
-      });
-    }
-  }
+  addFalAssetsFromList(
+    assets,
+    Array.isArray(data.videos) ? data.videos : [],
+    "video/mp4"
+  );
+  addFalAssetsFromList(
+    assets,
+    Array.isArray(data.audios) ? data.audios : [],
+    "audio/mpeg"
+  );
 
   return assets;
 }
@@ -305,10 +533,7 @@ async function generateFalImage(
   }
 
   try {
-    const argumentOverrides = input.metadata?.arguments &&
-      typeof input.metadata.arguments === "object"
-      ? (input.metadata.arguments as Record<string, unknown>)
-      : {};
+    const argumentOverrides = providerArgumentOverrides(input.metadata);
     const referenceImageUrls = falReferenceImageUrls(input);
     const payload = isFalGeminiImageModel(model)
       ? {
@@ -316,7 +541,9 @@ async function generateFalImage(
           num_images: input.count ?? 1,
           aspect_ratio: input.aspectRatio ?? "1:1",
           output_format: "png",
-          resolution: process.env.CONTENT_ENGINE_IMAGE_RESOLUTION?.trim() || DEFAULT_FAL_IMAGE_RESOLUTION,
+          resolution:
+            process.env.CONTENT_ENGINE_IMAGE_RESOLUTION?.trim() ||
+            DEFAULT_FAL_IMAGE_RESOLUTION,
           safety_tolerance: "4",
           limit_generations: true,
           ...(referenceImageUrls ? { image_urls: referenceImageUrls } : {}),
@@ -326,6 +553,7 @@ async function generateFalImage(
           prompt: input.prompt,
           num_images: input.count ?? 1,
           image_size: aspectRatioToFalImageSize(input.aspectRatio),
+          ...falImageReferencePayload(input),
           ...argumentOverrides,
         };
 
@@ -376,12 +604,10 @@ async function generateFalVideo(
   try {
     const payload = {
       prompt: input.prompt,
-      aspect_ratio: input.aspectRatio,
+      ...falVideoAspectRatioPayload(model, input),
       duration: input.durationSeconds,
-      ...(input.metadata?.arguments &&
-      typeof input.metadata.arguments === "object"
-        ? (input.metadata.arguments as Record<string, unknown>)
-        : {}),
+      ...falVideoReferencePayload(model, input),
+      ...providerArgumentOverrides(input.metadata),
     };
 
     const submitted = await submitFalJob("generate_video", model, payload);
@@ -404,6 +630,104 @@ async function generateFalVideo(
       kind: "model",
       provider: FAL_PROVIDER,
       operation: "generate_video",
+    });
+  }
+}
+
+async function generateFalAudio(
+  input: GenerateAudioInput
+): Promise<GenerateAudioResult> {
+  const model = input.model ?? DEFAULT_FAL_AUDIO_MODEL;
+
+  if (isFalDryRunEnabled()) {
+    return {
+      audios: [],
+      jobId: createFalDryRunId("fal_audio"),
+      status: "queued",
+      metadata: {
+        provider: FAL_PROVIDER,
+        model,
+      },
+      raw: {
+        dryRun: true,
+      },
+    };
+  }
+
+  try {
+    const submitted = await submitFalJob(
+      "generate_audio",
+      model,
+      falAudioPayload(input)
+    );
+
+    return {
+      audios: [],
+      jobId: submitted.request_id,
+      status: "queued",
+      metadata: {
+        provider: FAL_PROVIDER,
+        model,
+        statusUrl: submitted.status_url,
+        responseUrl: submitted.response_url,
+        cancelUrl: submitted.cancel_url,
+        queuePosition: submitted.queue_position,
+      },
+      raw: submitted,
+    };
+  } catch (error) {
+    throw toProviderError(error, {
+      kind: "model",
+      provider: FAL_PROVIDER,
+      operation: "generate_audio",
+    });
+  }
+}
+
+async function generateFalLipsync(
+  input: GenerateLipsyncInput
+): Promise<GenerateLipsyncResult> {
+  const model = input.model ?? DEFAULT_FAL_LIPSYNC_MODEL;
+
+  if (isFalDryRunEnabled()) {
+    return {
+      jobId: createFalDryRunId("fal_lipsync"),
+      status: "queued",
+      metadata: {
+        provider: FAL_PROVIDER,
+        model,
+      },
+      raw: {
+        dryRun: true,
+      },
+    };
+  }
+
+  try {
+    const submitted = await submitFalJob(
+      "generate_lipsync",
+      model,
+      falLipsyncPayload(input)
+    );
+
+    return {
+      jobId: submitted.request_id,
+      status: "queued",
+      metadata: {
+        provider: FAL_PROVIDER,
+        model,
+        statusUrl: submitted.status_url,
+        responseUrl: submitted.response_url,
+        cancelUrl: submitted.cancel_url,
+        queuePosition: submitted.queue_position,
+      },
+      raw: submitted,
+    };
+  } catch (error) {
+    throw toProviderError(error, {
+      kind: "model",
+      provider: FAL_PROVIDER,
+      operation: "generate_lipsync",
     });
   }
 }
@@ -505,18 +829,6 @@ async function unsupportedFalStructured<T>(
   throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_structured");
 }
 
-async function unsupportedFalAudio(
-  _input: GenerateAudioInput
-): Promise<GenerateAudioResult> {
-  throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_audio");
-}
-
-async function unsupportedFalLipsync(
-  _input: GenerateLipsyncInput
-): Promise<GenerateLipsyncResult> {
-  throw unsupportedProviderOperation("model", FAL_PROVIDER, "generate_lipsync");
-}
-
 async function unsupportedFalVideoRender(
   _input: GenerateVideoRenderInput
 ): Promise<GenerateVideoRenderResult> {
@@ -531,8 +843,8 @@ export const falProvider: ModelProvider = {
     structured: false,
     image: true,
     video: true,
-    audio: false,
-    lipsync: false,
+    audio: true,
+    lipsync: true,
     videoRender: false,
     asyncJobs: true,
   },
@@ -540,8 +852,8 @@ export const falProvider: ModelProvider = {
   generateStructured: unsupportedFalStructured,
   generateImage: generateFalImage,
   generateVideo: generateFalVideo,
-  generateAudio: unsupportedFalAudio,
-  generateLipsync: unsupportedFalLipsync,
+  generateAudio: generateFalAudio,
+  generateLipsync: generateFalLipsync,
   generateVideoRender: unsupportedFalVideoRender,
   getJobStatus: getFalJobStatus,
 };

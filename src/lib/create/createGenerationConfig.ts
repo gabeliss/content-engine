@@ -54,6 +54,7 @@ export function defaultCreateGenerationConfig(mode: CreateMode): Record<string, 
   switch (mode) {
     case "image":
       return {
+        generationOperation: "image_text_to_image",
         prompt: "",
         aspectRatio: "4:5",
         count: 1,
@@ -61,8 +62,9 @@ export function defaultCreateGenerationConfig(mode: CreateMode): Record<string, 
       };
     case "video":
       return {
+        generationOperation: "video_image_to_video",
         prompt: "",
-        aspectRatio: "4:5",
+        aspectRatio: "9:16",
         durationSeconds: 5,
         startEndFrameMode: false,
         localStartFrameImages: [],
@@ -72,6 +74,7 @@ export function defaultCreateGenerationConfig(mode: CreateMode): Record<string, 
       };
     case "audio":
       return {
+        generationOperation: "audio_text_to_speech",
         mode: "tts",
         text: "",
         localReferenceAudios: [],

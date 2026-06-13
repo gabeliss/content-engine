@@ -1,9 +1,10 @@
-import { useCallback, useState, type ChangeEvent } from "react";
+import { useCallback, useState } from "react";
 import type { WorkflowCanvasNodeData, WorkflowFlowNode } from "../../lib/workflow/workflowCanvasGraph";
 import {
   localReferenceFilesFromConfig,
   type LocalReferenceFileKind,
 } from "../../lib/workflow/workflowConfigFields";
+import { assignReferenceAliases } from "../../lib/references/referenceAliases";
 import type { ImageModelUiContract } from "../../lib/workflow/workflowModelCatalog";
 import { fileToDataUrl } from "../../lib/browser/dataUrl";
 import type { LocalFileFieldMeta } from "../../components/workflow/WorkflowConfigField";
@@ -43,14 +44,11 @@ export function useWorkflowLocalReferenceFiles({
 
   const handleLocalReferenceFileUpload = useCallback(
     async (
-      event: ChangeEvent<HTMLInputElement>,
+      selectedFiles: File[],
       configKey: string,
       kind: LocalReferenceFileKind,
       options: { multiple?: boolean; maxCount?: number } = {}
     ) => {
-      const selectedFiles = Array.from(event.target.files ?? []);
-      event.target.value = "";
-
       if (!selectedFiles.length || !selectedNode) return;
 
       setIsUploadingImageReference(true);
@@ -96,10 +94,15 @@ export function useWorkflowLocalReferenceFiles({
           config: {
             ...data.config,
             [configKey]: [
-              ...(options.multiple === false
-                ? []
-                : localReferenceFilesFromConfig(data.config, configKey, kind)),
-              ...uploadedFiles,
+              ...assignReferenceAliases(
+                [
+                  ...(options.multiple === false
+                    ? []
+                    : localReferenceFilesFromConfig(data.config, configKey, kind)),
+                  ...uploadedFiles,
+                ],
+                kind
+              ),
             ],
           },
         }));
@@ -124,6 +127,28 @@ export function useWorkflowLocalReferenceFiles({
           ...data.config,
           [configKey]: localReferenceFilesFromConfig(data.config, configKey, kind).filter(
             (file) => file.id !== fileId
+          ),
+        },
+      }));
+    },
+    [updateSelectedNodeData]
+  );
+
+  const updateLocalReferenceAlias = useCallback(
+    (
+      configKey: string,
+      fileId: string,
+      kind: LocalReferenceFileKind,
+      alias: string
+    ) => {
+      updateSelectedNodeData((data) => ({
+        config: {
+          ...data.config,
+          [configKey]: assignReferenceAliases(
+            localReferenceFilesFromConfig(data.config, configKey, kind).map((file) =>
+              file.id === fileId ? { ...file, alias } : file
+            ),
+            kind
           ),
         },
       }));
@@ -203,5 +228,6 @@ export function useWorkflowLocalReferenceFiles({
     isUploadingImageReference,
     localFileFieldMeta,
     removeLocalReferenceFile,
+    updateLocalReferenceAlias,
   };
 }

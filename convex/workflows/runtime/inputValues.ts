@@ -148,6 +148,7 @@ function collectReferenceAssetsFromValue(
     output.push({
       url: trimmedUrl,
       mimeType,
+      alias: typeof record.alias === "string" ? record.alias : undefined,
       description:
         typeof record.title === "string"
           ? record.title

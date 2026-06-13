@@ -96,6 +96,26 @@ function appendRevisionRequest(
   };
 }
 
+function recordData(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function imageEditInstructionFromPrompt(prompt: string | undefined) {
+  if (!prompt) return undefined;
+
+  const userPromptMarker = "User prompt:";
+  const suffix =
+    "Use the provided reference image as the source image. Apply only the requested edit. Preserve the original subject, composition, framing, background, lighting, colors, camera angle, and style unless the requested edit directly requires a change.";
+  const markerIndex = prompt.lastIndexOf(userPromptMarker);
+  const userPrompt = markerIndex >= 0
+    ? prompt.slice(markerIndex + userPromptMarker.length).trim()
+    : prompt.trim();
+  const [instruction] = userPrompt.split(`\n\n${suffix}`);
+  return instruction?.trim() || userPrompt || undefined;
+}
+
 function isLibraryArtifact(artifact: Doc<"artifacts">): boolean {
   return artifact.lifecycle === "saved" || artifact.lifecycle === undefined;
 }
@@ -483,6 +503,124 @@ export const saveToLibrary = mutation({
       reviewStatus: "approved",
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const updateTitle = mutation({
+  args: {
+    id: v.id("artifacts"),
+    title: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await ensureCurrentUser(ctx);
+    const artifact = await ctx.db.get(args.id);
+    if (!artifact || !(await hasRecordAccess(ctx, artifact, userId))) {
+      throw new Error("Artifact not found");
+    }
+
+    const title = args.title.trim();
+    if (!title) {
+      throw new Error("Title is required");
+    }
+
+    await ctx.db.patch(args.id, {
+      title,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const approveImageReplacement = mutation({
+  args: {
+    originalArtifactId: v.id("artifacts"),
+    candidateArtifactId: v.id("artifacts"),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await ensureCurrentUser(ctx);
+    const original = await ctx.db.get(args.originalArtifactId);
+    const candidate = await ctx.db.get(args.candidateArtifactId);
+
+    if (!original || !(await hasRecordAccess(ctx, original, userId))) {
+      throw new Error("Original image not found");
+    }
+    if (!candidate || !(await hasRecordAccess(ctx, candidate, userId))) {
+      throw new Error("Candidate image not found");
+    }
+    const candidateMatchesOriginalScope = sameOwnershipScope(candidate, original);
+    const candidateCanJoinOriginalScope =
+      !candidate.workspaceId &&
+      candidate.userId === userId &&
+      candidate.lifecycle === "preview";
+
+    if (!candidateMatchesOriginalScope && !candidateCanJoinOriginalScope) {
+      throw new Error("Candidate image is not in the same workspace");
+    }
+    if (original.type !== "image" || candidate.type !== "image") {
+      throw new Error("Only image assets can be replaced");
+    }
+    if (!candidate.storageUrl) {
+      throw new Error("Candidate image has no output");
+    }
+
+    const originalData = recordData(original.data);
+    const candidateData = recordData(candidate.data);
+    const revisionHistory = Array.isArray(originalData.revisionHistory)
+      ? originalData.revisionHistory
+      : [];
+    const now = Date.now();
+    const candidateUserPrompt = typeof candidateData.userPrompt === "string"
+      ? candidateData.userPrompt
+      : candidate.prompt;
+    const latestEditPrompt = imageEditInstructionFromPrompt(candidateUserPrompt);
+
+    await ctx.db.patch(original._id, {
+      title: original.title ?? candidate.title,
+      storageUrl: candidate.storageUrl,
+      data: {
+        ...originalData,
+        ...candidateData,
+        originalPrompt: typeof originalData.originalPrompt === "string"
+          ? originalData.originalPrompt
+          : original.prompt,
+        latestEditPrompt,
+        replacedArtifactId: original._id,
+        replacementCandidateArtifactId: candidate._id,
+        previousStorageUrl: original.storageUrl,
+        revisionHistory: [
+          ...revisionHistory,
+          {
+            artifactId: candidate._id,
+            approvedAt: now,
+            editPrompt: latestEditPrompt,
+            prompt: candidate.prompt,
+            provider: candidate.provider,
+            model: candidate.model,
+            storageUrl: candidate.storageUrl,
+          },
+        ],
+      },
+      provider: candidate.provider,
+      model: candidate.model,
+      prompt: original.prompt,
+      lifecycle: "saved",
+      reviewStatus: "not_required",
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(candidate._id, {
+      workspaceId: original.workspaceId,
+      storageUrl: undefined,
+      data: {
+        source: "library_image_replacement",
+        approvedIntoArtifactId: original._id,
+        approvedAt: now,
+      },
+      lifecycle: "discarded",
+      reviewStatus: "not_required",
+      updatedAt: now,
+    });
+
+    return original._id;
   },
 });
 

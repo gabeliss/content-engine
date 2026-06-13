@@ -107,12 +107,16 @@ export function imageProviderInputFromModelSchema(args: {
   const input: Record<string, unknown> = {};
 
   if (urls.length) {
-    if (schemaHasField(schema, "image_url")) input.image_url = urls[0];
-    if (schemaHasField(schema, "image")) input.image = urls[0];
-    if (schemaHasField(schema, "image_urls")) input.image_urls = urls;
-    if (schemaHasField(schema, "image_input")) input.image_input = urls;
-    if (schemaHasField(schema, "input_urls")) input.input_urls = urls;
-    if (schemaHasField(schema, "reference_image_urls")) input.reference_image_urls = urls;
+    const imageInputFields = [
+      { key: "image_urls", value: urls },
+      { key: "input_urls", value: urls },
+      { key: "reference_image_urls", value: urls },
+      { key: "image_input", value: urls },
+      { key: "image_url", value: urls[0] },
+      { key: "image", value: urls[0] },
+    ];
+    const imageInputField = imageInputFields.find((field) => schemaHasField(schema, field.key));
+    if (imageInputField) input[imageInputField.key] = imageInputField.value;
   }
 
   if (schemaHasField(schema, "max_images")) {

@@ -2,6 +2,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import { storeGeneratedAsset } from "../../../content/assetStorage";
 import { getModelProvider } from "../../../providers";
+import { promptWithProviderSafeReferenceAliases } from "../../../../src/lib/references/referenceAliases";
 import { artifactIdsFromInputs } from "../../runtime/artifactInputs";
 import type {
   WorkflowNodeHandlerArgs,
@@ -182,8 +183,13 @@ export async function executeVideoGenerationNode({
           }
         : {}),
     };
-    const videoResult = await provider.generateVideo({
+    const providerPrompt = promptWithProviderSafeReferenceAliases(
       prompt,
+      [...referenceImages, ...referenceVideos],
+      "media"
+    );
+    const videoResult = await provider.generateVideo({
+      prompt: providerPrompt,
       model,
       aspectRatio,
       durationSeconds,

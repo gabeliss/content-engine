@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { ensureCurrentUser, requireCurrentUserId } from "../auth/users";
+import { aiGenerationSettingsValidator } from "../validators";
 
 const workspaceRoleValidator = v.union(
   v.literal("owner"),
@@ -19,6 +20,20 @@ const assignableWorkspaceRoleValidator = v.union(
 type WorkspaceRole = Doc<"workspaceMembers">["role"];
 
 const managerRoles = new Set<WorkspaceRole>(["owner", "admin"]);
+
+type AiGenerationSettings = NonNullable<Doc<"workspaces">["aiGenerationSettings"]>;
+
+function normalizeAiGenerationSettings(
+  settings: AiGenerationSettings
+): AiGenerationSettings {
+  return {
+    imageProvider: settings.imageProvider,
+    videoProvider: settings.videoProvider,
+    audioProvider: settings.audioProvider,
+    lipsyncProvider: settings.lipsyncProvider,
+    videoAnalysisProvider: settings.videoAnalysisProvider,
+  };
+}
 
 export async function getActiveMembership(
   ctx: QueryCtx | MutationCtx,
@@ -146,6 +161,7 @@ export const update = mutation({
     id: v.id("workspaces"),
     name: v.optional(v.string()),
     clerkOrganizationId: v.optional(v.string()),
+    aiGenerationSettings: v.optional(aiGenerationSettingsValidator),
   },
   handler: async (ctx, args) => {
     const userId = await requireCurrentUserId(ctx);
@@ -159,6 +175,9 @@ export const update = mutation({
     }
     if (args.clerkOrganizationId !== undefined) {
       patch.clerkOrganizationId = args.clerkOrganizationId.trim() || undefined;
+    }
+    if (args.aiGenerationSettings !== undefined) {
+      patch.aiGenerationSettings = normalizeAiGenerationSettings(args.aiGenerationSettings);
     }
 
     await ctx.db.patch(workspace._id, patch);

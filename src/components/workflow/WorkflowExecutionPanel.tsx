@@ -1,7 +1,10 @@
 import { ChevronDown, ExternalLink, X } from "lucide-react";
+import { useState } from "react";
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import { artifactSummary } from "../../lib/artifactUtils";
 import { ArtifactPreview } from "../ArtifactPreview";
+import { MediaLightbox, type MediaLightboxItem } from "../MediaLightbox";
+import { LoadingSignal, LoadingState } from "../ui";
 import { formatDuration, formatStatus, formatTimestamp, type WorkflowRunDoc } from "./workflowRunFormat";
 
 type PackageMediaItem = {
@@ -55,6 +58,20 @@ function isMediaArtifact(artifact: Doc<"artifacts">): boolean {
   );
 }
 
+function artifactMimeType(artifact: Doc<"artifacts">): string | undefined {
+  return isRecord(artifact.data) && typeof artifact.data.mimeType === "string"
+    ? artifact.data.mimeType
+    : undefined;
+}
+
+function isImageArtifact(artifact: Doc<"artifacts">): boolean {
+  return (
+    artifact.type === "image" ||
+    artifact.type === "thumbnail" ||
+    artifactMimeType(artifact)?.startsWith("image/") === true
+  );
+}
+
 function isUserFacingArtifact(artifact: Doc<"artifacts">): boolean {
   if (isPlaceholderArtifact(artifact) || artifact.type === "publish_payload") return false;
   if (isMediaArtifact(artifact)) return Boolean(artifactStorageUrl(artifact));
@@ -74,7 +91,7 @@ function runOutputSummary(
   artifacts: Doc<"artifacts">[] | undefined,
   selectedRunNodeStates: Doc<"workflowRunNodeStates">[] | undefined
 ): string {
-  if (!artifacts) return "Loading outputs";
+  if (!artifacts) return "";
 
   const visibleArtifacts = artifacts.filter(isUserFacingArtifact);
   const mediaCount = visibleArtifacts.filter(isMediaArtifact).length;
@@ -128,9 +145,12 @@ function RunArtifactCard({
   prominence?: "primary" | "secondary";
   sequenceLabel?: string;
 }) {
+  const [lightboxImage, setLightboxImage] = useState<MediaLightboxItem | null>(null);
   const storageUrl = artifactStorageUrl(artifact);
   const providerModel = providerModelLabel(artifact);
   const isPrimary = prominence === "primary";
+  const canOpenImage = Boolean(storageUrl) && isImageArtifact(artifact);
+  const outputTitle = displayTitle || artifact.title || "Untitled artifact";
 
   return (
     <article
@@ -154,7 +174,7 @@ function RunArtifactCard({
           </span>
         ) : null}
         <strong className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.86rem] font-[800] text-[var(--color-ink)]">
-          {displayTitle || artifact.title || "Untitled artifact"}
+          {outputTitle}
         </strong>
         {sequenceLabel ? (
           <span className="text-[0.72rem] font-[740] text-[var(--color-ink-soft)]">
@@ -173,7 +193,22 @@ function RunArtifactCard({
             {artifactSummary(artifact)}
           </p>
         )}
-        {storageUrl ? (
+        {storageUrl && canOpenImage ? (
+          <button
+            className="inline-flex w-fit items-center gap-[var(--space-1)] border-0 bg-transparent p-0 text-[0.76rem] font-[760] text-[var(--color-primary)]"
+            onClick={() => {
+              setLightboxImage({
+                src: storageUrl,
+                title: outputTitle,
+                meta: providerModel,
+              });
+            }}
+            type="button"
+          >
+            <ExternalLink size={14} />
+            Open artifact
+          </button>
+        ) : storageUrl ? (
           <a
             className="inline-flex w-fit items-center gap-[var(--space-1)] text-[0.76rem] font-[760] text-[var(--color-primary)] no-underline"
             href={storageUrl}
@@ -184,6 +219,7 @@ function RunArtifactCard({
             Open artifact
           </a>
         ) : null}
+        <MediaLightbox media={lightboxImage} onClose={() => setLightboxImage(null)} />
         {deliverySummary ? (
           <p className="m-0 border-t border-[var(--color-border)] pt-[var(--space-2)] text-[0.76rem] font-[740] text-[var(--color-ink-soft)]">
             {deliverySummary}
@@ -282,7 +318,13 @@ export function WorkflowExecutionPanel({
       <div className="workflow-execution-header !static !mb-[var(--space-5)]">
         <div>
           <h2>Executions</h2>
-          <p>{workflowRuns ? `${workflowRuns.length} runs` : "Loading runs"}</p>
+          <p>
+            {workflowRuns ? (
+              `${workflowRuns.length} runs`
+            ) : (
+              <LoadingSignal label="Loading runs" showLabel size="sm" />
+            )}
+          </p>
         </div>
         <div className="workflow-execution-header-actions">
           <button
@@ -300,10 +342,17 @@ export function WorkflowExecutionPanel({
         <div className="workflow-run-history rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-[var(--space-3)] shadow-[var(--shadow-sm)]">
           <div className="workflow-execution-section-heading">
             <h3>Recent Runs</h3>
-            <span>{workflowRuns ? `${workflowRuns.length}` : "Loading"}</span>
+            <span>
+              {workflowRuns ? `${workflowRuns.length}` : <LoadingSignal label="Loading" size="sm" />}
+            </span>
           </div>
           {!workflowRuns ? (
-            <p className="workflow-inspector-empty">Loading runs...</p>
+            <LoadingState
+              className="border-0 bg-[var(--color-page)]"
+              compact
+              detail="Fetching the latest workflow executions."
+              title="Loading runs"
+            />
           ) : workflowRuns.length ? (
             <div className="workflow-run-list">
               {workflowRuns.slice(0, 8).map((run) => (
@@ -351,9 +400,13 @@ export function WorkflowExecutionPanel({
                   ) : null}
                 </div>
                 <p className="m-0 text-[0.78rem] leading-[1.35] text-[var(--color-ink-muted)]">
-                  {runOutputSummary(selectedRunArtifacts, selectedRunNodeStates) ||
+                  {selectedRunArtifacts ? (
+                    runOutputSummary(selectedRunArtifacts, selectedRunNodeStates) ||
                     selectedRun.summary ||
-                    formatTimestamp(selectedRun.startedAt)}
+                    formatTimestamp(selectedRun.startedAt)
+                  ) : (
+                    <LoadingSignal label="Loading outputs" showLabel size="sm" />
+                  )}
                 </p>
               </div>
 
@@ -378,7 +431,10 @@ export function WorkflowExecutionPanel({
                           ? `${selectedNodeState.dependencyNodeIds.length} dependencies · ${selectedNodeEvents.length} events`
                           : selectedRunNodeStates
                             ? "No execution state recorded for this node in the selected run."
-                            : "Loading node execution state...")}
+                            : undefined)}
+                    {!selectedRunNodeStates ? (
+                      <LoadingSignal label="Loading node execution state" showLabel size="sm" />
+                    ) : null}
                   </p>
                 </div>
               ) : null}
@@ -386,11 +442,18 @@ export function WorkflowExecutionPanel({
               <div className="grid gap-[var(--space-3)]">
                 <div className="workflow-execution-section-heading">
                   <h3>Outputs</h3>
-                  <span>{selectedRunArtifacts ? outputCount : "Loading"}</span>
+                  <span>
+                    {selectedRunArtifacts ? outputCount : <LoadingSignal label="Loading" size="sm" />}
+                  </span>
                 </div>
 
                 {!selectedRunArtifacts ? (
-                  <p className="workflow-inspector-empty">Loading outputs...</p>
+                  <LoadingState
+                    className="border-0 bg-[var(--color-page)]"
+                    compact
+                    detail="Collecting generated artifacts and export packages."
+                    title="Loading outputs"
+                  />
                 ) : outputCount ? (
                   <div className="grid gap-[var(--space-3)]">
                     {primaryArtifact ? (
@@ -448,7 +511,13 @@ export function WorkflowExecutionPanel({
                     <div>
                       <div className="workflow-execution-section-heading">
                         <h3>Nodes</h3>
-                        <span>{selectedRunNodeStates ? selectedRunNodeStates.length : "Loading"}</span>
+                        <span>
+                          {selectedRunNodeStates ? (
+                            selectedRunNodeStates.length
+                          ) : (
+                            <LoadingSignal label="Loading" size="sm" />
+                          )}
+                        </span>
                       </div>
                       {selectedRunNodeStates?.length ? (
                         <div className="workflow-run-node-state-list mt-[var(--space-2)]">
@@ -468,6 +537,12 @@ export function WorkflowExecutionPanel({
                             </div>
                           ))}
                         </div>
+                      ) : selectedRunNodeStates === undefined ? (
+                        <LoadingState
+                          className="mt-[var(--space-2)] border-0 bg-[var(--color-page-quiet)]"
+                          compact
+                          title="Loading nodes"
+                        />
                       ) : (
                         <p className="workflow-inspector-empty">No node execution state recorded yet.</p>
                       )}
@@ -476,7 +551,13 @@ export function WorkflowExecutionPanel({
                     <div>
                       <div className="workflow-execution-section-heading">
                         <h3>Events</h3>
-                        <span>{selectedRunEvents ? selectedRunEvents.length : "Loading"}</span>
+                        <span>
+                          {selectedRunEvents ? (
+                            selectedRunEvents.length
+                          ) : (
+                            <LoadingSignal label="Loading" size="sm" />
+                          )}
+                        </span>
                       </div>
                       {selectedRunEvents?.length ? (
                         <div className="workflow-run-event-list mt-[var(--space-2)]">
@@ -488,6 +569,12 @@ export function WorkflowExecutionPanel({
                             </div>
                           ))}
                         </div>
+                      ) : selectedRunEvents === undefined ? (
+                        <LoadingState
+                          className="mt-[var(--space-2)] border-0 bg-[var(--color-page-quiet)]"
+                          compact
+                          title="Loading events"
+                        />
                       ) : (
                         <p className="workflow-inspector-empty">No events recorded yet.</p>
                       )}

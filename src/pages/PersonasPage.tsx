@@ -9,7 +9,7 @@ import {
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { api } from "../../convex/_generated/api";
 import type { BrandId, CreativeAssetDoc, CreativeAssetId, PersonaDoc, PersonaId, PersonaType } from "../types";
-import { Field, Page, Select, TextArea } from "../components/ui";
+import { Field, LoadingSignal, Page, Select, TextArea } from "../components/ui";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { fileToDataUrl } from "../lib/browser/dataUrl";
 
@@ -36,6 +36,10 @@ const personaTypeOptions: Array<{ value: PersonaType; label: string }> = [
   { value: "customer_avatar", label: "Customer avatar" },
   { value: "other", label: "Other" },
 ];
+
+function isWorkingStatus(message: string) {
+  return /^(Saving|Uploading|Deleting)/.test(message);
+}
 
 const emptyPersonaForm: PersonaFormState = {
   name: "",
@@ -158,6 +162,7 @@ export function PersonasPage() {
   const generatedPreviewAssets = form.generatedAssetIds
     .map((assetId) => assetsById.get(assetId))
     .filter((asset): asset is CreativeAssetDoc => Boolean(asset));
+  const isWorking = isWorkingStatus(status);
 
   useEffect(() => {
     if (!brandId && brands?.[0]) {
@@ -367,7 +372,12 @@ export function PersonasPage() {
             ))}
           </Select>
           <div className="grid gap-[var(--space-2)]">
-            {!personas && brandId && <p className="muted">Loading personas...</p>}
+            {!personas && brandId && (
+              <p className="muted inline-flex items-center gap-[var(--space-2)]">
+                <LoadingSignal label="Loading personas" size="sm" />
+                Loading personas
+              </p>
+            )}
             {personas?.length === 0 && (
               <div className="empty-state min-h-[8rem]">No personas for this brand yet.</div>
             )}
@@ -409,8 +419,16 @@ export function PersonasPage() {
                   Delete
                 </button>
               )}
-              <button className="primary-button" disabled={!brandId || !form.name.trim()} type="submit">
-                <Save size={16} />
+              <button
+                className="primary-button"
+                disabled={!brandId || !form.name.trim() || isWorking}
+                type="submit"
+              >
+                {status === "Saving persona" ? (
+                  <LoadingSignal label="Saving persona" size="sm" />
+                ) : (
+                  <Save size={16} />
+                )}
                 Save persona
               </button>
             </div>
@@ -482,12 +500,16 @@ export function PersonasPage() {
               </label>
               <button
                 className="secondary-button"
-                disabled={!brandId || !uploadName.trim() || !uploadFile}
+                disabled={!brandId || !uploadName.trim() || !uploadFile || isWorking}
                 type="button"
                 onClick={() => void uploadAndAttachAsset()}
               >
-                <ImagePlus size={16} />
-                Attach
+                {status === "Uploading creative asset" ? (
+                  <LoadingSignal label="Uploading creative asset" size="sm" />
+                ) : (
+                  <ImagePlus size={16} />
+                )}
+                {status === "Uploading creative asset" ? "Uploading" : "Attach"}
               </button>
             </div>
           </section>
@@ -521,7 +543,12 @@ export function PersonasPage() {
             </div>
           </section>
 
-          {status && <p className="muted">{status}</p>}
+          {status && (
+            <p className="muted inline-flex items-center gap-[var(--space-2)]">
+              {isWorking ? <LoadingSignal label={status} size="sm" /> : null}
+              {status}
+            </p>
+          )}
         </form>
       </div>
     </Page>

@@ -10,6 +10,10 @@ import {
 } from "../../lib/workflow/workflowModelCatalog";
 import { configFieldsForNode } from "../../lib/workflow/workflowConfigFields";
 import {
+  generationOperationForConfig,
+  generationOperationsForNodeType,
+} from "../../lib/generation/generationOperations";
+import {
   modelOptionSourcesForNode,
   richModelPickerOptions,
 } from "../../lib/workflow/workflowModelPickerOptions";
@@ -39,10 +43,25 @@ export function useWorkflowNodeModelControls({
       selectedNode?.data.type !== "auto_post"
   );
   const showModelControl = Boolean(selectedNodeModelCategory);
+  const selectedGenerationOperation = useMemo(
+    () =>
+      selectedNode
+        ? generationOperationForConfig(selectedNode.data.type, selectedNode.data.config)
+        : undefined,
+    [selectedNode]
+  );
+  const selectedGenerationOperationOptions = useMemo(
+    () => generationOperationsForNodeType(selectedNode?.data.type),
+    [selectedNode?.data.type]
+  );
+  const selectedProvider =
+    selectedNode?.data.provider ?? selectedNodeDefinition?.defaultProvider;
   const selectedProviderCatalogName = selectedNodeModelCategory
-    ? "bulkapis"
-    : isProviderCatalogName(selectedNode?.data.provider)
-      ? selectedNode.data.provider
+    ? isProviderCatalogName(selectedProvider)
+      ? selectedProvider
+      : undefined
+    : isProviderCatalogName(selectedProvider)
+      ? selectedProvider
       : undefined;
   const selectedProviderModels = useQuery(
     api.providers.modelCatalog.list,
@@ -56,9 +75,16 @@ export function useWorkflowNodeModelControls({
   const selectedModelOptions = useMemo(() => {
     return modelOptionSourcesForNode({
       nodeType: selectedNode?.data.type,
+      operationId: selectedGenerationOperation?.id,
+      providerName: selectedProviderCatalogName,
       providerModels: selectedProviderModels,
     });
-  }, [selectedNode?.data.type, selectedProviderModels]);
+  }, [
+    selectedGenerationOperation?.id,
+    selectedNode?.data.type,
+    selectedProviderCatalogName,
+    selectedProviderModels,
+  ]);
   const selectedProviderModel = useMemo(
     () =>
       selectedProviderModels?.find(
@@ -70,10 +96,16 @@ export function useWorkflowNodeModelControls({
     return richModelPickerOptions({
       modelOptions: selectedModelOptions,
       nodeType: selectedNode?.data.type,
+      operationId: selectedGenerationOperation?.id,
       providerModels: selectedProviderModels,
       selectedModel: selectedNode?.data.model,
     });
-  }, [selectedModelOptions, selectedNode, selectedProviderModels]);
+  }, [
+    selectedGenerationOperation?.id,
+    selectedModelOptions,
+    selectedNode,
+    selectedProviderModels,
+  ]);
   const selectedImageModelUiContract = useMemo(
     () =>
       selectedNode?.data.type === "image_generation"
@@ -96,6 +128,8 @@ export function useWorkflowNodeModelControls({
 
   return {
     selectedConfigFields,
+    selectedGenerationOperation,
+    selectedGenerationOperationOptions,
     selectedImageModelUiContract,
     selectedModelOptions,
     selectedModelPickerOptions,

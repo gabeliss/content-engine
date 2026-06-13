@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import { Page } from "../components/ui";
+import { LoadingState, Page } from "../components/ui";
 import { WorkflowCanvasBoard } from "../components/workflow/WorkflowCanvasBoard";
 import { WorkflowCanvasHeader } from "../components/workflow/WorkflowCanvasHeader";
 import { WorkflowConfigField } from "../components/workflow/WorkflowConfigField";
@@ -21,6 +21,7 @@ import { WorkflowExecutionPanel } from "../components/workflow/WorkflowExecution
 import { WorkflowNodeInspector } from "../components/workflow/WorkflowNodeInspector";
 import { WorkflowNodePalette } from "../components/workflow/WorkflowNodePalette";
 import type { SelectableLibraryAsset } from "../components/library/ReferenceAssetField";
+import { useWorkspace } from "../contexts/WorkspaceContext";
 import type {
   WorkflowGraph,
   WorkflowNodeType,
@@ -44,6 +45,8 @@ import {
   type ConfigField,
   type LocalReferenceFileKind,
 } from "../lib/workflow/workflowConfigFields";
+import { assignReferenceAliases } from "../lib/references/referenceAliases";
+import { generationDefaultForWorkflowNode } from "../lib/providers/aiGenerationDefaults";
 import { getWorkflowNodeDefinition } from "../lib/workflow/workflowNodeCatalog";
 import { validateWorkflowGraph } from "../lib/workflow/workflowGraphValidation";
 import { recommendedModelIdForNodeType } from "../lib/workflow/workflowModelCatalog";
@@ -51,6 +54,8 @@ import { useWorkflowNodeModelControls } from "../hooks/workflow/useWorkflowNodeM
 import { useWorkflowLocalReferenceFiles } from "../hooks/workflow/useWorkflowLocalReferenceFiles";
 
 type WorkflowRunNodeStateDoc = Doc<"workflowRunNodeStates">;
+
+const WORKFLOW_GRAPH_AUTOSAVE_DELAY_MS = 900;
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -74,6 +79,7 @@ function nodeExecutionStatus(
 
 export function WorkflowCanvasPage() {
   const { workflowId } = useParams();
+  const { activeWorkspace } = useWorkspace();
   const workflow = useQuery(
     api.workflows.definitions.get,
     workflowId ? { id: workflowId as Id<"workflows"> } : "skip"
@@ -91,7 +97,6 @@ export function WorkflowCanvasPage() {
     workflow?.brandId ? { brandId: workflow.brandId } : {}
   );
   const updateGraph = useMutation(api.workflows.definitions.updateGraph);
-  const updateNodePositions = useMutation(api.workflows.definitions.updateNodePositions);
   const createManualRun = useMutation(api.workflows.runs.createManualRun);
   const setWorkflowActive = useMutation(api.workflows.definitions.setActive);
   const uploadReferenceImage = useAction(api.storage.files.uploadBase64ImageWithMetadata);
@@ -102,13 +107,14 @@ export function WorkflowCanvasPage() {
   const [isCreatingRun, setIsCreatingRun] = useState(false);
   const [isUpdatingActiveState, setIsUpdatingActiveState] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
-  const [layoutSaveRequestId, setLayoutSaveRequestId] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState("");
   const [runActionStatus, setRunActionStatus] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<Id<"workflowRuns"> | null>(null);
   const [openDrawer, setOpenDrawer] = useState<"node" | "execution" | null>(null);
-  const layoutSaveTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const graphAutosaveTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const graphEditVersionRef = useRef(0);
+  const activeSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const isDirtyRef = useRef(false);
 
   const flowNodes = useMemo(
@@ -129,6 +135,8 @@ export function WorkflowCanvasPage() {
     : null;
   const {
     selectedConfigFields,
+    selectedGenerationOperation,
+    selectedGenerationOperationOptions,
     selectedImageModelUiContract,
     selectedModelOptions,
     selectedModelPickerOptions,
@@ -143,6 +151,28 @@ export function WorkflowCanvasPage() {
   });
   const selectedPrimaryConfigFields = selectedConfigFields.filter((field) => !field.advanced);
   const selectedAdvancedConfigFields = selectedConfigFields.filter((field) => field.advanced);
+  const workspaceAiGenerationSettings = activeWorkspace?.aiGenerationSettings;
+  const defaultProviderModelForNode = useCallback(
+    (type: WorkflowNodeType) => {
+      const definition = getWorkflowNodeDefinition(type);
+      const generationDefault = generationDefaultForWorkflowNode(
+        workspaceAiGenerationSettings,
+        type
+      );
+      if (generationDefault) {
+        return {
+          provider: generationDefault.provider,
+          model: undefined,
+        };
+      }
+
+      return {
+        provider: definition.defaultProvider,
+        model: recommendedModelIdForNodeType(type),
+      };
+    },
+    [workspaceAiGenerationSettings]
+  );
   const editableGraph = useMemo(
     () => (workflow ? toWorkflowGraph(workflow.graph as WorkflowGraph, nodes, edges) : null),
     [edges, nodes, workflow]
@@ -201,40 +231,9 @@ export function WorkflowCanvasPage() {
     setNodes(flowNodes);
     setEdges(flowEdges);
     setIsDirty(false);
-    setLayoutSaveRequestId(0);
     setSaveStatus("");
     setConnectionStatus("");
   }, [flowEdges, flowNodes, setEdges, setNodes, workflow]);
-
-  useEffect(() => {
-    if (!layoutSaveRequestId || !workflow) return;
-
-    if (layoutSaveTimeoutRef.current) {
-      window.clearTimeout(layoutSaveTimeoutRef.current);
-    }
-
-    layoutSaveTimeoutRef.current = window.setTimeout(() => {
-      layoutSaveTimeoutRef.current = null;
-      setLayoutSaveRequestId(0);
-
-      void updateNodePositions({
-        id: workflow._id,
-        positions: nodes.map((node) => ({
-          nodeId: node.id,
-          position: node.position,
-        })),
-      }).catch(() => {
-        setSaveStatus("Unable to save canvas layout.");
-      });
-    }, 700);
-
-    return () => {
-      if (layoutSaveTimeoutRef.current) {
-        window.clearTimeout(layoutSaveTimeoutRef.current);
-        layoutSaveTimeoutRef.current = null;
-      }
-    };
-  }, [layoutSaveRequestId, nodes, updateNodePositions, workflow]);
 
   useEffect(() => {
     if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
@@ -254,34 +253,123 @@ export function WorkflowCanvasPage() {
     setSelectedRunId(workflowRuns[0]._id);
   }, [selectedRunId, workflowRuns]);
 
+  const clearGraphAutosaveTimeout = useCallback(() => {
+    if (!graphAutosaveTimeoutRef.current) return;
+
+    window.clearTimeout(graphAutosaveTimeoutRef.current);
+    graphAutosaveTimeoutRef.current = null;
+  }, []);
+
+  const markGraphDirty = useCallback(() => {
+    graphEditVersionRef.current += 1;
+    setIsDirty(true);
+    setSaveStatus("");
+  }, []);
+
+  const saveGraphNow = useCallback(async () => {
+    if (!workflow || !editableGraph) return false;
+
+    clearGraphAutosaveTimeout();
+
+    if (activeSavePromiseRef.current) {
+      await activeSavePromiseRef.current;
+      if (!isDirtyRef.current) return true;
+    }
+
+    const validation = validateWorkflowGraph(editableGraph, "draft");
+
+    if (!validation.valid) {
+      setSaveStatus(validation.errors[0]?.message ?? "Workflow graph is invalid.");
+      return false;
+    }
+
+    const saveVersion = graphEditVersionRef.current;
+    setIsSaving(true);
+    setSaveStatus("Autosaving...");
+
+    const savePromise = updateGraph({ id: workflow._id, graph: editableGraph })
+      .then(() => {
+        if (graphEditVersionRef.current !== saveVersion) {
+          setSaveStatus("");
+          return false;
+        }
+
+        setIsDirty(false);
+        setSaveStatus("Saved");
+        setConnectionStatus("");
+        return true;
+      })
+      .catch((error: unknown) => {
+        setSaveStatus(getErrorMessage(error));
+        return false;
+      })
+      .finally(() => {
+        if (activeSavePromiseRef.current === savePromise) {
+          activeSavePromiseRef.current = null;
+          setIsSaving(false);
+        }
+      });
+
+    activeSavePromiseRef.current = savePromise;
+    return await savePromise;
+  }, [clearGraphAutosaveTimeout, editableGraph, updateGraph, workflow]);
+
+  useEffect(() => {
+    if (!isDirty || !workflow || isSaving) return;
+
+    if (!draftGraphValidation?.valid) {
+      setSaveStatus(draftGraphValidation?.errors[0]?.message ?? "Workflow graph is invalid.");
+      return;
+    }
+
+    clearGraphAutosaveTimeout();
+
+    graphAutosaveTimeoutRef.current = window.setTimeout(() => {
+      graphAutosaveTimeoutRef.current = null;
+      void saveGraphNow();
+    }, WORKFLOW_GRAPH_AUTOSAVE_DELAY_MS);
+
+    return clearGraphAutosaveTimeout;
+  }, [
+    clearGraphAutosaveTimeout,
+    draftGraphValidation,
+    isDirty,
+    isSaving,
+    saveGraphNow,
+    workflow,
+  ]);
+
+  useEffect(() => clearGraphAutosaveTimeout, [clearGraphAutosaveTimeout]);
+
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowFlowNode>[]) => {
-      if (changes.some((change) => change.type === "position")) {
-        setLayoutSaveRequestId((currentRequestId) => currentRequestId + 1);
+      if (
+        changes.some((change) => change.type === "position" || change.type === "remove")
+      ) {
+        markGraphDirty();
       }
 
       onNodesChange(changes);
     },
-    [onNodesChange]
+    [markGraphDirty, onNodesChange]
   );
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange<Edge>[]) => {
       if (changes.some((change) => change.type === "remove" || change.type === "add")) {
-        setIsDirty(true);
-        setSaveStatus("");
+        markGraphDirty();
         setConnectionStatus("");
       }
 
       onEdgesChange(changes);
     },
-    [onEdgesChange]
+    [markGraphDirty, onEdgesChange]
   );
 
   const handleAddNode = useCallback(
     (type: WorkflowNodeType) => {
       const definition = getWorkflowNodeDefinition(type);
-      const defaultModel = recommendedModelIdForNodeType(type);
+      const nodeDefault = defaultProviderModelForNode(type);
 
       if (type === "runner" && hasRunnerNode) return;
 
@@ -299,19 +387,18 @@ export function WorkflowCanvasPage() {
             data: {
               config: cloneConfig(definition.defaultConfig),
               label: definition.label,
-              model: defaultModel,
-              provider: definition.defaultProvider,
+              model: nodeDefault.model,
+              provider: nodeDefault.provider,
               retention: definition.defaultRetention,
               type,
             },
           },
         ];
       });
-      setIsDirty(true);
-      setSaveStatus("");
+      markGraphDirty();
       setConnectionStatus("");
     },
-    [hasRunnerNode, setNodes]
+    [defaultProviderModelForNode, hasRunnerNode, markGraphDirty, setNodes]
   );
 
   const handleSelectNode = useCallback(
@@ -326,10 +413,9 @@ export function WorkflowCanvasPage() {
 
       if (node.data.model) return;
 
-      const defaultModel = recommendedModelIdForNodeType(node.data.type);
-      if (!defaultModel) return;
+      const nodeDefault = defaultProviderModelForNode(node.data.type);
+      if (!nodeDefault.model && !nodeDefault.provider) return;
 
-      const definition = getWorkflowNodeDefinition(node.data.type);
       setNodes((currentNodes) =>
         currentNodes.map((currentNode) =>
           currentNode.id === node.id
@@ -337,18 +423,17 @@ export function WorkflowCanvasPage() {
                 ...currentNode,
                 data: {
                   ...currentNode.data,
-                  model: defaultModel,
-                  provider: currentNode.data.provider ?? definition.defaultProvider,
+                  model: nodeDefault.model,
+                  provider: currentNode.data.provider ?? nodeDefault.provider,
                 },
               }
             : currentNode
         )
       );
-      setIsDirty(true);
-      setSaveStatus("");
+      markGraphDirty();
       setConnectionStatus("");
     },
-    [openDrawer, setNodes]
+    [defaultProviderModelForNode, markGraphDirty, openDrawer, setNodes]
   );
 
   const isValidConnection = useCallback(
@@ -395,11 +480,10 @@ export function WorkflowCanvasPage() {
           currentEdges
         )
       );
-      setIsDirty(true);
-      setSaveStatus("");
+      markGraphDirty();
       setConnectionStatus("Connected");
     },
-    [edges, nodes, setEdges]
+    [edges, markGraphDirty, nodes, setEdges]
   );
 
   const updateSelectedNodeData = useCallback(
@@ -417,13 +501,12 @@ export function WorkflowCanvasPage() {
                 },
               }
             : node
-        )
+          )
       );
-      setIsDirty(true);
-      setSaveStatus("");
+      markGraphDirty();
       setConnectionStatus("");
     },
-    [selectedNodeId, setNodes]
+    [markGraphDirty, selectedNodeId, setNodes]
   );
 
   const updateSelectedConfigValue = useCallback(
@@ -455,6 +538,7 @@ export function WorkflowCanvasPage() {
     isUploadingImageReference,
     localFileFieldMeta,
     removeLocalReferenceFile,
+    updateLocalReferenceAlias,
   } = useWorkflowLocalReferenceFiles({
     onSaveStatusChange: setSaveStatus,
     selectedImageModelUiContract,
@@ -503,12 +587,15 @@ export function WorkflowCanvasPage() {
         return {
           config: {
             ...data.config,
-            [configKey]: [
-              ...(options.multiple === false
-                ? []
-                : localReferenceFilesFromConfig(data.config, configKey, kind)),
-              ...selectedFiles,
-            ],
+            [configKey]: assignReferenceAliases(
+              [
+                ...(options.multiple === false
+                  ? []
+                  : localReferenceFilesFromConfig(data.config, configKey, kind)),
+                ...selectedFiles,
+              ],
+              kind
+            ),
           },
         };
       });
@@ -516,39 +603,16 @@ export function WorkflowCanvasPage() {
     [updateSelectedNodeData]
   );
 
-  const handleSaveGraph = useCallback(async () => {
-    if (!workflow) return;
-
-    setIsSaving(true);
-    setSaveStatus("");
-
-    try {
-      const graph = toWorkflowGraph(workflow.graph as WorkflowGraph, nodes, edges);
-      const validation = validateWorkflowGraph(graph, "draft");
-
-      if (!validation.valid) {
-        setSaveStatus(validation.errors[0]?.message ?? "Workflow graph is invalid.");
-        return;
-      }
-
-      await updateGraph({ id: workflow._id, graph });
-      setIsDirty(false);
-      setLayoutSaveRequestId(0);
-      setSaveStatus("Saved");
-      setConnectionStatus("");
-    } catch (error) {
-      setSaveStatus(getErrorMessage(error));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [edges, nodes, updateGraph, workflow]);
-
   const handleCreateManualRun = useCallback(async () => {
     if (!workflow) return;
 
-    if (isDirty) {
-      setRunActionStatus("Save the workflow graph before starting a run.");
-      return;
+    if (isDirtyRef.current) {
+      setRunActionStatus("Saving latest changes...");
+      const didSave = await saveGraphNow();
+      if (!didSave) {
+        setRunActionStatus("Resolve the autosave issue before starting a run.");
+        return;
+      }
     }
 
     if (!graphValidation?.valid) {
@@ -568,14 +632,14 @@ export function WorkflowCanvasPage() {
     } finally {
       setIsCreatingRun(false);
     }
-  }, [createManualRun, graphValidation, isDirty, workflow]);
+  }, [createManualRun, graphValidation, saveGraphNow, workflow]);
 
   const handleToggleActive = useCallback(async () => {
     if (!workflow) return;
 
-    if (isDirty) {
-      setSaveStatus("Save the workflow graph before changing its active state.");
-      return;
+    if (isDirtyRef.current) {
+      const didSave = await saveGraphNow();
+      if (!didSave) return;
     }
 
     setIsUpdatingActiveState(true);
@@ -589,7 +653,7 @@ export function WorkflowCanvasPage() {
     } finally {
       setIsUpdatingActiveState(false);
     }
-  }, [isDirty, setWorkflowActive, workflow]);
+  }, [saveGraphNow, setWorkflowActive, workflow]);
 
   const renderConfigField = (field: ConfigField) =>
     selectedNode ? (
@@ -602,10 +666,11 @@ export function WorkflowCanvasPage() {
         onBooleanConfigChange={updateSelectedBooleanConfigValue}
         onConfigChange={updateSelectedConfigValue}
         onLibraryReferenceSelect={handleLibraryReferenceSelect}
-        onLocalReferenceFileUpload={(event, configKey, kind, options) => {
-          void handleLocalReferenceFileUpload(event, configKey, kind, options);
+        onLocalReferenceFileUpload={(files, configKey, kind, options) => {
+          void handleLocalReferenceFileUpload(files, configKey, kind, options);
         }}
         onRemoveLocalReferenceFile={removeLocalReferenceFile}
+        onUpdateLocalReferenceAlias={updateLocalReferenceAlias}
         selectedImageModelUiContract={selectedImageModelUiContract}
         selectedNode={selectedNode}
         workflowBrandId={workflow?.brandId}
@@ -625,7 +690,15 @@ export function WorkflowCanvasPage() {
   }
 
   if (workflow === undefined) {
-    return <div className="workflow-canvas-loading">Loading workflow canvas...</div>;
+    return (
+      <div className="grid min-h-screen place-items-center bg-[var(--color-page)] p-[var(--space-5)]">
+        <LoadingState
+          className="w-[min(100%,28rem)] border-solid bg-[var(--color-surface)]"
+          detail="Loading nodes, connections, and saved workflow settings."
+          title="Loading workflow canvas"
+        />
+      </div>
+    );
   }
 
   if (workflow === null) {
@@ -643,17 +716,12 @@ export function WorkflowCanvasPage() {
     <section className="workflow-detail-page">
       <WorkflowCanvasHeader
         canRun={Boolean(graphValidation?.valid)}
-        canSave={Boolean(draftGraphValidation?.valid)}
         isCreatingRun={isCreatingRun}
-        isDirty={isDirty}
         isSaving={isSaving}
         isUpdatingActiveState={isUpdatingActiveState}
         onCreateManualRun={() => {
           setOpenDrawer("execution");
           void handleCreateManualRun();
-        }}
-        onSaveGraph={() => {
-          void handleSaveGraph();
         }}
         onToggleActive={() => {
           void handleToggleActive();
@@ -692,6 +760,8 @@ export function WorkflowCanvasPage() {
           onUpdateNodeData={updateSelectedNodeData}
           renderConfigField={renderConfigField}
           selectedAdvancedConfigFields={selectedAdvancedConfigFields}
+          selectedGenerationOperation={selectedGenerationOperation}
+          selectedGenerationOperationOptions={selectedGenerationOperationOptions}
           selectedModelOptions={selectedModelOptions}
           selectedModelPickerOptions={selectedModelPickerOptions}
           selectedNode={selectedNode}

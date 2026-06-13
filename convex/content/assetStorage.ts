@@ -24,14 +24,14 @@ async function blobFromGeneratedAsset(asset: GeneratedAsset): Promise<Blob> {
     if (!response.ok) {
       throw new Error(`Could not fetch generated asset: ${response.status}`);
     }
-    const blob = await response.blob();
-    return blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: asset.mimeType });
+    const mimeType = response.headers.get("content-type") || asset.mimeType;
+    return new Blob([await response.arrayBuffer()], { type: mimeType });
   }
 
   if (asset.data.startsWith("data:")) {
     const response = await fetch(asset.data);
-    const blob = await response.blob();
-    return blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: asset.mimeType });
+    const mimeType = response.headers.get("content-type") || asset.mimeType;
+    return new Blob([await response.arrayBuffer()], { type: mimeType });
   }
 
   return new Blob([bytesFromBase64(asset.data)], { type: asset.mimeType });

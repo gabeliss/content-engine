@@ -200,6 +200,7 @@ export const WORKFLOW_NODE_CATALOG = [
     ],
     outputPorts: [port("image", "Image", "image", { multiple: true })],
     defaultConfig: {
+      generationOperation: "image_text_to_image",
       promptFromInputNode: false,
       prompt: "",
       imageFromInputNode: false,
@@ -229,6 +230,7 @@ export const WORKFLOW_NODE_CATALOG = [
     ],
     outputPorts: [port("video", "Video", "video")],
     defaultConfig: {
+      generationOperation: "video_image_to_video",
       promptFromInputNode: false,
       prompt: "",
       imageFromInputNode: false,
@@ -237,7 +239,7 @@ export const WORKFLOW_NODE_CATALOG = [
       localStartFrameImages: [],
       localEndFrameImages: [],
       localReferenceVideos: [],
-      aspectRatio: "4:5",
+      aspectRatio: "9:16",
       durationSeconds: 5,
     },
     defaultRetention: { mode: "keep_on_failure" },
@@ -259,6 +261,7 @@ export const WORKFLOW_NODE_CATALOG = [
     ],
     outputPorts: [port("audio", "Audio", "audio")],
     defaultConfig: {
+      generationOperation: "audio_text_to_speech",
       textFromInputNode: false,
       text: "",
       voiceFromInputNode: false,
@@ -285,6 +288,7 @@ export const WORKFLOW_NODE_CATALOG = [
     ],
     outputPorts: [port("video", "Video", "video")],
     defaultConfig: {
+      generationOperation: "lipsync_audio_to_video",
       imageFromInputNode: false,
       audioFromInputNode: false,
       localReferenceImages: [],
@@ -311,6 +315,7 @@ export const WORKFLOW_NODE_CATALOG = [
     ],
     outputPorts: [port("slide_spec", "Slide Spec", "slide_spec")],
     defaultConfig: {
+      generationOperation: "video_render_assembly",
       promptFromInputNode: false,
       prompt: "",
       slideCount: 5,

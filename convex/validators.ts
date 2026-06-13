@@ -14,6 +14,47 @@ export const modelProviderValidator = v.union(
   v.literal("manual")
 );
 
+export const generationModelProviderValidator = v.union(
+  v.literal("bulkapis"),
+  v.literal("gemini"),
+  v.literal("fal")
+);
+
+export const aiGenerationSettingsValidator = v.object({
+  imageProvider: v.optional(generationModelProviderValidator),
+  videoProvider: v.optional(generationModelProviderValidator),
+  audioProvider: v.optional(generationModelProviderValidator),
+  lipsyncProvider: v.optional(generationModelProviderValidator),
+  videoAnalysisProvider: v.optional(generationModelProviderValidator),
+});
+
+export const videoAnalysisSourceTypeValidator = v.union(
+  v.literal("url"),
+  v.literal("upload")
+);
+
+export const videoAnalysisSourcePlatformValidator = v.union(
+  v.literal("youtube"),
+  v.literal("tiktok"),
+  v.literal("instagram"),
+  v.literal("facebook"),
+  v.literal("direct_file"),
+  v.literal("unknown")
+);
+
+export const videoAnalysisStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("failed")
+);
+
+export const videoAnalysisModeValidator = v.union(
+  v.literal("inspiration"),
+  v.literal("transcript"),
+  v.literal("technical")
+);
+
 export const providerModelCategoryValidator = v.union(
   v.literal("chat"),
   v.literal("image"),

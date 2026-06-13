@@ -121,7 +121,12 @@ function createBulkApisHttpError(
   statusCode: number,
   details: string
 ): ProviderError {
-  return new ProviderError(`BulkAPIs error during ${operation}`, {
+  const cleanDetails = details.trim();
+  const message = cleanDetails
+    ? `BulkAPIs error during ${operation}: ${cleanDetails.slice(0, 300)}`
+    : `BulkAPIs error during ${operation}`;
+
+  return new ProviderError(message, {
     kind: "model",
     provider: BULKAPIS_PROVIDER,
     operation,

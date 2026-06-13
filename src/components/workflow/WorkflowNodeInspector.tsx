@@ -11,6 +11,11 @@ import type {
   WorkflowFlowNode,
 } from "../../lib/workflow/workflowCanvasGraph";
 import type { ConfigField } from "../../lib/workflow/workflowConfigFields";
+import {
+  operationConfigPatch,
+  type GenerationOperation,
+  type GenerationOperationId,
+} from "../../lib/generation/generationOperations";
 import type { WorkflowNodeCatalogEntry } from "../../lib/workflow/workflowNodeCatalog";
 import type { WorkflowSelectOption } from "./WorkflowSelect";
 import { WorkflowSelect } from "./WorkflowSelect";
@@ -90,6 +95,8 @@ export type WorkflowNodeInspectorProps = {
   ) => void;
   renderConfigField: (field: ConfigField) => ReactNode;
   selectedAdvancedConfigFields: ConfigField[];
+  selectedGenerationOperation?: GenerationOperation;
+  selectedGenerationOperationOptions: GenerationOperation[];
   selectedModelOptions: Array<{ modelId: string; displayName: string }>;
   selectedModelPickerOptions: WorkflowSelectOption[];
   selectedNode: WorkflowFlowNode | null;
@@ -108,6 +115,8 @@ export function WorkflowNodeInspector({
   onUpdateNodeData,
   renderConfigField,
   selectedAdvancedConfigFields,
+  selectedGenerationOperation,
+  selectedGenerationOperationOptions,
   selectedModelOptions,
   selectedModelPickerOptions,
   selectedNode,
@@ -194,31 +203,58 @@ export function WorkflowNodeInspector({
             ) : null}
 
             {showModelControl ? (
-              <div className="workflow-inspector-field">
-                <span>Model</span>
-                <WorkflowSelect
-                  disabled={!selectedProviderCatalogName || !selectedModelOptions.length}
-                  onChange={(nextValue) =>
-                    onUpdateNodeData(() => ({
-                      model: nextValue || undefined,
-                      provider: "bulkapis",
-                    }))
-                  }
-                  options={selectedModelPickerOptions}
-                  placeholder={
-                    selectedProviderCatalogName
-                      ? selectedProviderModels === undefined
-                        ? "Loading models"
-                        : "Select model"
-                      : "No model catalog"
-                  }
-                  rich
-                  value={selectedNode.data.model ?? ""}
-                />
-                <small>
-                  {selectedProviderModel?.description ?? "Uses the workspace BulkAPIs integration."}
-                </small>
-              </div>
+              <>
+                {selectedGenerationOperationOptions.length > 1 ? (
+                  <div className="workflow-inspector-field">
+                    <span>Operation</span>
+                    <WorkflowSelect
+                      onChange={(nextValue) => {
+                        const operationId = nextValue as GenerationOperationId;
+                        onUpdateNodeData((data) => ({
+                          model: undefined,
+                          config: {
+                            ...data.config,
+                            ...operationConfigPatch(operationId),
+                          },
+                        }));
+                      }}
+                      options={selectedGenerationOperationOptions.map((operation) => ({
+                        value: operation.id,
+                        label: operation.label,
+                        description: operation.description,
+                      }))}
+                      placeholder="Select operation"
+                      rich
+                      value={selectedGenerationOperation?.id ?? ""}
+                    />
+                  </div>
+                ) : null}
+                <div className="workflow-inspector-field">
+                  <span>Model</span>
+                  <WorkflowSelect
+                    disabled={!selectedProviderCatalogName || !selectedModelOptions.length}
+                    onChange={(nextValue) =>
+                      onUpdateNodeData(() => ({
+                        model: nextValue || undefined,
+                        provider: selectedProviderCatalogName,
+                      }))
+                    }
+                    options={selectedModelPickerOptions}
+                    placeholder={
+                      selectedProviderCatalogName
+                        ? selectedProviderModels === undefined
+                          ? "Loading models"
+                          : "Select model"
+                        : "No model catalog"
+                    }
+                    rich
+                    value={selectedNode.data.model ?? ""}
+                  />
+                  <small>
+                    {selectedProviderModel?.description ?? "Uses the selected provider integration."}
+                  </small>
+                </div>
+              </>
             ) : null}
           </div>
 

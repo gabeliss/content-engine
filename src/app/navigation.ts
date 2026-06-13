@@ -3,6 +3,7 @@ import {
   Bot,
   Building2,
   GalleryHorizontalEnd,
+  ScanSearch,
   LayoutDashboard,
   Link2,
   Settings,
@@ -13,6 +14,7 @@ import {
 export const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/create", label: "Create", icon: Sparkles },
+  { to: "/analyze", label: "Analyze", icon: ScanSearch },
   { to: "/brands", label: "Brands", icon: Building2 },
   { to: "/personas", label: "Personas", icon: UserRound },
   { to: "/accounts", label: "Accounts", icon: Link2 },

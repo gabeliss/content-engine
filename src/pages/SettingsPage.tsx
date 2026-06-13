@@ -5,6 +5,7 @@ import {
   Copy,
   KeyRound,
   Mail,
+  Sparkles,
   Trash2,
   UserPlus,
   UserRound,
@@ -14,12 +15,18 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { CustomSelect } from "../components/CustomSelect";
-import { Page } from "../components/ui";
+import { LoadingSignal, LoadingState, Page } from "../components/ui";
 import { useWorkspace } from "../contexts/WorkspaceContext";
+import {
+  AI_PROVIDER_OPTIONS_BY_MODE,
+  resolveAiGenerationSettings,
+  type AiGenerationMode,
+  type AiGenerationProvider,
+} from "../lib/providers/aiGenerationDefaults";
 
 const DEFAULT_MCP_KEY_NAME = "Codex";
 
-type SettingsTab = "profile" | "general" | "members" | "access";
+type SettingsTab = "profile" | "general" | "ai" | "members" | "access";
 type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 type InviteRole = Exclude<WorkspaceRole, "owner">;
 
@@ -30,6 +37,7 @@ const settingsTabs: Array<{
 }> = [
   { id: "profile", label: "Profile", icon: UserRound },
   { id: "general", label: "General", icon: BriefcaseBusiness },
+  { id: "ai", label: "AI providers", icon: Sparkles },
   { id: "members", label: "Members", icon: UsersRound },
   { id: "access", label: "Agent access", icon: KeyRound },
 ];
@@ -50,6 +58,22 @@ const memberRoleOptions: Array<{ value: WorkspaceRole; label: string }> = [
 const inputClass =
   "min-h-[2.85rem] w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-[var(--space-3)] text-[0.95rem] font-[520] text-[var(--color-ink)] outline-none transition focus:border-[var(--color-accent)] focus:shadow-[0_0_0_3px_oklch(57%_0.14_166_/_0.13)] disabled:cursor-not-allowed disabled:bg-[var(--color-surface-muted)]";
 
+const generationModeLabels: Record<AiGenerationMode, string> = {
+  image: "Image generation",
+  video: "Video generation",
+  audio: "Audio generation",
+  lipsync: "Lip sync generation",
+  videoAnalysis: "Video analysis",
+};
+
+const generationModeNotes: Record<AiGenerationMode, string> = {
+  image: "Sets which provider family Create and new image workflow nodes use by default. Pick the exact model in the creation flow.",
+  video: "Sets which provider family Create and new video workflow nodes use by default. Pick the exact model in the creation flow.",
+  audio: "Sets which provider family Create and new audio workflow nodes use by default. Pick the exact model in the creation flow.",
+  lipsync: "Sets which provider family new lip sync workflow nodes use by default. Pick the exact model on the node.",
+  videoAnalysis: "Sets which multimodal provider the Analyze tab uses for transcripts, scene reads, audio notes, and inspiration briefs.",
+};
+
 function formatDate(timestamp?: number) {
   if (!timestamp) return "Never";
   return new Intl.DateTimeFormat(undefined, {
@@ -61,6 +85,10 @@ function formatDate(timestamp?: number) {
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function isWorkingStatus(message: string) {
+  return /^(Saving|Updating|Removing|Creating)/.test(message);
 }
 
 function SettingsTabButton({
@@ -134,6 +162,11 @@ export function SettingsPage() {
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
   const [workspaceName, setWorkspaceName] = useState("");
+  const [imageProvider, setImageProvider] = useState<AiGenerationProvider>("fal");
+  const [videoProvider, setVideoProvider] = useState<AiGenerationProvider>("fal");
+  const [audioProvider, setAudioProvider] = useState<AiGenerationProvider>("fal");
+  const [lipsyncProvider, setLipsyncProvider] = useState<AiGenerationProvider>("fal");
+  const [videoAnalysisProvider, setVideoAnalysisProvider] = useState<AiGenerationProvider>("gemini");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<InviteRole>("member");
   const [keyName, setKeyName] = useState(DEFAULT_MCP_KEY_NAME);
@@ -161,6 +194,15 @@ export function SettingsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [statusMessage]);
 
+  useEffect(() => {
+    const settings = resolveAiGenerationSettings(activeWorkspace?.aiGenerationSettings);
+    setImageProvider(settings.imageProvider);
+    setVideoProvider(settings.videoProvider);
+    setAudioProvider(settings.audioProvider);
+    setLipsyncProvider(settings.lipsyncProvider);
+    setVideoAnalysisProvider(settings.videoAnalysisProvider);
+  }, [activeWorkspace?._id, activeWorkspace?.aiGenerationSettings]);
+
   const handleCopy = async (value: string) => {
     await navigator.clipboard.writeText(value);
     setStatusMessage("Copied to clipboard.");
@@ -178,6 +220,52 @@ export function SettingsPage() {
       setStatusMessage("Workspace name updated.");
     } catch (error) {
       setStatusMessage(errorMessage(error, "Workspace update failed."));
+    }
+  };
+
+  const changeGenerationProvider = (
+    mode: AiGenerationMode,
+    provider: AiGenerationProvider
+  ) => {
+    if (mode === "image") {
+      setImageProvider(provider);
+      return;
+    }
+    if (mode === "video") {
+      setVideoProvider(provider);
+      return;
+    }
+    if (mode === "audio") {
+      setAudioProvider(provider);
+      return;
+    }
+    if (mode === "videoAnalysis") {
+      setVideoAnalysisProvider(provider);
+      return;
+    }
+
+    setLipsyncProvider(provider);
+  };
+
+  const saveAiGenerationSettings = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!activeWorkspaceId || !isWorkspaceAdmin) return;
+
+    setStatusMessage("Saving AI providers...");
+    try {
+      await updateWorkspace({
+        id: activeWorkspaceId,
+        aiGenerationSettings: {
+          imageProvider,
+          videoProvider,
+          audioProvider,
+          lipsyncProvider,
+          videoAnalysisProvider,
+        },
+      });
+      setStatusMessage("AI providers updated.");
+    } catch (error) {
+      setStatusMessage(errorMessage(error, "AI provider update failed."));
     }
   };
 
@@ -268,7 +356,10 @@ export function SettingsPage() {
           </div>
 
           {statusMessage ? (
-            <p className="mt-[var(--space-4)] text-[0.84rem] font-[680] text-[var(--color-accent-strong)]">
+            <p className="mt-[var(--space-4)] inline-flex items-center gap-[var(--space-2)] text-[0.84rem] font-[680] text-[var(--color-accent-strong)]">
+              {isWorkingStatus(statusMessage) ? (
+                <LoadingSignal label={statusMessage} size="sm" />
+              ) : null}
               {statusMessage}
             </p>
           ) : null}
@@ -356,6 +447,118 @@ export function SettingsPage() {
           </section>
         ) : null}
 
+        {activeTab === "ai" ? (
+          <section>
+            <header className="mb-[var(--space-2)]">
+              <h2 className="text-[1.3rem] font-[820] leading-[1.2] text-[var(--color-ink)]">
+                AI providers
+              </h2>
+              <p className="mt-[0.35rem] max-w-[42rem] text-[0.92rem] leading-[1.55] text-[var(--color-muted)]">
+                Choose the default generation routes for {currentWorkspaceName}.
+              </p>
+            </header>
+
+            <form onSubmit={saveAiGenerationSettings}>
+              <SettingRow
+                label={generationModeLabels.image}
+                note={generationModeNotes.image}
+              >
+                <div className="max-w-[18rem]">
+                  <CustomSelect
+                    disabled={!isWorkspaceAdmin}
+                    onChange={(provider) =>
+                      changeGenerationProvider("image", provider as AiGenerationProvider)
+                    }
+                    options={AI_PROVIDER_OPTIONS_BY_MODE.image}
+                    placeholder="Provider"
+                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
+                    value={imageProvider}
+                  />
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                label={generationModeLabels.video}
+                note={generationModeNotes.video}
+              >
+                <div className="max-w-[18rem]">
+                  <CustomSelect
+                    disabled={!isWorkspaceAdmin}
+                    onChange={(provider) =>
+                      changeGenerationProvider("video", provider as AiGenerationProvider)
+                    }
+                    options={AI_PROVIDER_OPTIONS_BY_MODE.video}
+                    placeholder="Provider"
+                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
+                    value={videoProvider}
+                  />
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                label={generationModeLabels.audio}
+                note={generationModeNotes.audio}
+              >
+                <div className="max-w-[18rem]">
+                  <CustomSelect
+                    disabled={!isWorkspaceAdmin}
+                    onChange={(provider) =>
+                      changeGenerationProvider("audio", provider as AiGenerationProvider)
+                    }
+                    options={AI_PROVIDER_OPTIONS_BY_MODE.audio}
+                    placeholder="Provider"
+                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
+                    value={audioProvider}
+                  />
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                label={generationModeLabels.lipsync}
+                note={generationModeNotes.lipsync}
+              >
+                <div className="max-w-[18rem]">
+                  <CustomSelect
+                    disabled={!isWorkspaceAdmin}
+                    onChange={(provider) =>
+                      changeGenerationProvider("lipsync", provider as AiGenerationProvider)
+                    }
+                    options={AI_PROVIDER_OPTIONS_BY_MODE.lipsync}
+                    placeholder="Provider"
+                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
+                    value={lipsyncProvider}
+                  />
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                label={generationModeLabels.videoAnalysis}
+                note={generationModeNotes.videoAnalysis}
+              >
+                <div className="max-w-[18rem]">
+                  <CustomSelect
+                    disabled={!isWorkspaceAdmin}
+                    onChange={(provider) =>
+                      changeGenerationProvider("videoAnalysis", provider as AiGenerationProvider)
+                    }
+                    options={AI_PROVIDER_OPTIONS_BY_MODE.videoAnalysis}
+                    placeholder="Provider"
+                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
+                    value={videoAnalysisProvider}
+                  />
+                </div>
+              </SettingRow>
+
+              <div className="border-t border-[var(--color-border)] pt-[var(--space-4)]">
+                <button className="primary-button" disabled={!isWorkspaceAdmin} type="submit">
+                  <Sparkles size={16} />
+                  Save AI providers
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+
         {activeTab === "members" ? (
           <section>
             <header className="mb-[var(--space-2)]">
@@ -407,9 +610,12 @@ export function SettingsPage() {
                 </div>
 
                 {members === undefined ? (
-                  <div className="px-[var(--space-3)] py-[var(--space-4)] text-[0.9rem] text-[var(--color-muted)]">
-                    Loading members...
-                  </div>
+                  <LoadingState
+                    className="border-0 bg-transparent"
+                    compact
+                    detail="Fetching people with access to this workspace."
+                    title="Loading members"
+                  />
                 ) : memberRows.length === 0 ? (
                   <div className="px-[var(--space-3)] py-[var(--space-4)] text-[0.9rem] text-[var(--color-muted)]">
                     No members yet.
@@ -549,9 +755,12 @@ export function SettingsPage() {
             <SettingRow label="Keys" note="Revoke keys you no longer use.">
               <div className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)]">
                 {apiKeys === undefined ? (
-                  <div className="px-[var(--space-3)] py-[var(--space-4)] text-[0.9rem] text-[var(--color-muted)]">
-                    Loading keys...
-                  </div>
+                  <LoadingState
+                    className="border-0 bg-transparent"
+                    compact
+                    detail="Checking active agent access keys."
+                    title="Loading keys"
+                  />
                 ) : apiKeys.length === 0 ? (
                   <div className="px-[var(--space-3)] py-[var(--space-4)] text-[0.9rem] text-[var(--color-muted)]">
                     No keys created yet.

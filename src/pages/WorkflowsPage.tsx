@@ -11,7 +11,7 @@ import {
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
-import { Page, Select } from "../components/ui";
+import { LoadingSignal, LoadingState, Page, Select } from "../components/ui";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { createStarterWorkflowGraph } from "../lib/workflow/workflowGraph";
 import { DEFAULT_PUBLISHING_PROVIDER } from "../lib/publishingRouting";
@@ -42,6 +42,10 @@ function formatSchedule(workflow: {
   if (workflow.nextRunAt) return `Next ${formatDate(workflow.nextRunAt)}`;
   if (workflow.trigger === "schedule") return "Scheduled";
   return "Manual";
+}
+
+function isWorkingActionStatus(message: string) {
+  return /^(Creating|Renaming|Duplicating|Deleting)/.test(message);
 }
 
 export function WorkflowsPage() {
@@ -201,7 +205,13 @@ export function WorkflowsPage() {
         <div className="workflow-index-toolbar">
           <div>
             <h2>Workflow List</h2>
-            <p>{filteredWorkflows ? `${filteredWorkflows.length} shown` : "Loading workflows"}</p>
+            <p>
+              {filteredWorkflows ? (
+                `${filteredWorkflows.length} shown`
+              ) : (
+                <LoadingSignal label="Loading workflows" showLabel size="sm" />
+              )}
+            </p>
           </div>
           <div className="workflow-index-actions">
             <button className="primary-button" onClick={() => openCreateWorkflowModal()} type="button">
@@ -241,7 +251,14 @@ export function WorkflowsPage() {
           </Select>
         </div>
 
-        {actionStatus && <p className="workflow-index-status">{actionStatus}</p>}
+        {actionStatus && (
+          <p className="workflow-index-status inline-flex items-center gap-[var(--space-2)]">
+            {isWorkingActionStatus(actionStatus) ? (
+              <LoadingSignal label={actionStatus} size="sm" />
+            ) : null}
+            {actionStatus}
+          </p>
+        )}
 
         {createDraft.isOpen ? (
           <div
@@ -321,7 +338,16 @@ export function WorkflowsPage() {
             <span>Actions</span>
           </div>
 
-          {!filteredWorkflows && <div className="workflow-table-empty">Loading workflows...</div>}
+          {!filteredWorkflows && (
+            <div className="workflow-table-empty">
+              <LoadingState
+                className="border-0 bg-transparent"
+                compact
+                detail="Fetching saved canvases for this workspace."
+                title="Loading workflows"
+              />
+            </div>
+          )}
           {filteredWorkflows?.length === 0 ? (
             <div className="workflow-table-empty">
               <Workflow size={22} />

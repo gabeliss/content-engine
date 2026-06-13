@@ -1,4 +1,3 @@
-import type { ChangeEvent } from "react";
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import {
   ReferenceAssetField,
@@ -15,6 +14,7 @@ import {
   type LocalReferenceFileKind,
 } from "../../lib/workflow/workflowConfigFields";
 import type { ImageModelUiContract } from "../../lib/workflow/workflowModelCatalog";
+import { LoadingSignal } from "../ui";
 import { WorkflowSelect } from "./WorkflowSelect";
 
 export type LocalFileFieldMeta = {
@@ -40,7 +40,7 @@ export type WorkflowConfigFieldProps = {
     options?: { multiple?: boolean; maxCount?: number }
   ) => void;
   onLocalReferenceFileUpload: (
-    event: ChangeEvent<HTMLInputElement>,
+    files: File[],
     configKey: string,
     kind: LocalReferenceFileKind,
     options?: { multiple?: boolean; maxCount?: number }
@@ -49,6 +49,12 @@ export type WorkflowConfigFieldProps = {
     configKey: string,
     fileId: string,
     kind: LocalReferenceFileKind
+  ) => void;
+  onUpdateLocalReferenceAlias: (
+    configKey: string,
+    fileId: string,
+    kind: LocalReferenceFileKind,
+    alias: string
   ) => void;
   selectedImageModelUiContract: ImageModelUiContract | null;
   selectedNode: WorkflowFlowNode;
@@ -75,6 +81,7 @@ export function WorkflowConfigField({
   onLibraryReferenceSelect,
   onLocalReferenceFileUpload,
   onRemoveLocalReferenceFile,
+  onUpdateLocalReferenceAlias,
   selectedImageModelUiContract,
   selectedNode,
   workflowBrandId,
@@ -99,7 +106,11 @@ export function WorkflowConfigField({
         <span>{field.label}</span>
         <div className="workflow-persona-picker">
           {!workflowBrandId && <small>Select a brand to use personas.</small>}
-          {workflowBrandId && !workflowPersonas && <small>Loading personas...</small>}
+          {workflowBrandId && !workflowPersonas && (
+            <small>
+              <LoadingSignal label="Loading personas" showLabel size="sm" />
+            </small>
+          )}
           {workflowPersonas?.length === 0 && (
             <small>No personas exist for this workflow brand.</small>
           )}
@@ -175,8 +186,11 @@ export function WorkflowConfigField({
           onRemoveFile={(fileId) =>
             onRemoveLocalReferenceFile(field.key, fileId, localFileMeta.kind)
           }
-          onUpload={(event) => {
-            onLocalReferenceFileUpload(event, field.key, localFileMeta.kind, {
+          onUpdateFileAlias={(fileId, alias) =>
+            onUpdateLocalReferenceAlias(field.key, fileId, localFileMeta.kind, alias)
+          }
+          onUpload={(files) => {
+            onLocalReferenceFileUpload(files, field.key, localFileMeta.kind, {
               multiple: localFileMeta.multiple,
               maxCount: localFileMeta.maxCount,
             });

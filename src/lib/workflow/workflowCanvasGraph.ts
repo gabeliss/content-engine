@@ -44,6 +44,12 @@ export type WorkflowFlowNode = Node<WorkflowCanvasNodeData>;
 
 export const WORKFLOW_CANVAS_OUTPUT_HANDLE_ID = "output";
 
+const WORKFLOW_CANVAS_RUN_TARGET_PORT: WorkflowPort = {
+  id: WORKFLOW_CANVAS_INPUT_HANDLE_ID,
+  label: "Run",
+  dataType: "any",
+};
+
 type WorkflowConnection = {
   source: string | null;
   sourceHandle?: string | null;
@@ -270,6 +276,17 @@ function bestInferredPortPair(
   return pairs.sort((a, b) => b.score - a.score)[0] ?? null;
 }
 
+function canUseRunnerControlEdge(
+  sourceNode: WorkflowFlowNode,
+  sourcePort: WorkflowPort,
+  targetNode: WorkflowFlowNode
+): boolean {
+  return sourceNode.data.type === "runner" &&
+    sourcePort.id === "run" &&
+    targetNode.data.type !== "runner" &&
+    targetNode.data.type !== "comment";
+}
+
 export function inferCanvasConnectionPorts(
   connection: WorkflowConnection,
   nodes: WorkflowFlowNode[]
@@ -305,6 +322,9 @@ export function inferCanvasConnectionPorts(
   const targetPort = targetHandle ? findPort(targetNode, targetHandle, "input") : null;
 
   if (sourcePort && targetPort) return { sourcePort, targetPort };
+  if (sourcePort && canUseRunnerControlEdge(sourceNode, sourcePort, targetNode)) {
+    return { sourcePort, targetPort: WORKFLOW_CANVAS_RUN_TARGET_PORT };
+  }
   if (sourcePort) {
     const inferredTargetPort = automaticTargetPortForSource(
       getWorkflowNodeDefinition(targetNode.data.type),

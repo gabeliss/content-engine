@@ -2,6 +2,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import { storeGeneratedAsset } from "../../../content/assetStorage";
 import { getModelProvider } from "../../../providers";
+import { promptWithReferenceManifest } from "../../../../src/lib/references/referenceAliases";
 import { artifactIdsFromInputs } from "../../runtime/artifactInputs";
 import type {
   WorkflowNodeHandlerArgs,
@@ -129,8 +130,9 @@ export async function executeImageGenerationNode({
       throw new Error(`${provider.displayName} does not support image generation.`);
     }
 
+    const providerPrompt = promptWithReferenceManifest(prompt ?? "", referenceImages, "image");
     const imageResult = await provider.generateImage({
-      prompt: prompt ?? "",
+      prompt: providerPrompt,
       model,
       aspectRatio,
       count,
@@ -238,7 +240,7 @@ export async function executeImageGenerationNode({
           },
           provider: imageResult.metadata.provider,
           model: imageResult.metadata.model,
-          prompt,
+          prompt: providerPrompt,
           lifecycle,
           reviewStatus: "not_required",
         }

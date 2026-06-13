@@ -1,16 +1,14 @@
-import { Activity, ArrowLeft, Clock, Play, Save } from "lucide-react";
+import { Activity, ArrowLeft, Clock, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Doc } from "../../../convex/_generated/dataModel";
+import { LoadingSignal } from "../ui";
 
 type WorkflowCanvasHeaderProps = {
   canRun: boolean;
-  canSave: boolean;
   isCreatingRun: boolean;
-  isDirty: boolean;
   isSaving: boolean;
   isUpdatingActiveState: boolean;
   onCreateManualRun: () => void;
-  onSaveGraph: () => void;
   onToggleActive: () => void;
   onToggleExecutions: () => void;
   saveStatus: string;
@@ -20,13 +18,10 @@ type WorkflowCanvasHeaderProps = {
 
 export function WorkflowCanvasHeader({
   canRun,
-  canSave,
   isCreatingRun,
-  isDirty,
   isSaving,
   isUpdatingActiveState,
   onCreateManualRun,
-  onSaveGraph,
   onToggleActive,
   onToggleExecutions,
   saveStatus,
@@ -51,7 +46,14 @@ export function WorkflowCanvasHeader({
         ) : null}
       </div>
       <div className="workflow-canvas-actions">
-        {saveStatus ? <span>{saveStatus}</span> : null}
+        {isSaving ? (
+          <span>
+            <LoadingSignal label="Autosaving" size="sm" />
+            Autosaving
+          </span>
+        ) : saveStatus ? (
+          <span>{saveStatus}</span>
+        ) : null}
         <button
           className={`secondary-button${showExecutions ? " workflow-toolbar-button-active" : ""}`}
           onClick={onToggleExecutions}
@@ -62,30 +64,21 @@ export function WorkflowCanvasHeader({
         </button>
         <button
           className="secondary-button"
-          disabled={isCreatingRun || isDirty || !canRun}
+          disabled={isCreatingRun || isSaving || !canRun}
           onClick={onCreateManualRun}
           type="button"
         >
-          <Play size={16} />
+          {isCreatingRun ? <LoadingSignal label="Queueing" size="sm" /> : <Play size={16} />}
           {isCreatingRun ? "Queueing" : "Run once"}
         </button>
         <button
           className="secondary-button"
-          disabled={isUpdatingActiveState}
+          disabled={isUpdatingActiveState || isSaving}
           onClick={onToggleActive}
           type="button"
         >
           <Clock size={16} />
           {workflow.isActive ? "Pause" : "Activate"}
-        </button>
-        <button
-          className="primary-button"
-          disabled={!isDirty || isSaving || !canSave}
-          onClick={onSaveGraph}
-          type="button"
-        >
-          <Save size={16} />
-          {isSaving ? "Saving" : "Save"}
         </button>
       </div>
     </header>

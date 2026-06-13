@@ -14,6 +14,7 @@ import { LoadingScreen, PrivateBetaScreen, SignInScreen } from "./components/ui"
 import { WorkspaceProvider } from "./contexts/WorkspaceContext";
 import { AccountsPage } from "./pages/AccountsPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
+import { AnalyzePage } from "./pages/AnalyzePage";
 import { BrandsPage } from "./pages/BrandsPage";
 import { CreatePage } from "./pages/CreatePage";
 import { Dashboard } from "./pages/Dashboard";
@@ -88,6 +89,7 @@ function AppContent() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/create" element={<CreatePage />} />
+            <Route path="/analyze" element={<AnalyzePage />} />
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/personas" element={<PersonasPage />} />
             <Route path="/accounts" element={<AccountsPage />} />

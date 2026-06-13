@@ -155,7 +155,7 @@ export const createSlideshow = mutation({
       if (
         !asset ||
         (asset.workspaceId ? asset.workspaceId !== workspace._id : asset.userId !== userId) ||
-        (args.brandId && asset.brandId !== args.brandId)
+        (args.brandId && asset.brandId && asset.brandId !== args.brandId)
       ) {
         throw new Error("Reference asset not found");
       }
@@ -309,7 +309,7 @@ export const getExecutionContext = internalQuery({
         (asset.workspaceId
           ? asset.workspaceId !== request.workspaceId
           : asset.userId !== request.userId) ||
-        (request.brandId && asset.brandId !== request.brandId)
+        (request.brandId && asset.brandId && asset.brandId !== request.brandId)
       ) continue;
       referenceAssets.push({
         asset,
@@ -347,7 +347,7 @@ export const getSlideRegenerationContext = internalQuery({
       if (
         !asset ||
         asset.userId !== args.userId ||
-        (request.brandId && asset.brandId !== request.brandId)
+        (request.brandId && asset.brandId && asset.brandId !== request.brandId)
       ) continue;
       referenceAssets.push(asset);
     }

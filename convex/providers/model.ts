@@ -80,6 +80,7 @@ export interface GenerateStructuredResult<T = unknown> {
 }
 
 export interface ReferenceAsset {
+  alias?: string;
   base64Data?: string;
   url?: string;
   mimeType: string;

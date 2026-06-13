@@ -11,6 +11,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import { navItems } from "../app/navigation";
 import { ContentEngineMark } from "./BrandLogo";
+import { LoadingSignal } from "./ui";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 
 type NavTooltipState = {
@@ -108,7 +109,11 @@ export function Sidebar() {
             onClick={() => setIsWorkspaceMenuOpen((isOpen) => !isOpen)}
           >
             <span className="grid size-8 place-items-center rounded-full bg-[oklch(92%_0.07_145)] text-[0.76rem] font-[820] uppercase text-[oklch(18%_0.04_210)]">
-              {activeWorkspace?.name?.[0] ?? "W"}
+              {isWorkspaceLoading ? (
+                <LoadingSignal className="text-[oklch(18%_0.04_210)]" label="Loading workspace" size="sm" />
+              ) : (
+                activeWorkspace?.name?.[0] ?? "W"
+              )}
             </span>
             <span className="min-w-0 break-words text-[0.86rem] font-[760] leading-[1.18] line-clamp-2">
               {activeWorkspace?.name ?? "Loading workspace"}
@@ -130,7 +135,7 @@ export function Sidebar() {
                 </span>
                 {sortedWorkspaces.length === 0 ? (
                   <span className="px-[var(--space-2)] py-[var(--space-3)] text-[0.78rem] text-[var(--color-sidebar-muted)]">
-                    Loading workspaces...
+                    <LoadingSignal label="Loading workspaces" showLabel size="sm" />
                   </span>
                 ) : (
                   sortedWorkspaces.map(({ workspace }) => {
