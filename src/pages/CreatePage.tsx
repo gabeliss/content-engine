@@ -1,46 +1,37 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
-  Check,
-  FileText,
-  Image,
   Library,
-  Music,
   Sparkles,
-  Trash2,
-  Video,
-  Workflow,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import {
-  Field,
-  GenerationLoadingState,
-  LoadingSignal,
-  Page,
-  Panel,
-  Select,
-  TextArea,
-} from "../components/ui";
-import {
-  CreateGenerationConfigField,
-  type CreateLocalFileFieldMeta,
-} from "../components/create/CreateGenerationConfigField";
-import { MediaLightbox, type MediaLightboxItem } from "../components/MediaLightbox";
-import type { SelectableLibraryAsset } from "../components/library/ReferenceAssetField";
-import type { ReferenceMentionOption } from "../components/references/ReferenceAliasTextarea";
-import { WorkflowSelect } from "../components/workflow/WorkflowSelect";
+import { Field, LoadingSignal, Page, Select } from "../components/ui";
 import { useWorkspace } from "../contexts/WorkspaceContext";
-import { fileToDataUrl } from "../lib/browser/dataUrl";
+import { CreateGenerationFields } from "../features/create/CreateGenerationFields";
+import { CreateModeTabs } from "../features/create/CreateModeTabs";
+import { CreateResultPanel } from "../features/create/CreateResultPanel";
+import { RecentWorkflowDrafts } from "../features/create/RecentWorkflowDrafts";
+import {
+  draftName,
+  mediaPreviewTitle,
+  numberConfigValue,
+  referenceAssetsFromConfig,
+  referenceMentionOptionsFromConfig,
+  resultTitle,
+  stringConfigValue,
+  visibleConfigValues,
+} from "../features/create/createPageHelpers";
+import type { CreateResult } from "../features/create/createPageTypes";
+import { useCreateReferenceFiles } from "../features/create/useCreateReferenceFiles";
 import {
   generationOperationForConfig,
   generationOperationsForNodeType,
   operationConfigPatch,
   type GenerationOperationId,
 } from "../lib/generation/generationOperations";
-import { assignReferenceAliases } from "../lib/references/referenceAliases";
 import {
   createGenerationFields,
   createGenerationPromptValue,
@@ -51,7 +42,6 @@ import {
   providerInputFromCreateConfig,
 } from "../lib/create/createGenerationConfig";
 import {
-  CREATE_MODE_DEFINITIONS,
   getCreateModeDefinition,
   workflowNodeTypeForCreateMode,
   type CreateMode,
@@ -62,254 +52,12 @@ import {
   generationModeForCreateMode,
 } from "../lib/providers/aiGenerationDefaults";
 import { createStarterWorkflowGraph } from "../lib/workflow/workflowGraph";
-import {
-  localReferenceFilesFromConfig,
-  type LocalReferenceFileKind,
-} from "../lib/workflow/workflowConfigFields";
 import { imageModelUiContractFromModel } from "../lib/workflow/workflowModelCatalog";
 import {
   modelOptionSourcesForNode,
   richModelPickerOptions,
 } from "../lib/workflow/workflowModelPickerOptions";
 import type { BrandId } from "../types";
-
-type CreateResult = {
-  kind: CreateMode;
-  status: "pending" | "review" | "saved" | "error";
-  artifactIds?: Id<"artifacts">[];
-  title: string;
-  detail: string;
-  model?: string;
-  prompt?: string;
-  url?: string;
-};
-
-const createModeIcons: Record<CreateMode, typeof Image> = {
-  image: Image,
-  video: Video,
-  audio: Music,
-  slideshow: FileText,
-  workflow: Workflow,
-};
-
-function draftName(prompt: string) {
-  const cleanPrompt = prompt.trim().replace(/\s+/g, " ");
-  if (!cleanPrompt) return "Untitled workflow";
-  return cleanPrompt.length > 54 ? `${cleanPrompt.slice(0, 54)}...` : cleanPrompt;
-}
-
-function resultTitle(prompt: string, fallback: string) {
-  const cleanPrompt = prompt.trim().replace(/\s+/g, " ");
-  if (!cleanPrompt) return fallback;
-  return cleanPrompt.length > 48 ? `${cleanPrompt.slice(0, 48)}...` : cleanPrompt;
-}
-
-function stringConfigValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function numberConfigValue(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
-}
-
-function referenceAssetsFromConfig(
-  config: Record<string, unknown>,
-  key: string,
-  kind: LocalReferenceFileKind
-) {
-  return localReferenceFilesFromConfig(config, key, kind).map((reference) => ({
-    alias: reference.alias,
-    url: reference.storageUrl,
-    mimeType: reference.mimeType ?? "application/octet-stream",
-    description: reference.title,
-  }));
-}
-
-function referenceMentionOptionsFromConfig(
-  config: Record<string, unknown>
-): ReferenceMentionOption[] {
-  const referenceFields: Array<{ key: string; kind: LocalReferenceFileKind }> = [
-    { key: "localReferenceImages", kind: "image" },
-    { key: "localStartFrameImages", kind: "image" },
-    { key: "localEndFrameImages", kind: "image" },
-    { key: "localReferenceVideos", kind: "video" },
-    { key: "localReferenceAudios", kind: "audio" },
-  ];
-  const seenAliases = new Set<string>();
-
-  return referenceFields.flatMap(({ key, kind }) =>
-    localReferenceFilesFromConfig(config, key, kind).flatMap((reference) => {
-      const alias = reference.alias?.trim();
-      if (!alias || seenAliases.has(alias.toLowerCase())) return [];
-      seenAliases.add(alias.toLowerCase());
-      return [{
-        alias,
-        kind,
-        title: reference.title,
-      }];
-    })
-  );
-}
-
-function visibleConfigValues(
-  config: Record<string, unknown>,
-  fieldKeys: string[]
-): Record<string, unknown> {
-  const visibleKeys = new Set(fieldKeys);
-  return Object.fromEntries(
-    Object.entries(config).filter(([key]) => visibleKeys.has(key))
-  );
-}
-
-function mediaPreviewTitle(kind: CreateMode) {
-  switch (kind) {
-    case "image":
-      return "Generating image";
-    case "video":
-      return "Generating video";
-    case "audio":
-      return "Generating audio";
-    case "slideshow":
-      return "Queueing slideshow";
-    case "workflow":
-      return "Creating workflow";
-  }
-}
-
-function CreateResultPanel({
-  isReviewActionPending,
-  onReject,
-  onSave,
-  result,
-}: {
-  isReviewActionPending: boolean;
-  onReject: (result: CreateResult) => void;
-  onSave: (result: CreateResult) => void;
-  result: CreateResult;
-}) {
-  const isPending = result.status === "pending";
-  const isError = result.status === "error";
-  const isReview = result.status === "review";
-  const isSaved = result.status === "saved";
-  const [lightboxImage, setLightboxImage] = useState<MediaLightboxItem | null>(null);
-
-  return (
-    <aside className="grid content-start rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-page-quiet)] p-[var(--space-4)]">
-      <div className="entity-eyebrow">
-        {isPending ? "Generating" : isError ? "Needs attention" : isSaved ? "Saved" : "Preview"}
-      </div>
-      <h3 className="m-0 mt-[var(--space-1)] text-[1.05rem] font-[780]">
-        {result.title}
-      </h3>
-      <p className="muted">{result.detail}</p>
-
-      {isPending ? (
-        <div className="mt-[var(--space-3)] grid gap-[var(--space-3)]">
-          <GenerationLoadingState
-            detail={result.model ? `Using ${result.model}.` : "The preview will appear here when it is ready."}
-            steps={
-              result.kind === "audio"
-                ? ["Preparing script", "Synthesizing audio", "Saving preview"]
-                : result.kind === "video"
-                  ? ["Preparing references", "Rendering motion", "Saving preview"]
-                  : result.kind === "slideshow"
-                    ? ["Planning slides", "Queueing request", "Saving draft"]
-                    : ["Preparing prompt", "Generating image", "Saving preview"]
-            }
-            title={mediaPreviewTitle(result.kind)}
-          />
-        </div>
-      ) : result.url ? (
-        result.kind === "video" ? (
-          <video
-            className="mt-[var(--space-3)] w-full rounded-[var(--radius-sm)]"
-            controls
-            src={result.url}
-          />
-        ) : result.kind === "audio" ? (
-          <audio className="mt-[var(--space-3)] w-full" controls src={result.url} />
-        ) : (
-          <>
-            <button
-              aria-label={`View ${result.title}`}
-              className="mt-[var(--space-3)] block w-full cursor-zoom-in rounded-[var(--radius-sm)] border-0 bg-transparent p-0 text-left focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2"
-              onClick={() => {
-                if (!result.url) return;
-                setLightboxImage({
-                  src: result.url,
-                  title: result.title,
-                  meta: result.model,
-                });
-              }}
-              type="button"
-            >
-              <img
-                alt=""
-                className="max-h-[22rem] w-full rounded-[var(--radius-sm)] object-cover"
-                src={result.url}
-              />
-            </button>
-            <MediaLightbox media={lightboxImage} onClose={() => setLightboxImage(null)} />
-          </>
-        )
-      ) : null}
-
-      {result.prompt && !isPending ? (
-        <details className="mt-[var(--space-3)] rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-page)] p-[var(--space-3)] text-[0.78rem] text-[var(--color-ink-muted)]">
-          <summary className="cursor-pointer list-none font-[760] text-[var(--color-ink)] marker:hidden">
-            Prompt used
-          </summary>
-          <p className="m-0 mt-[var(--space-2)] max-h-[9rem] overflow-auto leading-[1.45]">
-            {result.prompt}
-          </p>
-        </details>
-      ) : null}
-
-      {isReview ? (
-        <div className="mt-[var(--space-3)] flex flex-wrap gap-[var(--space-2)]">
-          <button
-            className="primary-button"
-            disabled={isReviewActionPending}
-            onClick={() => onSave(result)}
-            type="button"
-          >
-            {isReviewActionPending ? (
-              <LoadingSignal label="Saving" size="sm" />
-            ) : (
-              <Check size={16} />
-            )}
-            {isReviewActionPending ? "Saving" : "Save"}
-          </button>
-          <button
-            className="secondary-button text-[var(--color-danger)]"
-            disabled={isReviewActionPending}
-            onClick={() => onReject(result)}
-            type="button"
-          >
-            {isReviewActionPending ? (
-              <LoadingSignal label="Rejecting" size="sm" />
-            ) : (
-              <Trash2 size={16} />
-            )}
-            {isReviewActionPending ? "Rejecting" : "Reject"}
-          </button>
-        </div>
-      ) : null}
-
-      {isSaved ? (
-        <Link className="secondary-button mt-[var(--space-3)] w-fit" to="/library">
-          <Library size={16} />
-          Open library
-        </Link>
-      ) : null}
-    </aside>
-  );
-}
 
 export function CreatePage() {
   const navigate = useNavigate();
@@ -363,7 +111,7 @@ export function CreatePage() {
     [workflows]
   );
   const selectedModel = model;
-  const createNodeType = workflowNodeTypeForCreateMode(mode);
+  const createNodeType = workflowNodeTypeForCreateMode(mode) ?? "image_generation";
   const selectedGenerationOperation = useMemo(
     () => generationOperationForConfig(createNodeType, generationConfig),
     [createNodeType, generationConfig]
@@ -462,192 +210,21 @@ export function CreatePage() {
     setModel("");
   };
 
-  const localFileFieldMeta = (fieldKey: string): CreateLocalFileFieldMeta | null => {
-    if (fieldKey === "localReferenceImages") {
-      return {
-        accept: "image/*",
-        kind: "image",
-        multiple: createNodeType === "image_generation"
-          ? selectedImageModelUiContract?.images.multiple !== false
-          : true,
-        maxCount: createNodeType === "image_generation"
-          ? selectedImageModelUiContract?.images.maxCount
-          : undefined,
-      };
-    }
-
-    if (fieldKey === "localStartFrameImages" || fieldKey === "localEndFrameImages") {
-      return {
-        accept: "image/*",
-        kind: "image",
-        multiple: false,
-        maxCount: 1,
-      };
-    }
-
-    if (fieldKey === "localReferenceVideos") {
-      return {
-        accept: "video/*",
-        kind: "video",
-        multiple: true,
-      };
-    }
-
-    if (fieldKey === "localReferenceAudios") {
-      return {
-        accept: "audio/*",
-        kind: "audio",
-        multiple: true,
-      };
-    }
-
-    return null;
-  };
-
-  const handleReferenceUpload = async (
-    files: File[],
-    configKey: string,
-    kind: LocalReferenceFileKind,
-    options: { multiple?: boolean; maxCount?: number } = {}
-  ) => {
-    if (!files.length) return;
-
-    const existingFiles = localReferenceFilesFromConfig(generationConfig, configKey, kind);
-    const remainingSlots = options.maxCount
-      ? Math.max(0, options.maxCount - existingFiles.length)
-      : options.multiple === false
-        ? 1
-        : files.length;
-    const filesToUpload = files.slice(0, remainingSlots);
-
-    if (!filesToUpload.length) {
-      setStatus(
-        options.maxCount
-          ? `This field allows up to ${options.maxCount} file${options.maxCount === 1 ? "" : "s"}.`
-          : "This field only allows one file."
-      );
-      return;
-    }
-
-    setIsUploadingReference(true);
-    setStatus("Uploading references");
-    try {
-      const uploaded = await Promise.all(
-        filesToUpload.map(async (file) => {
-          const stored = await uploadReference({
-            base64Data: await fileToDataUrl(file),
-            filename: file.name,
-          });
-          return {
-            id: String(stored.storageId),
-            storageUrl: stored.storageUrl,
-            mimeType: stored.mimeType,
-            title: file.name,
-            kind,
-          };
-        })
-      );
-      setGenerationConfig((current) => ({
-        ...current,
-        [configKey]: assignReferenceAliases(
-          [
-            ...(options.multiple === false
-              ? []
-              : localReferenceFilesFromConfig(current, configKey, kind)),
-            ...uploaded,
-          ],
-          kind
-        ),
-      }));
-      setStatus("");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Reference upload failed");
-    } finally {
-      setIsUploadingReference(false);
-    }
-  };
-
-  const removeReferenceUpload = (
-    configKey: string,
-    fileId: string,
-    kind: LocalReferenceFileKind
-  ) => {
-    setGenerationConfig((current) => ({
-      ...current,
-      [configKey]: localReferenceFilesFromConfig(current, configKey, kind).filter(
-        (file) => file.id !== fileId
-      ),
-    }));
-  };
-
-  const updateReferenceAlias = (
-    configKey: string,
-    fileId: string,
-    kind: LocalReferenceFileKind,
-    alias: string
-  ) => {
-    setGenerationConfig((current) => ({
-      ...current,
-      [configKey]: assignReferenceAliases(
-        localReferenceFilesFromConfig(current, configKey, kind).map((file) =>
-          file.id === fileId ? { ...file, alias } : file
-        ),
-        kind
-      ),
-    }));
-  };
-
-  const handleLibraryReferenceSelect = (
-    assets: SelectableLibraryAsset[],
-    configKey: string,
-    kind: LocalReferenceFileKind,
-    options: { multiple?: boolean; maxCount?: number } = {}
-  ) => {
-    if (!assets.length) return;
-
-    setGenerationConfig((current) => {
-      const existingFiles = localReferenceFilesFromConfig(current, configKey, kind);
-      const remainingSlots = options.maxCount
-        ? Math.max(0, options.maxCount - existingFiles.length)
-        : options.multiple === false
-          ? 1
-          : assets.length;
-      const selectedAssets = assets.slice(0, remainingSlots);
-
-      if (!selectedAssets.length) {
-        setStatus(
-          options.maxCount
-            ? `This field allows up to ${options.maxCount} file${options.maxCount === 1 ? "" : "s"}.`
-            : "This field only allows one file."
-        );
-        return current;
-      }
-
-      const selectedFiles = selectedAssets.map((asset) => ({
-        id: asset.id,
-        source: asset.source,
-        sourceId: asset.sourceId,
-        storageUrl: asset.storageUrl,
-        title: asset.title,
-        mimeType: asset.mimeType,
-        kind: asset.mediaKind === "media" ? kind : asset.mediaKind,
-      }));
-
-      setStatus("");
-      return {
-        ...current,
-        [configKey]: assignReferenceAliases(
-          [
-            ...(options.multiple === false
-              ? []
-              : localReferenceFilesFromConfig(current, configKey, kind)),
-            ...selectedFiles,
-          ],
-          kind
-        ),
-      };
-    });
-  };
+  const {
+    handleLibraryReferenceSelect,
+    handleReferenceUpload,
+    localFileFieldMeta,
+    removeReferenceUpload,
+    updateReferenceAlias,
+  } = useCreateReferenceFiles({
+    createNodeType,
+    generationConfig,
+    selectedImageModelUiContract,
+    setGenerationConfig,
+    setIsUploadingReference,
+    setStatus,
+    uploadReference,
+  });
 
   const saveResultToLibrary = async (currentResult: CreateResult) => {
     const artifactIds = currentResult.artifactIds ?? [];
@@ -949,23 +526,7 @@ export function CreatePage() {
           </Link>
         </div>
 
-        <div className="flex flex-wrap gap-[var(--space-2)]">
-          {CREATE_MODE_DEFINITIONS.map((definition) => {
-            const Icon = createModeIcons[definition.id];
-            const selected = definition.id === mode;
-            return (
-              <button
-                className={selected ? "primary-button" : "secondary-button"}
-                key={definition.id}
-                onClick={() => handleModeChange(definition.id)}
-                type="button"
-              >
-                <Icon size={16} />
-                {definition.label}
-              </button>
-            );
-          })}
-        </div>
+        <CreateModeTabs mode={mode} onModeChange={handleModeChange} />
 
         <div
           className={
@@ -994,120 +555,31 @@ export function CreatePage() {
               </div>
             ) : null}
 
-            {isCreateGenerationMode(mode) ? (
-              <>
-                {generationFieldGroups.promptFields.length ? (
-                  <div className="grid min-w-0 gap-[var(--space-3)]">
-                    {generationFieldGroups.promptFields.map((field) => (
-                      <CreateGenerationConfigField
-                        config={generationConfig}
-                        field={field}
-                        isUploadingReference={isUploadingReference}
-                        key={field.key}
-                        localFileFieldMeta={localFileFieldMeta}
-                        libraryAssets={selectableLibraryAssets}
-                        onConfigChange={handleGenerationConfigChange}
-                        onLibraryReferenceSelect={handleLibraryReferenceSelect}
-                        onLocalReferenceFileUpload={handleReferenceUpload}
-                        onRemoveLocalReferenceFile={removeReferenceUpload}
-                        onUpdateLocalReferenceAlias={updateReferenceAlias}
-                        referenceMentionOptions={referenceMentionOptions}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className="grid min-w-0 gap-[var(--space-2)]">
-                  {generationOperationOptions.length > 1 ? (
-                    <>
-                      <span className="text-[0.74rem] font-[780] text-[var(--color-ink-soft)]">Operation</span>
-                      <WorkflowSelect
-                        onChange={handleGenerationOperationChange}
-                        options={generationOperationOptions}
-                        placeholder="Select operation"
-                        rich
-                        value={selectedGenerationOperation?.id ?? ""}
-                      />
-                    </>
-                  ) : null}
-                  <span className="text-[0.74rem] font-[780] text-[var(--color-ink-soft)]">Model</span>
-                  <WorkflowSelect
-                    disabled={!availableModels.length}
-                    onChange={setModel}
-                    options={availableModels}
-                    placeholder={modelCatalog === undefined ? "Loading models" : "Select model"}
-                    rich
-                    value={selectedModel}
-                  />
-                </div>
-
-                {generationFieldGroups.referenceFields.length ? (
-                  <div className="grid min-w-0 gap-[var(--space-3)]">
-                    <div className="border-t border-[var(--color-border)] pt-[var(--space-4)]">
-                      <h3 className="m-0 text-[0.9rem] font-[800] text-[var(--color-ink)]">References</h3>
-                    </div>
-                    <div className="grid min-w-0 gap-[var(--space-3)] md:grid-cols-2">
-                      {generationFieldGroups.referenceFields.map((field) => (
-                        <CreateGenerationConfigField
-                          className={
-                            field.key === "startEndFrameMode"
-                              ? "md:col-span-2"
-                              : undefined
-                          }
-                          config={generationConfig}
-                          field={field}
-                          isUploadingReference={isUploadingReference}
-                          key={field.key}
-                          localFileFieldMeta={localFileFieldMeta}
-                          libraryAssets={selectableLibraryAssets}
-                          onConfigChange={handleGenerationConfigChange}
-                          onLibraryReferenceSelect={handleLibraryReferenceSelect}
-                          onLocalReferenceFileUpload={handleReferenceUpload}
-                          onRemoveLocalReferenceFile={removeReferenceUpload}
-                          onUpdateLocalReferenceAlias={updateReferenceAlias}
-                          referenceMentionOptions={referenceMentionOptions}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {generationFieldGroups.coreFields.length ? (
-                  <div className="grid min-w-0 gap-[var(--space-3)]">
-                    <div className="border-t border-[var(--color-border)] pt-[var(--space-4)]">
-                      <h3 className="m-0 text-[0.9rem] font-[800] text-[var(--color-ink)]">Settings</h3>
-                    </div>
-                    <div className="grid min-w-0 gap-[var(--space-3)] md:grid-cols-2 xl:grid-cols-3">
-                      {generationFieldGroups.coreFields.map((field) => (
-                        <CreateGenerationConfigField
-                          config={generationConfig}
-                          field={field}
-                          isUploadingReference={isUploadingReference}
-                          key={field.key}
-                          localFileFieldMeta={localFileFieldMeta}
-                          libraryAssets={selectableLibraryAssets}
-                          onConfigChange={handleGenerationConfigChange}
-                          onLibraryReferenceSelect={handleLibraryReferenceSelect}
-                          onLocalReferenceFileUpload={handleReferenceUpload}
-                          onRemoveLocalReferenceFile={removeReferenceUpload}
-                          onUpdateLocalReferenceAlias={updateReferenceAlias}
-                          referenceMentionOptions={referenceMentionOptions}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-              </>
-            ) : (
-              <TextArea
-                label={modeDefinition.promptLabel}
-                value={prompt}
-                onChange={setPrompt}
-                placeholder={modeDefinition.promptPlaceholder}
-                rows={8}
-              />
-            )}
+            <CreateGenerationFields
+              availableModels={availableModels}
+              config={generationConfig}
+              generationFieldGroups={generationFieldGroups}
+              generationOperationOptions={generationOperationOptions}
+              isUploadingReference={isUploadingReference}
+              libraryAssets={selectableLibraryAssets}
+              localFileFieldMeta={localFileFieldMeta}
+              modePromptLabel={modeDefinition.promptLabel}
+              modePromptPlaceholder={modeDefinition.promptPlaceholder}
+              modelCatalogLoading={modelCatalog === undefined}
+              nonGenerationPrompt={prompt}
+              onConfigChange={handleGenerationConfigChange}
+              onGenerationOperationChange={handleGenerationOperationChange}
+              onLibraryReferenceSelect={handleLibraryReferenceSelect}
+              onLocalReferenceFileUpload={handleReferenceUpload}
+              onNonGenerationPromptChange={setPrompt}
+              onRemoveLocalReferenceFile={removeReferenceUpload}
+              onSelectedModelChange={setModel}
+              onUpdateLocalReferenceAlias={updateReferenceAlias}
+              referenceMentionOptions={referenceMentionOptions}
+              selectedGenerationOperationId={selectedGenerationOperation?.id}
+              selectedModel={selectedModel}
+              showGenerationFields={isCreateGenerationMode(mode)}
+            />
 
             {mode === "slideshow" ? (
               <div className="grid min-w-0 gap-[var(--space-3)] lg:grid-cols-[minmax(12rem,18rem)]">
@@ -1153,30 +625,7 @@ export function CreatePage() {
         </div>
       </form>
 
-      <Panel title="Recent Workflow Drafts">
-        {recentDrafts.length === 0 ? (
-          <div className="empty-state">No workflow drafts from Create yet.</div>
-        ) : (
-          <div className="entity-grid">
-            {recentDrafts.map((workflow) => (
-              <Link
-                className="entity-card workflow-card-link"
-                key={workflow._id}
-                to={`/workflows/${workflow._id}`}
-              >
-                <div className="entity-eyebrow">{workflow.isActive ? "Active" : "Draft"}</div>
-                <h3>{workflow.name}</h3>
-                <p>{workflow.description}</p>
-                <span>{workflow.isActive ? "Active" : "Draft"}</span>
-                <span className="workflow-card-action">
-                  <Workflow size={15} />
-                  Open canvas
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </Panel>
+      <RecentWorkflowDrafts workflows={recentDrafts} />
     </Page>
   );
 }

@@ -1,143 +1,33 @@
 import { useClerk, useUser } from "@clerk/clerk-react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import {
-  BriefcaseBusiness,
-  Copy,
-  KeyRound,
-  Mail,
-  Sparkles,
-  Trash2,
-  UserPlus,
-  UserRound,
-  UsersRound,
-} from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
-import { CustomSelect } from "../components/CustomSelect";
-import { LoadingSignal, LoadingState, Page } from "../components/ui";
+import { LoadingSignal, Page } from "../components/ui";
 import { useWorkspace } from "../contexts/WorkspaceContext";
+import { AgentAccessSettingsSection } from "../features/settings/AgentAccessSettingsSection";
+import { AiProvidersSettingsSection } from "../features/settings/AiProvidersSettingsSection";
+import { GeneralSettingsSection } from "../features/settings/GeneralSettingsSection";
+import { MembersSettingsSection } from "../features/settings/MembersSettingsSection";
+import { ProfileSettingsSection } from "../features/settings/ProfileSettingsSection";
 import {
-  AI_PROVIDER_OPTIONS_BY_MODE,
-  resolveAiGenerationSettings,
+  DEFAULT_MCP_KEY_NAME,
+  SettingsTabButton,
+  isWorkingStatus,
+  settingsErrorMessage,
+  settingsTabs,
   type AiGenerationMode,
+  type InviteRole,
+  type SettingsTab,
+  type WorkspaceRole,
+} from "../features/settings/settingsPrimitives";
+import type {
+  McpApiKeySummary,
+  WorkspaceMemberRow,
+} from "../features/settings/settingsTypes";
+import {
+  resolveAiGenerationSettings,
   type AiGenerationProvider,
 } from "../lib/providers/aiGenerationDefaults";
-
-const DEFAULT_MCP_KEY_NAME = "Codex";
-
-type SettingsTab = "profile" | "general" | "ai" | "members" | "access";
-type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
-type InviteRole = Exclude<WorkspaceRole, "owner">;
-
-const settingsTabs: Array<{
-  id: SettingsTab;
-  label: string;
-  icon: typeof BriefcaseBusiness;
-}> = [
-  { id: "profile", label: "Profile", icon: UserRound },
-  { id: "general", label: "General", icon: BriefcaseBusiness },
-  { id: "ai", label: "AI providers", icon: Sparkles },
-  { id: "members", label: "Members", icon: UsersRound },
-  { id: "access", label: "Agent access", icon: KeyRound },
-];
-
-const inviteRoleOptions: Array<{ value: InviteRole; label: string }> = [
-  { value: "admin", label: "Admin" },
-  { value: "member", label: "Member" },
-  { value: "viewer", label: "Viewer" },
-];
-
-const memberRoleOptions: Array<{ value: WorkspaceRole; label: string }> = [
-  { value: "owner", label: "Owner" },
-  { value: "admin", label: "Admin" },
-  { value: "member", label: "Member" },
-  { value: "viewer", label: "Viewer" },
-];
-
-const inputClass =
-  "min-h-[2.85rem] w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-[var(--space-3)] text-[0.95rem] font-[520] text-[var(--color-ink)] outline-none transition focus:border-[var(--color-accent)] focus:shadow-[0_0_0_3px_oklch(57%_0.14_166_/_0.13)] disabled:cursor-not-allowed disabled:bg-[var(--color-surface-muted)]";
-
-const generationModeLabels: Record<AiGenerationMode, string> = {
-  image: "Image generation",
-  video: "Video generation",
-  audio: "Audio generation",
-  lipsync: "Lip sync generation",
-  videoAnalysis: "Video analysis",
-};
-
-const generationModeNotes: Record<AiGenerationMode, string> = {
-  image: "Sets which provider family Create and new image workflow nodes use by default. Pick the exact model in the creation flow.",
-  video: "Sets which provider family Create and new video workflow nodes use by default. Pick the exact model in the creation flow.",
-  audio: "Sets which provider family Create and new audio workflow nodes use by default. Pick the exact model in the creation flow.",
-  lipsync: "Sets which provider family new lip sync workflow nodes use by default. Pick the exact model on the node.",
-  videoAnalysis: "Sets which multimodal provider the Analyze tab uses for transcripts, scene reads, audio notes, and inspiration briefs.",
-};
-
-function formatDate(timestamp?: number) {
-  if (!timestamp) return "Never";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(timestamp));
-}
-
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
-
-function isWorkingStatus(message: string) {
-  return /^(Saving|Updating|Removing|Creating)/.test(message);
-}
-
-function SettingsTabButton({
-  active,
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: typeof BriefcaseBusiness;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={[
-        "inline-flex min-h-[2.65rem] items-center gap-[var(--space-2)] border-b-2 px-[var(--space-2)] text-[0.9rem] font-[720] transition",
-        active
-          ? "border-[var(--color-ink)] text-[var(--color-ink)]"
-          : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-ink)]",
-      ].join(" ")}
-      type="button"
-      onClick={onClick}
-    >
-      <Icon size={16} strokeWidth={1.9} />
-      {label}
-    </button>
-  );
-}
-
-function SettingRow({
-  children,
-  label,
-  note,
-}: {
-  children: React.ReactNode;
-  label: string;
-  note: string;
-}) {
-  return (
-    <div className="grid gap-[var(--space-3)] border-t border-[var(--color-border)] py-[var(--space-4)] md:grid-cols-[13.5rem_minmax(0,1fr)] md:items-start">
-      <div>
-        <div className="text-[0.86rem] font-[780] leading-[1.25] text-[var(--color-ink)]">{label}</div>
-        <p className="mt-[0.3rem] text-[0.8rem] leading-[1.45] text-[var(--color-muted)]">{note}</p>
-      </div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
 
 export function SettingsPage() {
   const { openUserProfile } = useClerk();
@@ -178,7 +68,15 @@ export function SettingsPage() {
     return siteUrl ? `${siteUrl.replace(/\/$/, "")}/mcp` : "/mcp";
   }, []);
 
-  const memberRows = members ?? [];
+  const memberRows = (members ?? []) as WorkspaceMemberRow[];
+  const apiKeyRows = apiKeys as McpApiKeySummary[] | undefined;
+  const providersByMode: Record<AiGenerationMode, AiGenerationProvider> = {
+    image: imageProvider,
+    video: videoProvider,
+    audio: audioProvider,
+    lipsync: lipsyncProvider,
+    videoAnalysis: videoAnalysisProvider,
+  };
   const memberCountLabel =
     members === undefined
       ? "Loading members"
@@ -219,7 +117,7 @@ export function SettingsPage() {
       setWorkspaceName("");
       setStatusMessage("Workspace name updated.");
     } catch (error) {
-      setStatusMessage(errorMessage(error, "Workspace update failed."));
+      setStatusMessage(settingsErrorMessage(error, "Workspace update failed."));
     }
   };
 
@@ -265,7 +163,7 @@ export function SettingsPage() {
       });
       setStatusMessage("AI providers updated.");
     } catch (error) {
-      setStatusMessage(errorMessage(error, "AI provider update failed."));
+      setStatusMessage(settingsErrorMessage(error, "AI provider update failed."));
     }
   };
 
@@ -284,7 +182,7 @@ export function SettingsPage() {
       setInviteRole("member");
       setStatusMessage("Member access updated.");
     } catch (error) {
-      setStatusMessage(errorMessage(error, "Member update failed."));
+      setStatusMessage(settingsErrorMessage(error, "Member update failed."));
     }
   };
 
@@ -305,7 +203,7 @@ export function SettingsPage() {
       });
       setStatusMessage("Member role updated.");
     } catch (error) {
-      setStatusMessage(errorMessage(error, "Role update failed."));
+      setStatusMessage(settingsErrorMessage(error, "Role update failed."));
     }
   };
 
@@ -317,7 +215,7 @@ export function SettingsPage() {
       await removeMember({ workspaceId: activeWorkspaceId, userId });
       setStatusMessage("Member removed.");
     } catch (error) {
-      setStatusMessage(errorMessage(error, "Member removal failed."));
+      setStatusMessage(settingsErrorMessage(error, "Member removal failed."));
     }
   };
 
@@ -332,7 +230,7 @@ export function SettingsPage() {
       setKeyName(DEFAULT_MCP_KEY_NAME);
       setStatusMessage("Agent key created. Copy it now, because it will not be shown again.");
     } catch (error) {
-      setStatusMessage(errorMessage(error, "Agent key creation failed."));
+      setStatusMessage(settingsErrorMessage(error, "Agent key creation failed."));
     }
   };
 
@@ -366,437 +264,64 @@ export function SettingsPage() {
         </div>
 
         {activeTab === "profile" ? (
-          <section>
-            <header className="mb-[var(--space-2)]">
-              <h2 className="text-[1.3rem] font-[820] leading-[1.2] text-[var(--color-ink)]">
-                Profile
-              </h2>
-              <p className="mt-[0.35rem] max-w-[42rem] text-[0.92rem] leading-[1.55] text-[var(--color-muted)]">
-                Manage your personal profile.
-              </p>
-            </header>
-
-            <div className="border-t border-[var(--color-border)] py-[var(--space-4)]">
-              <div className="flex max-w-[35rem] flex-wrap items-center gap-[var(--space-3)]">
-                <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-full bg-[oklch(92%_0.07_145)] text-[1rem] font-[820] uppercase text-[oklch(18%_0.04_210)]">
-                  {user?.imageUrl ? (
-                    <img
-                      alt={user.fullName ?? "User"}
-                      className="size-full object-cover"
-                      src={user.imageUrl}
-                    />
-                  ) : (
-                    <span>{user?.fullName?.[0] ?? "U"}</span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[1rem] font-[780] text-[var(--color-ink)]">
-                    {user?.fullName ?? "User"}
-                  </div>
-                  <div className="mt-[0.2rem] inline-flex max-w-full items-center gap-[var(--space-1)] text-[0.84rem] text-[var(--color-muted)]">
-                    <Mail size={14} />
-                    <span className="truncate">
-                      {user?.primaryEmailAddress?.emailAddress ?? "No email"}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => openUserProfile()}
-                >
-                  <UserRound size={16} />
-                  Edit profile
-                </button>
-              </div>
-            </div>
-          </section>
+          <ProfileSettingsSection
+            user={user}
+            onEditProfile={() => openUserProfile()}
+          />
         ) : null}
 
         {activeTab === "general" ? (
-          <section>
-            <header className="mb-[var(--space-2)]">
-              <h2 className="text-[1.3rem] font-[820] leading-[1.2] text-[var(--color-ink)]">
-                General
-              </h2>
-              <p className="mt-[0.35rem] max-w-[42rem] text-[0.92rem] leading-[1.55] text-[var(--color-muted)]">
-                Workspace settings for {currentWorkspaceName}.
-              </p>
-            </header>
-
-            <SettingRow
-              label="Workspace name"
-              note="Use a short name people can recognize quickly."
-            >
-              <form
-                className="grid max-w-[35rem] gap-[var(--space-3)] sm:grid-cols-[minmax(0,22rem)_11rem]"
-                onSubmit={saveWorkspaceName}
-              >
-                <input
-                  className={inputClass}
-                  disabled={!isWorkspaceAdmin}
-                  placeholder={activeWorkspace?.name ?? "Workspace name"}
-                  value={workspaceName}
-                  onChange={(event) => setWorkspaceName(event.target.value)}
-                />
-                <button className="primary-button" disabled={!isWorkspaceAdmin} type="submit">
-                  Save
-                </button>
-              </form>
-            </SettingRow>
-          </section>
+          <GeneralSettingsSection
+            currentWorkspaceName={currentWorkspaceName}
+            isWorkspaceAdmin={isWorkspaceAdmin}
+            workspace={activeWorkspace}
+            workspaceName={workspaceName}
+            onSaveWorkspaceName={saveWorkspaceName}
+            onWorkspaceNameChange={setWorkspaceName}
+          />
         ) : null}
 
         {activeTab === "ai" ? (
-          <section>
-            <header className="mb-[var(--space-2)]">
-              <h2 className="text-[1.3rem] font-[820] leading-[1.2] text-[var(--color-ink)]">
-                AI providers
-              </h2>
-              <p className="mt-[0.35rem] max-w-[42rem] text-[0.92rem] leading-[1.55] text-[var(--color-muted)]">
-                Choose the default generation routes for {currentWorkspaceName}.
-              </p>
-            </header>
-
-            <form onSubmit={saveAiGenerationSettings}>
-              <SettingRow
-                label={generationModeLabels.image}
-                note={generationModeNotes.image}
-              >
-                <div className="max-w-[18rem]">
-                  <CustomSelect
-                    disabled={!isWorkspaceAdmin}
-                    onChange={(provider) =>
-                      changeGenerationProvider("image", provider as AiGenerationProvider)
-                    }
-                    options={AI_PROVIDER_OPTIONS_BY_MODE.image}
-                    placeholder="Provider"
-                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
-                    value={imageProvider}
-                  />
-                </div>
-              </SettingRow>
-
-              <SettingRow
-                label={generationModeLabels.video}
-                note={generationModeNotes.video}
-              >
-                <div className="max-w-[18rem]">
-                  <CustomSelect
-                    disabled={!isWorkspaceAdmin}
-                    onChange={(provider) =>
-                      changeGenerationProvider("video", provider as AiGenerationProvider)
-                    }
-                    options={AI_PROVIDER_OPTIONS_BY_MODE.video}
-                    placeholder="Provider"
-                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
-                    value={videoProvider}
-                  />
-                </div>
-              </SettingRow>
-
-              <SettingRow
-                label={generationModeLabels.audio}
-                note={generationModeNotes.audio}
-              >
-                <div className="max-w-[18rem]">
-                  <CustomSelect
-                    disabled={!isWorkspaceAdmin}
-                    onChange={(provider) =>
-                      changeGenerationProvider("audio", provider as AiGenerationProvider)
-                    }
-                    options={AI_PROVIDER_OPTIONS_BY_MODE.audio}
-                    placeholder="Provider"
-                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
-                    value={audioProvider}
-                  />
-                </div>
-              </SettingRow>
-
-              <SettingRow
-                label={generationModeLabels.lipsync}
-                note={generationModeNotes.lipsync}
-              >
-                <div className="max-w-[18rem]">
-                  <CustomSelect
-                    disabled={!isWorkspaceAdmin}
-                    onChange={(provider) =>
-                      changeGenerationProvider("lipsync", provider as AiGenerationProvider)
-                    }
-                    options={AI_PROVIDER_OPTIONS_BY_MODE.lipsync}
-                    placeholder="Provider"
-                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
-                    value={lipsyncProvider}
-                  />
-                </div>
-              </SettingRow>
-
-              <SettingRow
-                label={generationModeLabels.videoAnalysis}
-                note={generationModeNotes.videoAnalysis}
-              >
-                <div className="max-w-[18rem]">
-                  <CustomSelect
-                    disabled={!isWorkspaceAdmin}
-                    onChange={(provider) =>
-                      changeGenerationProvider("videoAnalysis", provider as AiGenerationProvider)
-                    }
-                    options={AI_PROVIDER_OPTIONS_BY_MODE.videoAnalysis}
-                    placeholder="Provider"
-                    triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
-                    value={videoAnalysisProvider}
-                  />
-                </div>
-              </SettingRow>
-
-              <div className="border-t border-[var(--color-border)] pt-[var(--space-4)]">
-                <button className="primary-button" disabled={!isWorkspaceAdmin} type="submit">
-                  <Sparkles size={16} />
-                  Save AI providers
-                </button>
-              </div>
-            </form>
-          </section>
+          <AiProvidersSettingsSection
+            currentWorkspaceName={currentWorkspaceName}
+            isWorkspaceAdmin={isWorkspaceAdmin}
+            providersByMode={providersByMode}
+            onChangeProvider={changeGenerationProvider}
+            onSave={saveAiGenerationSettings}
+          />
         ) : null}
 
         {activeTab === "members" ? (
-          <section>
-            <header className="mb-[var(--space-2)]">
-              <h2 className="text-[1.3rem] font-[820] leading-[1.2] text-[var(--color-ink)]">
-                Members
-              </h2>
-              <p className="mt-[0.35rem] max-w-[42rem] text-[0.92rem] leading-[1.55] text-[var(--color-muted)]">
-                {memberCountLabel} in {currentWorkspaceName}.
-              </p>
-            </header>
-
-            <SettingRow
-              label="Invite member"
-              note="Add someone who has already signed in once."
-            >
-              <form
-                className="grid max-w-[44rem] gap-[var(--space-3)] lg:grid-cols-[minmax(0,1fr)_10rem_11rem]"
-                onSubmit={inviteMember}
-              >
-                <input
-                  className={inputClass}
-                  disabled={!canInviteMembers}
-                  placeholder="teammate@company.com"
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(event) => setInviteEmail(event.target.value)}
-                />
-                <CustomSelect
-                  disabled={!canInviteMembers}
-                  onChange={(nextRole) => setInviteRole(nextRole as InviteRole)}
-                  options={inviteRoleOptions}
-                  placeholder="Role"
-                  triggerClassName="min-h-[2.85rem] bg-[var(--color-surface)] text-[0.95rem] font-[520]"
-                  value={inviteRole}
-                />
-                <button className="primary-button" disabled={!canInviteMembers} type="submit">
-                  <UserPlus size={16} />
-                  Invite
-                </button>
-              </form>
-            </SettingRow>
-
-            <SettingRow label="Members" note="Roles apply only inside this workspace.">
-              <div className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)]">
-                <div className="grid grid-cols-[minmax(0,1fr)_9rem_2.75rem] gap-[var(--space-3)] bg-[var(--color-surface-muted)] px-[var(--space-3)] py-[var(--space-2)] text-[0.72rem] font-[780] uppercase tracking-[0.06em] text-[var(--color-muted)] max-md:hidden">
-                  <span>Person</span>
-                  <span>Role</span>
-                  <span />
-                </div>
-
-                {members === undefined ? (
-                  <LoadingState
-                    className="border-0 bg-transparent"
-                    compact
-                    detail="Fetching people with access to this workspace."
-                    title="Loading members"
-                  />
-                ) : memberRows.length === 0 ? (
-                  <div className="px-[var(--space-3)] py-[var(--space-4)] text-[0.9rem] text-[var(--color-muted)]">
-                    No members yet.
-                  </div>
-                ) : (
-                  memberRows.map((row) => {
-                    const { membership } = row;
-                    const displayName = row.user?.name ?? row.user?.email ?? membership.userId;
-                    const isSelf = membership.userId === user?.id;
-                    const isOwner = membership.role === "owner";
-                    const canEditRole = isWorkspaceAdmin && !isSelf && !isOwner;
-                    const canRemoveMember = isWorkspaceAdmin && !isSelf && !isOwner;
-
-                    return (
-                      <div
-                        className="grid gap-[var(--space-3)] border-t border-[var(--color-border)] px-[var(--space-3)] py-[var(--space-3)] first:border-t-0 md:grid-cols-[minmax(0,1fr)_9rem_2.75rem] md:items-center"
-                        key={membership._id}
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-[0.94rem] font-[720] text-[var(--color-ink)]">
-                            {displayName}
-                          </div>
-                          <div className="truncate text-[0.8rem] text-[var(--color-muted)]">
-                            {row.user?.email ?? membership.userId}
-                          </div>
-                        </div>
-                        {canEditRole ? (
-                          <CustomSelect
-                            onChange={(nextRole) =>
-                              changeMemberRole(
-                                membership.userId,
-                                nextRole,
-                                displayName
-                              )
-                            }
-                            options={
-                              canTransferOwnership
-                                ? memberRoleOptions
-                                : memberRoleOptions.filter((option) => option.value !== "owner")
-                            }
-                            placeholder="Role"
-                            triggerClassName="min-h-[2.4rem] bg-[var(--color-surface)] px-[var(--space-2)] py-[0.35rem] text-[0.84rem] font-[620]"
-                            value={membership.role}
-                          />
-                        ) : (
-                          <span className="inline-flex min-h-[2.4rem] items-center text-[0.84rem] font-[720] capitalize text-[var(--color-ink)]">
-                            {membership.role}
-                          </span>
-                        )}
-                        {canRemoveMember ? (
-                          <button
-                            aria-label={`Remove ${displayName}`}
-                            className="icon-button justify-self-start md:justify-self-end"
-                            type="button"
-                            onClick={() => removeWorkspaceMember(membership.userId, displayName)}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        ) : (
-                          <span />
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </SettingRow>
-          </section>
+          <MembersSettingsSection
+            canInviteMembers={canInviteMembers}
+            canTransferOwnership={canTransferOwnership}
+            currentUserId={user?.id}
+            currentWorkspaceName={currentWorkspaceName}
+            inviteEmail={inviteEmail}
+            inviteRole={inviteRole}
+            isWorkspaceAdmin={isWorkspaceAdmin}
+            memberCountLabel={memberCountLabel}
+            memberRows={memberRows}
+            membersLoaded={members !== undefined}
+            onChangeInviteEmail={setInviteEmail}
+            onChangeInviteRole={setInviteRole}
+            onChangeMemberRole={changeMemberRole}
+            onInviteMember={inviteMember}
+            onRemoveMember={removeWorkspaceMember}
+          />
         ) : null}
 
         {activeTab === "access" ? (
-          <section>
-            <header className="mb-[var(--space-2)]">
-              <h2 className="text-[1.3rem] font-[820] leading-[1.2] text-[var(--color-ink)]">
-                Agent access
-              </h2>
-              <p className="mt-[0.35rem] max-w-[42rem] text-[0.92rem] leading-[1.55] text-[var(--color-muted)]">
-                Connect external agents and revoke keys you no longer use.
-              </p>
-            </header>
-
-            <SettingRow label="Endpoint" note="Use this URL when configuring an MCP client.">
-              <div className="grid max-w-[44rem] gap-[var(--space-3)] sm:grid-cols-[minmax(0,1fr)_2.85rem]">
-                <input className={inputClass} readOnly value={mcpEndpoint} />
-                <button
-                  aria-label="Copy MCP endpoint"
-                  className="icon-button min-h-[2.85rem]"
-                  type="button"
-                  onClick={() => handleCopy(mcpEndpoint)}
-                >
-                  <Copy size={16} />
-                </button>
-              </div>
-            </SettingRow>
-
-            <SettingRow
-              label="Create key"
-              note="New keys are shown once. Store the key before leaving this page."
-            >
-              <form
-                className="grid max-w-[35rem] gap-[var(--space-3)] sm:grid-cols-[minmax(0,22rem)_11rem]"
-                onSubmit={handleCreateKey}
-              >
-                <input
-                  className={inputClass}
-                  placeholder={DEFAULT_MCP_KEY_NAME}
-                  value={keyName}
-                  onChange={(event) => setKeyName(event.target.value)}
-                />
-                <button className="primary-button" type="submit">
-                  <KeyRound size={16} />
-                  Create
-                </button>
-              </form>
-              {generatedKey ? (
-                <div className="mt-[var(--space-3)] grid max-w-[44rem] gap-[var(--space-2)] rounded-[var(--radius-sm)] bg-[oklch(95%_0.025_185)] p-[var(--space-3)]">
-                  <div className="text-[0.78rem] font-[780] uppercase tracking-[0.06em] text-[var(--color-accent-strong)]">
-                    New key
-                  </div>
-                  <div className="grid gap-[var(--space-2)] sm:grid-cols-[minmax(0,1fr)_2.5rem]">
-                    <code className="min-w-0 overflow-x-auto whitespace-nowrap rounded-[var(--radius-sm)] bg-[oklch(100%_0_0_/_0.62)] px-[var(--space-2)] py-[var(--space-2)] text-[0.8rem] text-[var(--color-ink)]">
-                      {generatedKey}
-                    </code>
-                    <button
-                      aria-label="Copy generated key"
-                      className="icon-button"
-                      type="button"
-                      onClick={() => handleCopy(generatedKey)}
-                    >
-                      <Copy size={16} />
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </SettingRow>
-
-            <SettingRow label="Keys" note="Revoke keys you no longer use.">
-              <div className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)]">
-                {apiKeys === undefined ? (
-                  <LoadingState
-                    className="border-0 bg-transparent"
-                    compact
-                    detail="Checking active agent access keys."
-                    title="Loading keys"
-                  />
-                ) : apiKeys.length === 0 ? (
-                  <div className="px-[var(--space-3)] py-[var(--space-4)] text-[0.9rem] text-[var(--color-muted)]">
-                    No keys created yet.
-                  </div>
-                ) : (
-                  apiKeys.map((key) => (
-                    <div
-                      className="grid gap-[var(--space-3)] border-t border-[var(--color-border)] px-[var(--space-3)] py-[var(--space-3)] first:border-t-0 md:grid-cols-[minmax(0,1fr)_8rem_2.75rem] md:items-center"
-                      key={key.id}
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-[0.94rem] font-[720] text-[var(--color-ink)]">
-                          {key.name}
-                        </div>
-                        <div className="truncate text-[0.8rem] text-[var(--color-muted)]">
-                          {key.keyPrefix} / Created {formatDate(key.createdAt)}
-                        </div>
-                      </div>
-                      <span className="text-[0.83rem] font-[650] text-[var(--color-muted)]">
-                        {key.revokedAt ? "Revoked" : "Active"}
-                      </span>
-                      <button
-                        aria-label={`Revoke ${key.name}`}
-                        className="icon-button justify-self-start md:justify-self-end"
-                        disabled={Boolean(key.revokedAt)}
-                        type="button"
-                        onClick={() => revokeMcpKey({ id: key.id as Id<"mcpApiKeys"> })}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </SettingRow>
-          </section>
+          <AgentAccessSettingsSection
+            apiKeys={apiKeyRows}
+            generatedKey={generatedKey}
+            keyName={keyName}
+            mcpEndpoint={mcpEndpoint}
+            onChangeKeyName={setKeyName}
+            onCopy={(value) => void handleCopy(value)}
+            onCreateKey={handleCreateKey}
+            onRevokeKey={(id) => void revokeMcpKey({ id })}
+          />
         ) : null}
       </div>
     </Page>
