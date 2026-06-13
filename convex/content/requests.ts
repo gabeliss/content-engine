@@ -68,6 +68,7 @@ import {
   moveSlideForRequest,
   reorderSlidesForRequest,
   regenerateSlideImageForRequest,
+  updateSlideshowAspectRatioForRequest,
   updateSlideImagePromptForRequest,
   updateSlideTextForRequest,
 } from "./slideshowRequestMutations";
@@ -540,6 +541,17 @@ export const reorderSlides = mutation({
   handler: async (ctx, args) => {
     const userId = currentUserId(await requireBetaAccess(ctx));
     await reorderSlidesForRequest(ctx, { ...args, userId });
+  },
+});
+
+export const updateSlideshowAspectRatio = mutation({
+  args: {
+    slideshowId: v.id("slideshows"),
+    aspectRatio: v.union(v.literal("9:16"), v.literal("4:5"), v.literal("1:1")),
+  },
+  handler: async (ctx, args) => {
+    const userId = currentUserId(await requireBetaAccess(ctx));
+    await updateSlideshowAspectRatioForRequest(ctx, { ...args, userId });
   },
 });
 

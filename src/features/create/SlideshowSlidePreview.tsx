@@ -1,4 +1,5 @@
-import type { PointerEvent } from "react";
+import type { CSSProperties, PointerEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   CanonicalSlideshowSlide,
   CanonicalSlideshowSpec,
@@ -6,10 +7,18 @@ import type {
 } from "../../types";
 import {
   blockText,
-  hexToRgba,
   normalizedTextBlocks,
-  textShadow,
 } from "./slideshowEditorModel";
+import {
+  SLIDESHOW_FONT_FAMILY,
+  hexToRgba,
+  slideshowCssAspectRatio,
+  slideshowDimensionsForSpec,
+  slideshowTextBlockFrame,
+  slideshowTextFontSize,
+  slideshowTextFontWeight,
+  slideshowTextShadow,
+} from "../../lib/slideshowRendering";
 
 export type SlidePreviewMode = "stage" | "thumb";
 type ResizeHandle =
@@ -42,33 +51,87 @@ export function SlidePreview({
   const isFullGraphic =
     spec.renderingMode === "full_graphic_generation" ||
     slide.renderingMode === "full_graphic_generation";
-  const blocks = textBlocks ?? normalizedTextBlocks(slide);
-  const scale = mode === "stage" ? 0.31 : 0.12;
+  const dimensions = slideshowDimensionsForSpec(spec, slide);
+  const blocks = textBlocks ?? normalizedTextBlocks(slide, spec);
+  const [stageScale, setStageScale] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isEditable = mode === "stage" && Boolean(onChangeBlock && onSelectBlock);
+
+  useEffect(() => {
+    if (mode !== "stage") return;
+    const element = containerRef.current;
+    if (!element) return;
+    const updateScale = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width > 0) setStageScale(width / dimensions.width);
+    };
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [dimensions.width, mode]);
+
+  const handleSize = Math.max(10 / Math.max(stageScale, 0.01), 10);
+  const handleOffset = -handleSize / 2;
+  const selectionBorderWidth = Math.max(1 / Math.max(stageScale, 0.01), 1);
+  const selectionRingWidth = Math.max(2 / Math.max(stageScale, 0.01), 2);
 
   return (
     <div
       data-slide-preview
+      ref={containerRef}
       className={[
         "relative w-full overflow-hidden bg-[#111513]",
         mode === "stage"
           ? "aspect-[9/16] rounded-[var(--radius-sm)] shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
           : "aspect-square rounded-[0.45rem]",
       ].join(" ")}
+      style={mode === "stage" ? { aspectRatio: slideshowCssAspectRatio(dimensions) } : undefined}
     >
-      {slide.backgroundImageUrl ? (
-        <img
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-          src={slide.backgroundImageUrl}
-        />
-      ) : null}
-      {!isFullGraphic ? <div className="absolute inset-0 bg-black/30" /> : null}
-      {!isFullGraphic && mode === "stage"
-        ? blocks.map((block) => {
+      <div
+        className="absolute left-0 top-0 overflow-hidden"
+        style={
+          mode === "stage"
+            ? {
+                width: dimensions.width,
+                height: dimensions.height,
+                transform: `scale(${stageScale})`,
+                transformOrigin: "left top",
+              }
+            : { width: "100%", height: "100%" }
+        }
+      >
+        {slide.backgroundImageUrl ? (
+          <img
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            src={slide.backgroundImageUrl}
+          />
+        ) : null}
+        {!isFullGraphic ? <div className="absolute inset-0 bg-black/30" /> : null}
+        {!isFullGraphic && mode === "stage"
+          ? blocks.map((block, index) => {
             const blockId = block.id ?? "text";
             const isSelected = blockId === selectedBlockId;
             const backgroundOpacity = block.backgroundOpacity ?? 1;
-            const fontSize = Math.max(mode === "stage" ? 11 : 6, (block.fontSize ?? 72) * scale);
+            const fontSize = slideshowTextFontSize(block, index);
+            const frame = slideshowTextBlockFrame(block, dimensions);
+            const blockBorderWidth = isSelected ? selectionBorderWidth : 0;
+            const blockStyle: CSSProperties = {
+              left: frame.x,
+              top: frame.y,
+              width: frame.width,
+              minHeight: frame.minHeight,
+              textAlign: block.align ?? "center",
+              borderWidth: blockBorderWidth,
+              boxShadow: isSelected
+                ? `0 0 0 ${selectionRingWidth}px rgba(47, 123, 255, 0.35)`
+                : undefined,
+            };
+            const handleBaseStyle: CSSProperties = {
+              width: handleSize,
+              height: handleSize,
+            };
             const blockContent = (
               <>
                 <span
@@ -80,45 +143,54 @@ export function SlidePreview({
                         : "transparent",
                     color: block.color ?? "#FFFFFF",
                     fontSize,
-                    fontWeight: block.fontWeight ?? 850,
-                    textShadow: textShadow(block),
+                    fontFamily: SLIDESHOW_FONT_FAMILY,
+                    fontWeight: slideshowTextFontWeight(block, index),
+                    textShadow: slideshowTextShadow(block),
                   }}
                 >
                   {blockText(block)}
                 </span>
-                {isSelected && mode === "stage" ? (
+                {isSelected && isEditable ? (
                   <>
                     <span
-                      className="absolute -left-1 -top-1 size-2.5 cursor-nwse-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute cursor-nwse-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "top-left")}
+                      style={{ ...handleBaseStyle, left: handleOffset, top: handleOffset }}
                     />
                     <span
-                      className="absolute left-1/2 -top-1 size-2.5 -translate-x-1/2 cursor-ns-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute -translate-x-1/2 cursor-ns-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "top")}
+                      style={{ ...handleBaseStyle, left: "50%", top: handleOffset }}
                     />
                     <span
-                      className="absolute -right-1 -top-1 size-2.5 cursor-nesw-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute cursor-nesw-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "top-right")}
+                      style={{ ...handleBaseStyle, right: handleOffset, top: handleOffset }}
                     />
                     <span
-                      className="absolute -right-1 top-1/2 size-2.5 -translate-y-1/2 cursor-ew-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute -translate-y-1/2 cursor-ew-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "right")}
+                      style={{ ...handleBaseStyle, right: handleOffset, top: "50%" }}
                     />
                     <span
-                      className="absolute -bottom-1 -right-1 size-2.5 cursor-nwse-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute cursor-nwse-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "bottom-right")}
+                      style={{ ...handleBaseStyle, bottom: handleOffset, right: handleOffset }}
                     />
                     <span
-                      className="absolute left-1/2 -bottom-1 size-2.5 -translate-x-1/2 cursor-ns-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute -translate-x-1/2 cursor-ns-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "bottom")}
+                      style={{ ...handleBaseStyle, bottom: handleOffset, left: "50%" }}
                     />
                     <span
-                      className="absolute -bottom-1 -left-1 size-2.5 cursor-nesw-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute cursor-nesw-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "bottom-left")}
+                      style={{ ...handleBaseStyle, bottom: handleOffset, left: handleOffset }}
                     />
                     <span
-                      className="absolute -left-1 top-1/2 size-2.5 -translate-y-1/2 cursor-ew-resize rounded-sm border border-white bg-[#2F7BFF]"
+                      className="absolute -translate-y-1/2 cursor-ew-resize rounded-sm border border-white bg-[#2F7BFF]"
                       onPointerDown={(event) => startTextTransform(event, "left")}
+                      style={{ ...handleBaseStyle, left: handleOffset, top: "50%" }}
                     />
                   </>
                 ) : null}
@@ -126,24 +198,16 @@ export function SlidePreview({
             );
             const blockClassName = [
               "absolute h-auto border bg-transparent p-0 text-left transition",
-              mode === "stage"
+              isEditable
                 ? "cursor-pointer hover:border-[#2F7BFF]"
                 : "pointer-events-none",
-              isSelected && mode === "stage"
-                ? "border-[#2F7BFF] ring-2 ring-[#2F7BFF]/35"
-                : "border-transparent",
+              isSelected && isEditable ? "border-[#2F7BFF]" : "border-transparent",
             ].join(" ");
-            const blockStyle = {
-              left: `${block.x ?? 10}%`,
-              top: `${block.y ?? 42}%`,
-              width: `${block.width ?? 80}%`,
-              minHeight: `${block.height ?? 10}%`,
-              textAlign: block.align ?? "center",
-            } as const;
             function startTextTransform(
               event: PointerEvent<HTMLElement>,
               resizeHandle?: ResizeHandle
             ) {
+              if (!isEditable) return;
               event.preventDefault();
               event.stopPropagation();
               onSelectBlock?.(blockId);
@@ -199,7 +263,7 @@ export function SlidePreview({
               window.addEventListener("pointerup", onPointerUp, { once: true });
             }
 
-            return mode === "stage" ? (
+            return isEditable ? (
               <button
                 aria-label={`Edit text block ${blockId}`}
                 className={blockClassName}
@@ -221,6 +285,7 @@ export function SlidePreview({
             );
           })
         : null}
+      </div>
       {mode === "thumb" ? (
         <div className="absolute left-1 top-1 rounded-full bg-black/65 px-1.5 py-0.5 text-[0.55rem] font-[760] text-white">
           {slide.index}

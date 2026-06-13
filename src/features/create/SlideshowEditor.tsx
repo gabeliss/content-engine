@@ -1,5 +1,6 @@
 import { useAction, useMutation } from "convex/react";
 import {
+  Crop,
   Image as ImageIcon,
   Trash2,
   Type,
@@ -22,6 +23,10 @@ import type {
   SlideshowDoc,
   SlideshowTextBlock,
 } from "../../types";
+import {
+  type SlideshowAspectRatio,
+  slideshowAspectRatioForSpec,
+} from "../../lib/slideshowRendering";
 
 function TrayButton({
   active,
@@ -67,11 +72,13 @@ export function SlideshowEditor({
 }) {
   const updateSlideText = useMutation(api.content.requests.updateSlideText);
   const updateSlideImagePrompt = useMutation(api.content.requests.updateSlideImagePrompt);
+  const updateSlideshowAspectRatio = useMutation(api.content.requests.updateSlideshowAspectRatio);
   const createSlide = useMutation(api.content.requests.createSlide);
   const reorderSlides = useMutation(api.content.requests.reorderSlides);
   const deleteSlide = useMutation(api.content.requests.deleteSlide);
   const regenerateSlideImage = useAction(api.content.requests.regenerateSlideImage);
   const spec = slideshow.spec as CanonicalSlideshowSpec;
+  const aspectRatio = slideshowAspectRatioForSpec(spec);
   const slides = useMemo(() => activeSlides(spec), [spec]);
   const [selectedSlideId, setSelectedSlideId] = useState(slides[0]?.slideId ?? "");
   const selectedSlide = slides.find((slide) => slide.slideId === selectedSlideId) ?? slides[0];
@@ -85,13 +92,19 @@ export function SlideshowEditor({
 
   useEffect(() => {
     if (!selectedSlide) return;
-    const blocks = normalizedTextBlocks(selectedSlide);
+    const blocks = normalizedTextBlocks(selectedSlide, spec);
     setSelectedSlideId(selectedSlide.slideId);
     setTextBlocksDraft(blocks);
     setSelectedBlockId(blocks[0]?.id ?? "");
     setImagePromptDraft(slideImagePrompt(selectedSlide));
     setStatus("");
-  }, [selectedSlide?.slideId, selectedSlide?.updatedAt]);
+  }, [
+    selectedSlide?.slideId,
+    selectedSlide?.updatedAt,
+    spec.aspectRatio,
+    spec.dimensions?.width,
+    spec.dimensions?.height,
+  ]);
 
   const selectedBlockIndex = textBlocksDraft.findIndex((block) => block.id === selectedBlockId);
   const selectedBlock = selectedBlockIndex >= 0 ? textBlocksDraft[selectedBlockIndex] : undefined;
@@ -116,10 +129,12 @@ export function SlideshowEditor({
       "text" in patch ||
       "width" in patch;
     setTextBlocksDraft((current) =>
-      current.map((block) => {
+      current.map((block, index) => {
         if (block.id !== blockId) return block;
         const nextBlock = { ...block, ...patch };
-        return shouldFitHeight ? withAutoTextBlockHeight(nextBlock) : nextBlock;
+        return shouldFitHeight
+          ? withAutoTextBlockHeight(nextBlock, spec, selectedSlide, index)
+          : nextBlock;
       })
     );
   };
@@ -155,7 +170,7 @@ export function SlideshowEditor({
 
   useEffect(() => {
     if (!selectedSlide || !canEditText || textBlocksDraft.length === 0) return;
-    const savedBlocks = normalizedTextBlocks(selectedSlide);
+    const savedBlocks = normalizedTextBlocks(selectedSlide, spec);
     if (JSON.stringify(savedBlocks) === JSON.stringify(textBlocksDraft)) return;
     const timeoutId = window.setTimeout(() => {
       void updateSlideText({
@@ -275,6 +290,23 @@ export function SlideshowEditor({
     }
   };
 
+  const changeAspectRatio = async (nextAspectRatio: SlideshowAspectRatio) => {
+    if (nextAspectRatio === aspectRatio) return;
+    setPendingAction("aspect-ratio");
+    setStatus("");
+    try {
+      await updateSlideshowAspectRatio({
+        slideshowId: slideshow._id,
+        aspectRatio: nextAspectRatio,
+      });
+      setStatus(`Format changed to ${nextAspectRatio}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to change slide format");
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   return (
     <section className="grid gap-[var(--space-4)]">
       <div className="grid min-w-0 gap-[var(--space-5)]">
@@ -295,6 +327,13 @@ export function SlideshowEditor({
                 onClick={() => toggleTray("text")}
               >
                 <Type size={16} />
+              </TrayButton>
+              <TrayButton
+                active={activeTray === "format"}
+                label="Change slide format"
+                onClick={() => toggleTray("format")}
+              >
+                <Crop size={16} />
               </TrayButton>
               <TrayButton
                 className="text-[var(--color-danger)]"
@@ -345,9 +384,11 @@ export function SlideshowEditor({
               regenerateImage={() => void regenerateImage()}
               selectedBlock={selectedBlock}
               selectedBlockIndex={selectedBlockIndex}
+              selectedAspectRatio={aspectRatio}
               setImagePromptDraft={setImagePromptDraft}
               status={status}
               textBlocksCount={textBlocksDraft.length}
+              updateAspectRatio={(nextAspectRatio) => void changeAspectRatio(nextAspectRatio)}
               updateSelectedBlock={updateSelectedBlock}
             />
           }

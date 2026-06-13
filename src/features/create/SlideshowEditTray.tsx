@@ -2,6 +2,7 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  Crop,
   Image as ImageIcon,
   Plus,
   RefreshCw,
@@ -18,8 +19,12 @@ import {
   presetForBlock,
   type TextStylePreset,
 } from "./slideshowEditorModel";
+import {
+  type SlideshowAspectRatio,
+  SLIDESHOW_ASPECT_RATIO_OPTIONS,
+} from "../../lib/slideshowRendering";
 
-export type SlideshowEditTrayMode = "text" | "image" | null;
+export type SlideshowEditTrayMode = "text" | "image" | "format" | null;
 
 function CompactIconButton({
   children,
@@ -92,9 +97,11 @@ export function SlideshowEditTray({
   regenerateImage,
   selectedBlock,
   selectedBlockIndex,
+  selectedAspectRatio,
   setImagePromptDraft,
   status,
   textBlocksCount,
+  updateAspectRatio,
   updateSelectedBlock,
 }: {
   activeTray: SlideshowEditTrayMode;
@@ -107,9 +114,11 @@ export function SlideshowEditTray({
   regenerateImage: () => void;
   selectedBlock?: SlideshowTextBlock;
   selectedBlockIndex: number;
+  selectedAspectRatio: SlideshowAspectRatio;
   setImagePromptDraft: (value: string) => void;
   status: string;
   textBlocksCount: number;
+  updateAspectRatio: (value: SlideshowAspectRatio) => void;
   updateSelectedBlock: (patch: Partial<SlideshowTextBlock>) => void;
 }) {
   if (!activeTray) return null;
@@ -118,10 +127,18 @@ export function SlideshowEditTray({
     <div className="mx-auto grid w-full max-w-[54rem] gap-2 rounded-[1rem] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[0_18px_38px_rgba(15,23,42,0.12)]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-[0.78rem] font-[760] text-[var(--color-ink-muted)]">
-          {activeTray === "image" ? <ImageIcon size={15} /> : <Type size={15} />}
+          {activeTray === "image" ? (
+            <ImageIcon size={15} />
+          ) : activeTray === "format" ? (
+            <Crop size={15} />
+          ) : (
+            <Type size={15} />
+          )}
           <span className="truncate">
             {activeTray === "text"
               ? `Text ${textBlocksCount === 0 ? "0" : `${Math.max(1, selectedBlockIndex + 1)}/${textBlocksCount}`}`
+              : activeTray === "format"
+                ? "Slide format"
               : "Image prompt"}
           </span>
         </div>
@@ -236,6 +253,33 @@ export function SlideshowEditTray({
               Regenerate
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {activeTray === "format" ? (
+        <div className="grid gap-2 sm:grid-cols-3">
+          {SLIDESHOW_ASPECT_RATIO_OPTIONS.map((option) => {
+            const isSelected = option.value === selectedAspectRatio;
+            return (
+              <button
+                className={[
+                  "grid min-h-16 gap-1 rounded-[0.85rem] border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
+                  isSelected
+                    ? "border-[var(--color-primary)] bg-[var(--color-accent)] text-[var(--color-primary)]"
+                    : "border-[var(--color-border)] bg-[var(--color-page)] text-[var(--color-ink)] hover:border-[var(--color-border-strong)]",
+                ].join(" ")}
+                disabled={pendingAction !== null}
+                key={option.value}
+                onClick={() => updateAspectRatio(option.value)}
+                type="button"
+              >
+                <span className="text-[0.95rem] font-[820]">{option.label}</span>
+                <span className="text-[0.74rem] font-[650] text-[var(--color-ink-muted)]">
+                  {option.description}
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
 

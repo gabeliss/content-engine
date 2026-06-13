@@ -15,6 +15,7 @@ import {
 } from "./requestExecutionHelpers";
 import {
   activeSlides,
+  clampNumber,
   cleanupArtifactStorage,
   getOwnedSlideshow,
   normalizeCanonicalSpec,
@@ -22,6 +23,20 @@ import {
   reindexActiveSlides,
   renderingModeForSlide,
 } from "./slideshowRequestEditing";
+
+type EditableAspectRatio = "9:16" | "4:5" | "1:1";
+
+function isEditableAspectRatio(value: string): value is EditableAspectRatio {
+  return value === "9:16" || value === "4:5" || value === "1:1";
+}
+
+function clampTextBlockToCanvas(block: Record<string, unknown>) {
+  const x = clampNumber(block.x, 10, 0, 96);
+  const y = clampNumber(block.y, 42, 0, 96);
+  const width = clampNumber(block.width, 80, 12, 100 - x);
+  const height = clampNumber(block.height, 10, 4, 100 - y);
+  return { ...block, x, y, width, height };
+}
 
 export async function deleteSlideForRequest(
   ctx: MutationCtx,
@@ -185,6 +200,55 @@ export async function reorderSlidesForRequest(
         ? slide
         : { ...slide, index: nextIndex, updatedAt: now };
     }),
+  };
+
+  await ctx.db.patch(slideshow._id, {
+    spec: nextSpec,
+    updatedAt: now,
+  });
+}
+
+export async function updateSlideshowAspectRatioForRequest(
+  ctx: MutationCtx,
+  args: {
+    slideshowId: Id<"slideshows">;
+    aspectRatio: string;
+    userId: string;
+  }
+) {
+  if (!isEditableAspectRatio(args.aspectRatio)) {
+    throw new Error("Slide format must be 9:16, 4:5, or 1:1");
+  }
+  const slideshow = await getOwnedSlideshow(ctx, {
+    slideshowId: args.slideshowId,
+    userId: args.userId,
+  });
+  const spec = normalizeCanonicalSpec(slideshow.spec);
+  if (spec.aspectRatio === args.aspectRatio) return;
+
+  const now = Date.now();
+  const dimensions = getSlideDimensions(args.aspectRatio);
+  const nextSpec = {
+    ...spec,
+    aspectRatio: args.aspectRatio,
+    dimensions,
+    exportSettings: {
+      ...spec.exportSettings,
+      width: dimensions.width,
+      height: dimensions.height,
+    },
+    slides: spec.slides.map((slide) => ({
+      ...slide,
+      dimensions,
+      ...("textBlocks" in slide && Array.isArray(slide.textBlocks)
+        ? {
+            textBlocks: slide.textBlocks.map((block) =>
+              clampTextBlockToCanvas(block as unknown as Record<string, unknown>)
+            ),
+          }
+        : {}),
+      updatedAt: now,
+    })),
   };
 
   await ctx.db.patch(slideshow._id, {

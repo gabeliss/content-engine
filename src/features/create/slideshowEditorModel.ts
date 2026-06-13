@@ -3,6 +3,11 @@ import type {
   CanonicalSlideshowSpec,
   SlideshowTextBlock,
 } from "../../types";
+import {
+  estimateSlideshowTextBlockHeight,
+  slideshowDimensionsForSpec,
+  slideshowText,
+} from "../../lib/slideshowRendering";
 
 export type TextStylePreset =
   | "outline"
@@ -19,29 +24,21 @@ export function activeSlides(spec: CanonicalSlideshowSpec) {
 }
 
 export function blockText(block: SlideshowTextBlock | undefined) {
-  if (!block) return "";
-  return editableBlockText(block).trim();
+  return slideshowText(block);
 }
 
 export function editableBlockText(block: SlideshowTextBlock | undefined) {
-  if (!block) return "";
-  if (block.text !== undefined) return block.text;
-  return block.items?.filter(Boolean).join("\n") ?? "";
+  return slideshowText(block, false);
 }
 
-export function withAutoTextBlockHeight(block: SlideshowTextBlock) {
-  const fontSize = Math.max(20, block.fontSize ?? 72);
-  const widthPercent = Math.max(12, block.width ?? 80);
-  const textWidthPx = (widthPercent / 100) * 1080;
-  const averageCharacterWidth = fontSize * 0.54;
-  const charactersPerLine = Math.max(1, Math.floor(textWidthPx / averageCharacterWidth));
-  const text = editableBlockText(block) || " ";
-  const lineCount = text.split("\n").reduce((total, line) => {
-    return total + Math.max(1, Math.ceil(line.length / charactersPerLine));
-  }, 0);
-  const strokeAllowance = Math.max(0, block.strokeWidth ?? 0) * 0.4;
-  const contentHeightPx = lineCount * fontSize * 1.08 + fontSize * 0.16 + strokeAllowance;
-  const estimatedHeight = Math.max(4, (contentHeightPx / 1920) * 100);
+export function withAutoTextBlockHeight(
+  block: SlideshowTextBlock,
+  spec?: CanonicalSlideshowSpec,
+  slide?: CanonicalSlideshowSlide,
+  index = 0
+) {
+  const dimensions = slideshowDimensionsForSpec(spec, slide);
+  const estimatedHeight = estimateSlideshowTextBlockHeight(block, dimensions, index);
   const maxHeight = Math.max(4, 100 - (block.y ?? 0));
 
   return {
@@ -73,7 +70,10 @@ export function createTextBlock(index: number): SlideshowTextBlock {
   };
 }
 
-export function normalizedTextBlocks(slide: CanonicalSlideshowSlide) {
+export function normalizedTextBlocks(
+  slide: CanonicalSlideshowSlide,
+  spec?: CanonicalSlideshowSpec
+) {
   const blocks = slide.textBlocks !== undefined
     ? slide.textBlocks
     : slide.visibleText
@@ -89,33 +89,12 @@ export function normalizedTextBlocks(slide: CanonicalSlideshowSlide) {
         ? block.text
         : blockText(block) || (index === 0 ? "New headline" : "New text"),
       items: [],
-    })
+    }, spec, slide, index)
   );
 }
 
 export function slideImagePrompt(slide: CanonicalSlideshowSlide) {
   return slide.finalImagePrompt ?? slide.backgroundPrompt ?? "";
-}
-
-export function textShadow(block: SlideshowTextBlock) {
-  const strokeWidth = block.strokeWidth ?? 0;
-  if (strokeWidth <= 0) return "none";
-  const strokeColor = block.strokeColor ?? "#111111";
-  const softShadow = `0 ${Math.max(1, strokeWidth * 0.18)}px ${Math.max(4, strokeWidth * 0.75)}px rgba(0,0,0,0.45)`;
-  return [
-    `${strokeWidth * 0.06}px 0 0 ${strokeColor}`,
-    `-${strokeWidth * 0.06}px 0 0 ${strokeColor}`,
-    `0 ${strokeWidth * 0.06}px 0 ${strokeColor}`,
-    `0 -${strokeWidth * 0.06}px 0 ${strokeColor}`,
-    softShadow,
-  ].join(", ");
-}
-
-export function hexToRgba(hex: string, alpha: number) {
-  const match = hex.match(/^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/);
-  if (!match) return hex;
-  const [, red, green, blue] = match;
-  return `rgba(${parseInt(red, 16)}, ${parseInt(green, 16)}, ${parseInt(blue, 16)}, ${alpha})`;
 }
 
 export function applyPreset(

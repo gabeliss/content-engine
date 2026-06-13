@@ -1,4 +1,12 @@
-import type { CanonicalSlideshowSlide, CanonicalSlideshowSpec, SlideshowTextBlock } from "../types";
+import type { CanonicalSlideshowSlide, CanonicalSlideshowSpec } from "../types";
+import {
+  SLIDESHOW_FONT_FAMILY,
+  slideshowDimensionsForSpec,
+  slideshowText,
+  slideshowTextBlockFrame,
+  slideshowTextFontSize,
+  slideshowTextFontWeight,
+} from "./slideshowRendering";
 
 type RenderOptions = {
   mimeType?: "image/png" | "image/webp" | "image/jpeg";
@@ -9,11 +17,6 @@ function activeSlides(spec: CanonicalSlideshowSpec) {
   return [...(spec.slides ?? [])]
     .filter((slide) => slide.status !== "deleted")
     .sort((first, second) => first.index - second.index);
-}
-
-function blockText(block: SlideshowTextBlock) {
-  if (block.text?.trim()) return block.text.trim();
-  return block.items?.filter(Boolean).join("\n") ?? "";
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -116,36 +119,30 @@ function drawTextBlocks(
   width: number,
   height: number
 ) {
-  const blocks = slide.textBlocks?.filter((block) => blockText(block)) ?? [];
+  const blocks = slide.textBlocks?.filter((block) => slideshowText(block)) ?? [];
   if (!blocks.length) return;
 
   ctx.textBaseline = "top";
   blocks.forEach((block, index) => {
-    const isPrimary =
-      block.emphasis === "primary" ||
-      block.role === "headline" ||
-      block.role === "cta" ||
-      index === 0;
-    const fontSize = Math.round(block.fontSize ?? (isPrimary ? height * 0.055 : height * 0.024));
-    const fontWeight = Math.round(block.fontWeight ?? (isPrimary ? 800 : 700));
-    const maxWidth = width * ((block.width ?? 82) / 100);
-    const x = width * ((block.x ?? 9) / 100);
-    let y = height * ((block.y ?? (slide.layout?.textZone === "top" ? 14 : slide.layout?.textZone === "bottom" ? 76 : 44)) / 100);
-    const lineHeight = Math.round(fontSize * 1.12);
+    const fontSize = Math.round(slideshowTextFontSize(block, index));
+    const fontWeight = slideshowTextFontWeight(block, index);
+    const frame = slideshowTextBlockFrame(block, { width, height });
+    let y = frame.y;
+    const lineHeight = Math.round(fontSize * 1.08);
 
-    ctx.font = `${fontWeight} ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const lines = wrapText(ctx, blockText(block), maxWidth);
+    ctx.font = `${fontWeight} ${fontSize}px ${SLIDESHOW_FONT_FAMILY}`;
+    const lines = wrapText(ctx, slideshowText(block), frame.width);
     ctx.textAlign = block.align ?? "center";
     const textX = block.align === "left"
-      ? x
+      ? frame.x
       : block.align === "right"
-        ? x + maxWidth
-        : x + maxWidth / 2;
+        ? frame.x + frame.width
+        : frame.x + frame.width / 2;
     for (const line of lines) {
       const measuredWidth = ctx.measureText(line).width;
       if (block.backgroundStyle === "solid") {
-        const paddingX = Math.round(fontSize * 0.48);
-        const paddingY = Math.round(fontSize * 0.16);
+        const paddingX = Math.round(fontSize * 0.18);
+        const paddingY = Math.round(fontSize * 0.08);
         const backgroundX = block.align === "left"
           ? textX - paddingX
           : block.align === "right"
@@ -168,7 +165,7 @@ function drawTextBlocks(
         line,
         textX,
         y,
-        Math.round(block.strokeWidth ?? (isPrimary ? Math.max(3, fontSize * 0.055) : Math.max(2, fontSize * 0.05))),
+        Math.round(block.strokeWidth ?? 0),
         block.color ?? "#FFFFFF",
         block.strokeColor ?? "rgba(0, 0, 0, 0.86)"
       );
@@ -182,8 +179,7 @@ export async function renderSlideToBlob(
   spec: CanonicalSlideshowSpec,
   options: RenderOptions = {}
 ): Promise<Blob> {
-  const width = spec.dimensions?.width ?? slide.dimensions?.width ?? 1080;
-  const height = spec.dimensions?.height ?? slide.dimensions?.height ?? 1920;
+  const { width, height } = slideshowDimensionsForSpec(spec, slide);
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
