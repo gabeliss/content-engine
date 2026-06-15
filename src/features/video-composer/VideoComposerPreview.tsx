@@ -1,21 +1,19 @@
+import { Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EditableTextOverlayBlock } from "../../components/composition/EditableTextOverlayBlock";
 import {
   cssAspectRatio,
   dimensionsForAspectRatio,
 } from "../../lib/composition/aspectRatios";
-import {
-  TEXT_OVERLAY_FONT_FAMILY,
-  hexToRgba,
-  textOverlayBlockFrame,
-  textOverlayFontSize,
-  textOverlayFontWeight,
-  textOverlayShadow,
-  textOverlayText,
-} from "../../lib/composition/textOverlays";
+import type { TextOverlayBlock } from "../../lib/composition/textOverlays";
 import {
   activeTextOverlaysAtTime,
-  clipStartTime,
+  clampTimelineTime,
+  clipAtTimelineTime,
+  clipDuration,
   compositionDuration,
+  formatTimelineTime,
+  normalizedClipTrim,
   type TimedTextOverlay,
   type VideoComposerClip,
 } from "./videoComposerModel";
@@ -24,88 +22,237 @@ import type { CompositionAspectRatio } from "../../lib/composition/aspectRatios"
 export function VideoComposerPreview({
   aspectRatio,
   clips,
-  selectedClipId,
+  isPlaying,
+  onPlayheadChange,
+  onPlayingChange,
+  playheadSeconds,
+  selectedTextId,
+  onChangeText,
+  onSelectText,
   textOverlays,
 }: {
   aspectRatio: CompositionAspectRatio;
   clips: VideoComposerClip[];
-  selectedClipId?: string;
+  isPlaying: boolean;
+  onChangeText?: (textId: string, patch: Partial<TextOverlayBlock>) => void;
+  onPlayheadChange: (timeSeconds: number) => void;
+  onPlayingChange: (isPlaying: boolean) => void;
+  onSelectText?: (textId: string) => void;
+  playheadSeconds: number;
+  selectedTextId?: string;
   textOverlays: TimedTextOverlay[];
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const selectedClip = clips.find((clip) => clip.id === selectedClipId) ?? clips[0];
+  const frameRef = useRef<HTMLDivElement>(null);
+  const videoRefs = useRef(new Map<string, HTMLVideoElement>());
+  const activeClipIdRef = useRef("");
+  const [stageScale, setStageScale] = useState(1);
   const dimensions = dimensionsForAspectRatio(aspectRatio);
-  const [previewTime, setPreviewTime] = useState(0);
   const totalDuration = compositionDuration(clips);
-  const clipTimelineStart = selectedClip ? clipStartTime(clips, selectedClip.id) : 0;
+  const timelineFrame = clipAtTimelineTime(clips, clampTimelineTime(clips, playheadSeconds));
+  const activeClip = timelineFrame?.clip;
+  const activeClipTrim = activeClip ? normalizedClipTrim(activeClip) : undefined;
+  const sourceTime = activeClip && activeClipTrim
+    ? activeClipTrim.startSeconds + (timelineFrame?.localSeconds ?? 0)
+    : 0;
   const activeOverlays = useMemo(
-    () => activeTextOverlaysAtTime(textOverlays, clipTimelineStart + previewTime, totalDuration),
-    [clipTimelineStart, previewTime, textOverlays, totalDuration]
+    () => activeTextOverlaysAtTime(textOverlays, playheadSeconds, totalDuration),
+    [playheadSeconds, textOverlays, totalDuration]
   );
+  const togglePlayback = () => {
+    if (clips.length === 0) return;
+    if (!isPlaying && playheadSeconds >= totalDuration) onPlayheadChange(0);
+    onPlayingChange(!isPlaying);
+  };
 
   useEffect(() => {
-    setPreviewTime(0);
-  }, [selectedClip?.id]);
+    const element = frameRef.current;
+    if (!element) return;
+    const updateScale = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width > 0) setStageScale(width / dimensions.width);
+    };
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [dimensions.width]);
+
+  useEffect(() => {
+    if (!activeClip) return;
+    const video = videoRefs.current.get(activeClip.id);
+    if (!video) return;
+    const clipChanged = activeClipIdRef.current !== activeClip.id;
+    for (const [clipId, clipVideo] of videoRefs.current) {
+      if (clipId !== activeClip.id) clipVideo.pause();
+    }
+    if (clipChanged) {
+      activeClipIdRef.current = activeClip.id;
+      const seekAndPlay = () => {
+        video.currentTime = sourceTime;
+        if (isPlaying) {
+          void video.play().catch(() => onPlayingChange(false));
+        }
+      };
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        seekAndPlay();
+      } else {
+        video.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+        return () => video.removeEventListener("loadedmetadata", seekAndPlay);
+      }
+      return;
+    }
+
+    if (!isPlaying && Math.abs(video.currentTime - sourceTime) > 0.05) {
+      video.currentTime = sourceTime;
+    }
+    if (isPlaying) {
+      void video.play().catch(() => onPlayingChange(false));
+    } else {
+      video.pause();
+    }
+  }, [activeClip, isPlaying, onPlayingChange, sourceTime]);
 
   return (
     <div className="grid min-w-0 gap-3">
       <div
-        className="relative mx-auto grid w-full max-w-[min(54vh,34rem)] overflow-hidden rounded-[var(--radius-sm)] bg-[#111513] shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
+        className="relative mx-auto grid h-[min(66vh,36rem)] min-h-[20rem] max-h-full max-w-full cursor-pointer justify-self-center overflow-hidden rounded-[var(--radius-sm)] bg-[#111513] shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
+        onClick={togglePlayback}
+        ref={frameRef}
         style={{ aspectRatio: cssAspectRatio(dimensions) }}
       >
-        {selectedClip ? (
-          <video
-            className="absolute inset-0 h-full w-full object-cover"
-            controls
-            crossOrigin="anonymous"
-            onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)}
-            playsInline
-            ref={videoRef}
-            src={selectedClip.storageUrl}
-          />
+        {clips.length > 0 ? (
+          clips.map((clip) => (
+            <video
+              className={[
+                "absolute inset-0 h-full w-full object-cover transition-opacity duration-75",
+                activeClip?.id === clip.id ? "opacity-100" : "opacity-0",
+              ].join(" ")}
+              crossOrigin="anonymous"
+              key={clip.id}
+              muted={false}
+              onEnded={() => {
+                if (activeClip?.id !== clip.id) return;
+                const nextTime = timelineFrame
+                  ? timelineFrame.clipStartSeconds + clipDuration(timelineFrame.clip)
+                  : clampTimelineTime(clips, playheadSeconds + 0.05);
+                if (nextTime >= totalDuration) {
+                  onPlayingChange(false);
+                  onPlayheadChange(totalDuration);
+                  return;
+                }
+                onPlayheadChange(nextTime);
+              }}
+              onTimeUpdate={(event) => {
+                if (activeClip?.id !== clip.id || !activeClipTrim || !timelineFrame) return;
+                const localSeconds = Math.max(
+                  0,
+                  event.currentTarget.currentTime - activeClipTrim.startSeconds
+                );
+                const nextTime = timelineFrame.clipStartSeconds + localSeconds;
+                if (event.currentTarget.currentTime >= activeClipTrim.endSeconds) {
+                  const boundary = timelineFrame.clipStartSeconds +
+                    (activeClipTrim.endSeconds - activeClipTrim.startSeconds);
+                  if (boundary >= totalDuration) {
+                    onPlayingChange(false);
+                    onPlayheadChange(totalDuration);
+                  } else {
+                    onPlayheadChange(boundary);
+                  }
+                  return;
+                }
+                onPlayheadChange(clampTimelineTime(clips, nextTime));
+              }}
+              playsInline
+              preload="auto"
+              ref={(node) => {
+                if (node) {
+                  videoRefs.current.set(clip.id, node);
+                } else {
+                  videoRefs.current.delete(clip.id);
+                }
+              }}
+              src={clip.storageUrl}
+            />
+          ))
         ) : (
           <div className="grid h-full place-items-center px-6 text-center text-[0.92rem] font-[680] text-white/70">
             Add a video clip to start composing.
           </div>
         )}
         <div className="pointer-events-none absolute inset-0 bg-black/10" />
-        {activeOverlays.map((block, index) => {
-          const frame = textOverlayBlockFrame(block, dimensions);
-          const backgroundOpacity = block.backgroundOpacity ?? 1;
-          return (
-            <div
-              className="pointer-events-none absolute"
+        <div
+          className="pointer-events-none absolute left-0 top-0"
+          data-text-overlay-stage
+          style={{
+            height: dimensions.height,
+            transform: `scale(${stageScale})`,
+            transformOrigin: "left top",
+            width: dimensions.width,
+          }}
+        >
+          {activeOverlays.map((block, index) => (
+            <EditableTextOverlayBlock
+              block={block}
+              dimensions={dimensions}
+              index={index}
+              isEditable={Boolean(onChangeText && onSelectText)}
+              isSelected={block.id === selectedTextId}
               key={block.id ?? index}
-              style={{
-                left: `${(frame.x / dimensions.width) * 100}%`,
-                minHeight: `${(frame.minHeight / dimensions.height) * 100}%`,
-                textAlign: block.align ?? "center",
-                top: `${(frame.y / dimensions.height) * 100}%`,
-                width: `${(frame.width / dimensions.width) * 100}%`,
-              }}
-            >
-              <span
-                className="block whitespace-pre-wrap break-words rounded-[0.45rem] px-[0.18em] py-[0.08em] font-[850] leading-[1.08] [overflow-wrap:anywhere]"
-                style={{
-                  backgroundColor:
-                    block.backgroundStyle === "solid"
-                      ? hexToRgba(block.backgroundColor ?? "#FFFFFF", backgroundOpacity)
-                      : "transparent",
-                  color: block.color ?? "#FFFFFF",
-                  fontFamily: TEXT_OVERLAY_FONT_FAMILY,
-                  fontSize: `clamp(1rem, ${(textOverlayFontSize(block, index) / dimensions.width) * 100}vw, ${textOverlayFontSize(block, index)}px)`,
-                  fontWeight: textOverlayFontWeight(block, index),
-                  textShadow: textOverlayShadow(block),
-                }}
-              >
-                {textOverlayText(block)}
-              </span>
-            </div>
-          );
-        })}
+              onChangeBlock={onChangeText}
+              onSelectBlock={onSelectText}
+              stageScale={stageScale}
+            />
+          ))}
+        </div>
+        {activeClip && !isPlaying ? (
+          <button
+            aria-label="Play stitched preview"
+            className="absolute left-1/2 top-1/2 z-10 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white/95 pl-1 text-[#111513] shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition hover:scale-[1.03] hover:bg-white"
+            onClick={(event) => {
+              event.stopPropagation();
+              togglePlayback();
+            }}
+            type="button"
+          >
+            <Play fill="currentColor" size={28} />
+          </button>
+        ) : null}
       </div>
-      <p className="m-0 text-center text-[0.78rem] text-[var(--color-ink-muted)]">
-        Preview shows overlays at the selected clip’s timeline position.
+      <div className="mx-auto grid w-full max-w-[34rem] gap-2">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className="text-[0.78rem] font-[760] tabular-nums text-[var(--color-primary)]">
+            {formatTimelineTime(playheadSeconds, 2)}
+          </span>
+          <button
+            aria-label={isPlaying ? "Pause stitched preview" : "Play stitched preview"}
+            className="grid size-11 place-items-center rounded-full bg-[var(--color-ink)] pl-0.5 text-[var(--color-surface)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--color-primary-strong)] disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={clips.length === 0}
+            onClick={togglePlayback}
+            type="button"
+          >
+            {isPlaying ? <Pause size={18} /> : <Play fill="currentColor" size={19} />}
+          </button>
+          <span className="justify-self-end text-[0.78rem] font-[760] tabular-nums text-[var(--color-ink-muted)]">
+            {formatTimelineTime(totalDuration, 2)}
+          </span>
+        </div>
+        <input
+          aria-label="Timeline playhead"
+          className="h-1 w-full accent-[var(--color-primary)]"
+          disabled={clips.length === 0}
+          max={Math.max(totalDuration, 0.1)}
+          min={0}
+          onChange={(event) => {
+            onPlayingChange(false);
+            onPlayheadChange(Number(event.target.value));
+          }}
+          step={0.01}
+          type="range"
+          value={Math.min(playheadSeconds, Math.max(totalDuration, 0.1))}
+        />
+      </div>
+      <p className="m-0 text-center text-[0.76rem] font-[650] text-[var(--color-ink-muted)]">
+        {timelineFrame ? `Clip ${timelineFrame.clipIndex + 1} of ${clips.length}` : "Add clips to preview the edit"}
       </p>
     </div>
   );

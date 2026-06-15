@@ -123,11 +123,12 @@ export function SlideshowEditor({
   const updateBlockById = (blockId: string, patch: Partial<SlideshowTextBlock>) => {
     if (!blockId) return;
     const shouldFitHeight =
-      "fontSize" in patch ||
-      "items" in patch ||
-      "strokeWidth" in patch ||
-      "text" in patch ||
-      "width" in patch;
+      !("height" in patch) &&
+      ("fontSize" in patch ||
+        "items" in patch ||
+        "strokeWidth" in patch ||
+        "text" in patch ||
+        "width" in patch);
     setTextBlocksDraft((current) =>
       current.map((block, index) => {
         if (block.id !== blockId) return block;

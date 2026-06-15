@@ -76,6 +76,7 @@ export function WorkflowCanvasPage() {
   const {
     clearNodeSelection,
     connectionStatus,
+    edges,
     graphValidation,
     handleAddNode,
     handleConnect,
@@ -347,10 +348,7 @@ export function WorkflowCanvasPage() {
           onConnect={handleConnect}
           onEdgesChange={handleEdgesChange}
           onNodesChange={handleNodesChange}
-          onPaneClick={() => {
-            setSelectedNodeId(null);
-            setOpenDrawer((currentDrawer) => (currentDrawer === "node" ? null : currentDrawer));
-          }}
+          onPaneClick={clearNodeSelection}
           onSelectNode={handleSelectNode}
         />
 

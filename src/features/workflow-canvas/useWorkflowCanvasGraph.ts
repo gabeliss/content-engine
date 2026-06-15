@@ -454,6 +454,7 @@ export function useWorkflowCanvasGraph({
 
   return {
     connectionStatus,
+    edges,
     graphValidation,
     handleAddNode,
     handleConnect,

@@ -36,7 +36,8 @@ export function Sidebar() {
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const createWorkspace = useMutation(api.workspaces.workspaces.createWorkspace);
-  const isWorkflowCanvasRoute = /^\/workflows\/[^/]+/.test(location.pathname);
+  const isFullScreenWorkspaceRoute = /^\/workflows\/[^/]+/.test(location.pathname) ||
+    location.pathname === "/studio";
   const navTooltipStyle = navTooltip
     ? ({
         top: `${navTooltip.top}px`,
@@ -95,7 +96,7 @@ export function Sidebar() {
           className={[
             "relative mb-[var(--space-4)] grid gap-[var(--space-2)] border-b border-[var(--color-sidebar-border)] pb-[var(--space-4)]",
             "max-[900px]:mb-[var(--space-3)]",
-            isWorkflowCanvasRoute ? "hidden" : "",
+            isFullScreenWorkspaceRoute ? "hidden" : "",
           ].filter(Boolean).join(" ")}
         >
           <span className="text-[0.68rem] font-[750] uppercase leading-[1.1] tracking-[0.06em] text-[var(--color-sidebar-muted)]">

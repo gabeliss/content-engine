@@ -477,6 +477,20 @@ export default defineSchema({
     .index("by_content_request", ["contentRequestId"])
     .index("by_workflow_run", ["workflowRunId"]),
 
+  videoProjects: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    title: v.string(),
+    status: v.union(v.literal("draft"), v.literal("archived")),
+    draft: v.any(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastOpenedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
   distributionPlans: defineTable({
     userId: v.string(),
     workspaceId: v.optional(v.id("workspaces")),

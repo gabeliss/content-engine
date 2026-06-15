@@ -33,7 +33,8 @@ function AppContent() {
   const location = useLocation();
   const ensureCurrentUser = useMutation(api.auth.users.ensure);
   const requestAccess = useMutation(api.waitlist.requestAccess);
-  const isWorkflowCanvasRoute = /^\/workflows\/[^/]+/.test(location.pathname);
+  const isFullScreenWorkspaceRoute = /^\/workflows\/[^/]+/.test(location.pathname) ||
+    location.pathname === "/studio";
   const [accessStatus, setAccessStatus] = useState<"checking" | "approved" | "pending">(
     "checking"
   );
@@ -84,7 +85,7 @@ function AppContent() {
 
   return (
     <WorkspaceProvider>
-      <div className={`app-shell${isWorkflowCanvasRoute ? " app-shell-canvas" : ""}`}>
+      <div className={`app-shell${isFullScreenWorkspaceRoute ? " app-shell-canvas" : ""}`}>
         <Sidebar />
         <main className="workspace">
           <Routes>

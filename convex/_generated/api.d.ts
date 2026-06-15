@@ -34,6 +34,7 @@ import type * as content_slideshowRequestEditing from "../content/slideshowReque
 import type * as content_slideshowRequestMutations from "../content/slideshowRequestMutations.js";
 import type * as content_slideshows from "../content/slideshows.js";
 import type * as content_types from "../content/types.js";
+import type * as content_videoProjects from "../content/videoProjects.js";
 import type * as http from "../http.js";
 import type * as lib_text from "../lib/text.js";
 import type * as library_assets from "../library/assets.js";
@@ -131,6 +132,7 @@ declare const fullApi: ApiFromModules<{
   "content/slideshowRequestMutations": typeof content_slideshowRequestMutations;
   "content/slideshows": typeof content_slideshows;
   "content/types": typeof content_types;
+  "content/videoProjects": typeof content_videoProjects;
   http: typeof http;
   "lib/text": typeof lib_text;
   "library/assets": typeof library_assets;
