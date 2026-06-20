@@ -60,6 +60,7 @@ export type WorkflowConfigFieldProps = {
   selectedNode: WorkflowFlowNode;
   workflowBrandId?: Id<"brands">;
   workflowPersonas: Doc<"personas">[] | undefined;
+  workflowSocialAccounts: Doc<"socialAccounts">[] | undefined;
 };
 
 const multilineTextKeys = new Set([
@@ -86,6 +87,7 @@ export function WorkflowConfigField({
   selectedNode,
   workflowBrandId,
   workflowPersonas,
+  workflowSocialAccounts,
 }: WorkflowConfigFieldProps) {
   const value = configFieldValue(field, selectedNode.data.config);
   const isImageGenerationNode = selectedNode.data.type === "image_generation";
@@ -95,6 +97,56 @@ export function WorkflowConfigField({
     (field.key === "prompt" && promptFromInputNode) ||
     (field.key === "request" && selectedNode.data.config.requestFromInputNode === true) ||
     (field.key === "text" && selectedNode.data.config.textFromInputNode === true);
+
+  if (field.key === "socialAccountIds") {
+    const selectedAccountIds = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+    const connectedAccounts = workflowSocialAccounts?.filter(
+      (account) => account.status === "connected"
+    );
+
+    return (
+      <div className="workflow-inspector-field">
+        <span>{field.label}</span>
+        <div className="workflow-persona-picker">
+          {!workflowSocialAccounts && (
+            <small>
+              <LoadingSignal label="Loading accounts" showLabel size="sm" />
+            </small>
+          )}
+          {connectedAccounts?.length === 0 && (
+            <small>Sync PostBridge accounts before sending posts from this workflow.</small>
+          )}
+          {connectedAccounts?.map((account) => {
+            const accountId = String(account._id);
+            const selected = selectedAccountIds.includes(accountId);
+            return (
+              <button
+                className={selected ? "selected" : ""}
+                key={account._id}
+                type="button"
+                onClick={() =>
+                  onConfigChange(
+                    field.key,
+                    selected
+                      ? selectedAccountIds.filter((id) => id !== accountId)
+                      : [...selectedAccountIds, accountId]
+                  )
+                }
+              >
+                <strong>{account.displayName || account.username}</strong>
+                <span>
+                  {account.platform.replace(/_/g, " ")} · {account.provider}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {field.description ? <small>{field.description}</small> : null}
+      </div>
+    );
+  }
 
   if (field.key === "personaIds") {
     const selectedPersonaIds = Array.isArray(value)

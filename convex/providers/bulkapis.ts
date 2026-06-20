@@ -65,7 +65,7 @@ type BulkApisChatResponse = {
   model?: string;
 };
 
-const DEFAULT_BULKAPIS_CHAT_MODEL = "gpt-5.2";
+const DEFAULT_BULKAPIS_CHAT_MODEL = "gpt-5-2";
 const DEFAULT_BULKAPIS_IMAGE_MODEL = "nano-banana-2";
 const DEFAULT_BULKAPIS_VIDEO_MODEL = "kling-2.5-turbo";
 const DEFAULT_BULKAPIS_AUDIO_MODEL = "elevenlabs-v3";

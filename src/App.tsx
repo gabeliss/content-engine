@@ -17,6 +17,7 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { AnalyzePage } from "./pages/AnalyzePage";
 import { BrandsPage } from "./pages/BrandsPage";
 import { CreatePage } from "./pages/CreatePage";
+import { CreateToolsPage } from "./pages/CreateToolsPage";
 import { Dashboard } from "./pages/Dashboard";
 import { LandingPage } from "./pages/LandingPage";
 import { LibraryPage } from "./pages/LibraryPage";
@@ -92,6 +93,7 @@ function AppContent() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/create" element={<CreatePage />} />
+            <Route path="/tools" element={<CreateToolsPage />} />
             <Route path="/analyze" element={<AnalyzePage />} />
             <Route path="/studio" element={<VideoComposerPage />} />
             <Route path="/brands" element={<BrandsPage />} />

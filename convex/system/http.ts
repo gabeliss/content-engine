@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import { renderProgressHttp } from "../create/studioRenderRequests";
 import { mcpHttp } from "../mcp/http";
 
 const http = httpRouter();
@@ -21,6 +22,12 @@ http.route({
   path: "/mcp",
   method: "OPTIONS",
   handler: mcpHttp,
+});
+
+http.route({
+  path: "/studio-render/progress",
+  method: "POST",
+  handler: renderProgressHttp,
 });
 
 export default http;

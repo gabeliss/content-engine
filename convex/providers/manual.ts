@@ -23,6 +23,7 @@ export const manualPublishingProvider: PublishingProvider = {
   capabilities: {
     listAccounts: false,
     uploadMedia: true,
+    draftPost: true,
     schedulePost: false,
     publishNow: true,
     readStatus: true,
@@ -49,6 +50,20 @@ export const manualPublishingProvider: PublishingProvider = {
   },
   async schedulePost(_input: PublishContentInput): Promise<PublishContentResult> {
     throw new Error("Manual export does not support scheduling");
+  },
+  async createDraft(input: PublishContentInput): Promise<PublishContentResult> {
+    return {
+      externalPostIds: [],
+      status: "draft",
+      providerPayload: {
+        provider: "manual",
+        source: input.metadata?.source,
+        slideshowId: input.metadata?.slideshowId,
+        distributionPlanId: input.metadata?.distributionPlanId,
+        note: "Created a manual draft distribution plan in Content Engine.",
+        mediaCount: input.media.length,
+      },
+    };
   },
   async publishNow(input: PublishContentInput): Promise<PublishContentResult> {
     return {

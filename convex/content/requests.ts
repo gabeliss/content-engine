@@ -29,6 +29,8 @@ import { buildCanonicalSlideshowSpec } from "./slideshowAdapter";
 import { getModelProvider } from "../providers/index";
 import type {
   GenerateImageResult,
+  GenerateStructuredInput,
+  GenerateStructuredResult,
   ModelProviderName,
   ModelProvider,
 } from "../providers/model";
@@ -43,7 +45,7 @@ import {
 import { waitForGeneratedImage } from "../workflows/runtime/generationWaiters";
 import {
   createRequestArtifact,
-  imageModelForRenderingMode,
+  imageModelForProviderRenderingMode,
   planPromptForMode,
   planSchemaForMode,
   plannerReferenceFromAsset,
@@ -75,9 +77,73 @@ import {
 import {
   runCreateAudioRequest,
   runCreateImageRequest,
+  runCreateLipsyncRequest,
   runCreateVideoRequest,
   type CreateReferenceAsset,
 } from "./createAssetRunner";
+import { isProviderError } from "../providers/errors";
+
+function requestErrorMessage(error: unknown) {
+  if (!isProviderError(error)) {
+    return error instanceof Error ? error.message : "Content generation failed";
+  }
+
+  const parts = [error.message];
+  if (error.statusCode !== undefined) parts.push(`status ${error.statusCode}`);
+  if (error.code) parts.push(error.code);
+
+  const details = typeof error.details === "string"
+    ? error.details
+    : error.details === undefined
+      ? ""
+      : JSON.stringify(error.details);
+  const trimmedDetails = details.trim();
+  if (trimmedDetails) {
+    parts.push(trimmedDetails.length > 700 ? `${trimmedDetails.slice(0, 700)}...` : trimmedDetails);
+  }
+
+  return parts.join(" · ");
+}
+
+type StructuredTextProviderName = Extract<ModelProviderName, "openrouter" | "bulkapis" | "gemini">;
+
+const structuredTextProviderDefaults: Record<StructuredTextProviderName, string | undefined> = {
+  openrouter: process.env.CONTENT_ENGINE_TEXT_MODEL?.trim() || "openai/gpt-4.1",
+  bulkapis: process.env.CONTENT_ENGINE_BULKAPIS_TEXT_MODEL?.trim() || undefined,
+  gemini: process.env.CONTENT_ENGINE_GEMINI_TEXT_MODEL?.trim() || undefined,
+};
+
+function structuredTextProviderCandidates(): StructuredTextProviderName[] {
+  const configured = process.env.CONTENT_ENGINE_TEXT_PROVIDER?.trim() as StructuredTextProviderName | undefined;
+  const ordered: StructuredTextProviderName[] = configured &&
+    ["openrouter", "bulkapis", "gemini"].includes(configured)
+    ? [configured, "openrouter", "bulkapis", "gemini"]
+    : ["openrouter", "bulkapis", "gemini"];
+
+  return [...new Set(ordered)];
+}
+
+async function generateStructuredWithFallback<T>(
+  input: GenerateStructuredInput<T>
+): Promise<GenerateStructuredResult<T>> {
+  const failures: string[] = [];
+
+  for (const providerName of structuredTextProviderCandidates()) {
+    const provider = getModelProvider(providerName);
+    try {
+      return await provider.generateStructured<T>({
+        ...input,
+        model: providerName === "openrouter"
+          ? input.model ?? structuredTextProviderDefaults[providerName]
+          : structuredTextProviderDefaults[providerName],
+      });
+    } catch (error) {
+      failures.push(`${provider.displayName}: ${requestErrorMessage(error)}`);
+    }
+  }
+
+  throw new Error(`Slideshow planning failed for every text provider: ${failures.join(" | ")}`);
+}
 
 function currentUserId(identity: { subject: string } | null) {
   if (!identity) throw new Error("Not authenticated");
@@ -88,6 +154,7 @@ const createGenerationModeValidator = v.union(
   v.literal("image"),
   v.literal("video"),
   v.literal("audio"),
+  v.literal("lipsync"),
   v.literal("slideshow")
 );
 
@@ -98,7 +165,7 @@ const createReferenceAssetValidator = v.object({
   description: v.optional(v.string()),
 });
 
-type CreateGenerationMode = "image" | "video" | "audio" | "slideshow";
+type CreateGenerationMode = "image" | "video" | "audio" | "lipsync" | "slideshow";
 
 type CreateGenerationPayload = {
   mode: CreateGenerationMode;
@@ -109,6 +176,7 @@ type CreateGenerationPayload = {
   aspectRatio?: string;
   count?: number;
   durationSeconds?: number;
+  resolution?: string;
   audioMode?: string;
   referenceImages?: CreateReferenceAsset[];
   referenceVideos?: CreateReferenceAsset[];
@@ -123,6 +191,8 @@ function contentFormatForGenerationMode(mode: CreateGenerationMode) {
       return "video";
     case "audio":
       return "audio";
+    case "lipsync":
+      return "lipsync";
     case "slideshow":
       return "slideshow";
   }
@@ -135,6 +205,7 @@ function generationPayload(value: unknown): CreateGenerationPayload | null {
     payload.mode !== "image" &&
     payload.mode !== "video" &&
     payload.mode !== "audio" &&
+    payload.mode !== "lipsync" &&
     payload.mode !== "slideshow"
   ) {
     return null;
@@ -195,6 +266,7 @@ export const createGeneration = mutation({
     aspectRatio: v.optional(v.string()),
     count: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
+    resolution: v.optional(v.string()),
     audioMode: v.optional(v.string()),
     referenceImages: v.optional(v.array(createReferenceAssetValidator)),
     referenceVideos: v.optional(v.array(createReferenceAssetValidator)),
@@ -285,6 +357,7 @@ export const createGeneration = mutation({
         aspectRatio: args.aspectRatio,
         count: args.count,
         durationSeconds: args.durationSeconds,
+        resolution: args.resolution,
         audioMode: args.audioMode,
         referenceImages: args.referenceImages ?? [],
         referenceVideos: args.referenceVideos ?? [],
@@ -496,6 +569,15 @@ export const transition = internalMutation({
     if (args.completedAt !== undefined) patch.completedAt = args.completedAt;
 
     await ctx.db.patch(args.requestId, patch);
+    if (
+      args.status === "ready" ||
+      args.status === "failed" ||
+      args.status === "discarded"
+    ) {
+      await ctx.scheduler.runAfter(0, internal.create.agent.continueAfterAsyncResult, {
+        contentRequestId: args.requestId,
+      });
+    }
   },
 });
 
@@ -700,6 +782,31 @@ export const execute = internalAction({
           });
           return;
         }
+
+        if (generation.mode === "lipsync") {
+          const result = await runCreateLipsyncRequest(ctx, {
+            userId: context.request.userId,
+            workspaceId: context.request.workspaceId,
+            brandId: context.request.brandId,
+            contentRequestId: context.request._id,
+            prompt: context.request.prompt,
+            provider: generation.provider,
+            model: generation.model,
+            resolution: generation.resolution,
+            providerInput: generation.providerInput,
+            referenceImages: generation.referenceImages,
+            referenceVideos: generation.referenceVideos,
+            voiceReferenceAudios: generation.voiceReferenceAudios,
+          });
+          await ctx.runMutation(internal.content.requests.transition, {
+            requestId: args.requestId,
+            status: "ready",
+            summary: "Lip-synced video ready to review.",
+            costUsd: result.costUsd,
+            completedAt: Date.now(),
+          });
+          return;
+        }
       }
 
       await ctx.runMutation(internal.content.requests.transition, {
@@ -711,8 +818,7 @@ export const execute = internalAction({
       const plannerReferences = context.referenceAssets.map(({ asset, instruction }) =>
         plannerReferenceFromAsset(asset, instruction)
       );
-      const textProvider = getModelProvider("openrouter");
-      const structured = await textProvider.generateStructured<SlideshowPlannerOutput>({
+      const structured = await generateStructuredWithFallback<SlideshowPlannerOutput>({
         systemPrompt: "You are a senior short-form content creative director and slideshow planner.",
         prompt: planPromptForMode({
           prompt: context.request.prompt,
@@ -724,7 +830,6 @@ export const execute = internalAction({
         }),
         schema: planSchemaForMode(requestedRenderingMode),
         schemaName: "slideshow_create_plan",
-        model: process.env.CONTENT_ENGINE_TEXT_MODEL?.trim() || "openai/gpt-4.1",
         temperature: 0.7,
         parser: (text) => JSON.parse(text) as SlideshowPlannerOutput,
       });
@@ -733,7 +838,7 @@ export const execute = internalAction({
         ? (structured.object as { slides: unknown[] }).slides
         : [];
       const imagePromptSlides = await Promise.all(rawSlides.map(async (slide) => {
-        const imagePrompt = await textProvider.generateStructured<SingleImagePromptWriterOutput>({
+        const imagePrompt = await generateStructuredWithFallback<SingleImagePromptWriterOutput>({
           systemPrompt: IMAGE_PROMPT_WRITER_SYSTEM_PROMPT,
           prompt: buildSingleImagePromptWriterPrompt({
             prompt: context.request.prompt,
@@ -791,7 +896,6 @@ export const execute = internalAction({
       const referenceImages = anySlideUsesReferences
         ? await referenceImagesFromAssets(referenceAssets)
         : [];
-      const imageModel = imageModelForRenderingMode(plan.renderingMode);
       const dimensions = getSlideDimensions(plan.aspectRatio);
       const imageBySlideIndex = new Map<number, { artifactId: Id<"artifacts">; url?: string }>();
       const imageErrors: string[] = [];
@@ -810,9 +914,15 @@ export const execute = internalAction({
           ? referenceAssetIdsForSlide(slide, referenceAssets)
           : [];
         const imageProviderName = referenceImagesForSlide.length > 0
-          ? process.env.CONTENT_ENGINE_REFERENCE_IMAGE_PROVIDER?.trim() || "fal"
-          : process.env.CONTENT_ENGINE_IMAGE_PROVIDER?.trim() || "fal";
-        const imageProvider = getModelProvider(imageProviderName as "gemini" | "fal");
+          ? context.request.generation?.provider ??
+            (process.env.CONTENT_ENGINE_REFERENCE_IMAGE_PROVIDER?.trim() as ModelProviderName | undefined) ??
+            "fal"
+          : context.request.generation?.provider ??
+            (process.env.CONTENT_ENGINE_IMAGE_PROVIDER?.trim() as ModelProviderName | undefined) ??
+            "fal";
+        const imageModel = context.request.generation?.model?.trim() ||
+          imageModelForProviderRenderingMode(imageProviderName, plan.renderingMode);
+        const imageProvider = getModelProvider(imageProviderName);
         try {
           const image = await imageProvider.generateImage({
             prompt,
@@ -951,10 +1061,16 @@ export const execute = internalAction({
         completedAt: Date.now(),
       });
     } catch (error) {
+      const errorMessage = requestErrorMessage(error);
+      console.error("Content request execution failed", {
+        requestId: args.requestId,
+        errorMessage,
+        error,
+      });
       await ctx.runMutation(internal.content.requests.transition, {
         requestId: args.requestId,
         status: "failed",
-        errorMessage: error instanceof Error ? error.message : "Content generation failed",
+        errorMessage,
         costUsd,
         completedAt: Date.now(),
       });

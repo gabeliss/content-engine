@@ -4,6 +4,7 @@ import { internal } from "../_generated/api";
 import { requireBetaAccessForAction } from "../auth/actionAccess";
 import { ensureCurrentUser, requireBetaAccess } from "../auth/users";
 import { getPublishingProvider } from "../providers";
+import type { PublishingAccount } from "../providers/publishing";
 import {
   requireWorkspaceMember,
   resolveWritableWorkspace,
@@ -67,9 +68,12 @@ function normalizePlatform(platform: string):
   | "facebook"
   | "threads"
   | "pinterest"
+  | "bluesky"
+  | "google_business"
   | null {
   if (platform === "instagram-standalone") return "instagram";
   if (platform === "linkedin-page") return "linkedin";
+  if (platform === "twitter") return "x";
   if (
     platform === "tiktok" ||
     platform === "instagram" ||
@@ -78,7 +82,9 @@ function normalizePlatform(platform: string):
     platform === "linkedin" ||
     platform === "facebook" ||
     platform === "threads" ||
-    platform === "pinterest"
+    platform === "pinterest" ||
+    platform === "bluesky" ||
+    platform === "google_business"
   ) {
     return platform;
   }
@@ -96,8 +102,17 @@ export const syncProviderAccounts = action({
     const identity = await requireBetaAccessForAction(ctx);
 
     const provider = getPublishingProvider(args.provider);
-    const synced = await provider.listAccounts({});
-    const accounts = synced.accounts
+    const syncedAccounts: PublishingAccount[] = [];
+    let cursor: string | undefined;
+    let syncedAt = Date.now();
+    do {
+      const syncedPage = await provider.listAccounts({ cursor });
+      syncedAccounts.push(...syncedPage.accounts);
+      syncedAt = syncedPage.syncedAt;
+      cursor = syncedPage.nextCursor;
+    } while (cursor);
+
+    const accounts = syncedAccounts
       .map((account) => {
         const platform = normalizePlatform(account.platform);
         if (!platform) return null;
@@ -121,14 +136,14 @@ export const syncProviderAccounts = action({
       brandId: args.brandId,
       provider: args.provider,
       accounts,
-      syncedAt: synced.syncedAt,
+      syncedAt,
     });
 
     return {
       synced: accounts.length,
-      skipped: synced.accounts.length - accounts.length,
+      skipped: syncedAccounts.length - accounts.length,
       provider: args.provider,
-      syncedAt: synced.syncedAt,
+      syncedAt,
     };
   },
 });

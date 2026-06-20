@@ -3,6 +3,7 @@ import {
   ProviderError,
   type ProviderErrorCode,
   toProviderError,
+  unsupportedProviderOperation,
 } from "./errors";
 import {
   registerPublishingProvider,
@@ -665,6 +666,7 @@ export const postizProvider: PublishingProvider = {
   capabilities: {
     listAccounts: true,
     uploadMedia: true,
+    draftPost: false,
     schedulePost: true,
     publishNow: true,
     readStatus: true,
@@ -672,6 +674,14 @@ export const postizProvider: PublishingProvider = {
   },
   listAccounts: listPostizAccounts,
   uploadMedia: uploadPostizMedia,
+  createDraft: async (_input) => {
+    throw unsupportedProviderOperation(
+      "publishing",
+      POSTIZ_PROVIDER,
+      "create_draft",
+      "Postiz draft creation is not configured in Content Engine"
+    );
+  },
   schedulePost: (input) => publishWithPostiz(input, "schedule"),
   publishNow: (input) => publishWithPostiz(input, "now"),
   getPublicationStatus: getPostizPublicationStatus,

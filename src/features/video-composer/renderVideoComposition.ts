@@ -2,9 +2,13 @@ import { drawCoverImage, drawTextOverlays } from "../../lib/composition/canvasTe
 import { dimensionsForAspectRatio } from "../../lib/composition/aspectRatios";
 import {
   activeTextOverlaysAtTime,
+  audioTrackEndTime,
   clipDuration,
-  compositionDuration,
+  compositionTimelineDuration,
+  mediaKindForClip,
+  normalizedAudioTrim,
   type VideoCompositionDraft,
+  type VideoComposerAudioTrack,
   type VideoComposerClip,
 } from "./videoComposerModel";
 
@@ -60,6 +64,23 @@ async function loadVideo(clip: VideoComposerClip) {
   return video;
 }
 
+async function loadImage(clip: VideoComposerClip) {
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+  image.src = clip.storageUrl;
+  if (!image.complete) await waitForEvent(image, "load");
+  return image;
+}
+
+async function loadAudio(track: VideoComposerAudioTrack) {
+  const audio = document.createElement("audio");
+  audio.crossOrigin = "anonymous";
+  audio.preload = "auto";
+  audio.src = track.storageUrl;
+  await waitForEvent(audio, "loadedmetadata");
+  return audio;
+}
+
 function seekVideo(video: HTMLVideoElement, timeSeconds: number) {
   return new Promise<void>((resolve, reject) => {
     const onSeeked = () => {
@@ -80,6 +101,26 @@ function seekVideo(video: HTMLVideoElement, timeSeconds: number) {
   });
 }
 
+function seekMedia(media: HTMLMediaElement, timeSeconds: number) {
+  return new Promise<void>((resolve, reject) => {
+    const onSeeked = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Unable to seek media"));
+    };
+    const cleanup = () => {
+      media.removeEventListener("seeked", onSeeked);
+      media.removeEventListener("error", onError);
+    };
+    media.addEventListener("seeked", onSeeked, { once: true });
+    media.addEventListener("error", onError);
+    media.currentTime = timeSeconds;
+  });
+}
+
 function nextAnimationFrame() {
   return new Promise<number>((resolve) => requestAnimationFrame(resolve));
 }
@@ -90,6 +131,15 @@ async function playVideo(video: HTMLVideoElement) {
   } catch {
     video.muted = true;
     await video.play();
+  }
+}
+
+async function playAudio(audio: HTMLAudioElement) {
+  try {
+    await audio.play();
+  } catch {
+    // Browser autoplay policy can still reject background audio; the export path
+    // is always initiated by a user action or Studio auto-render page load.
   }
 }
 
@@ -125,7 +175,7 @@ export async function renderVideoCompositionToBlob(
   const chunks: Blob[] = [];
   const mimeType = recorderMimeType();
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-  const totalDuration = compositionDuration(draft.clips);
+  let totalDuration = compositionTimelineDuration(draft.clips, draft.audioTracks ?? []);
 
   recorder.addEventListener("dataavailable", (event) => {
     if (event.data.size > 0) chunks.push(event.data);
@@ -143,12 +193,97 @@ export async function renderVideoCompositionToBlob(
   if (audioContext?.state === "suspended") {
     await audioContext.resume();
   }
+  const audioEntries = audioContext && audioDestination
+    ? await Promise.all(
+        (draft.audioTracks ?? []).map(async (track) => {
+          const audio = await loadAudio(track);
+          const source = audioContext.createMediaElementSource(audio);
+          const gain = audioContext.createGain();
+          gain.gain.value = Math.max(0, Math.min(1, track.volume ?? 1));
+          source.connect(gain);
+          gain.connect(audioDestination);
+          audio.volume = Math.max(0, Math.min(1, track.volume ?? 1));
+          audio.pause();
+          return {
+            audio,
+            source,
+            gain,
+            track,
+            trim: normalizedAudioTrim({
+              ...track,
+              durationSeconds: track.durationSeconds ?? audio.duration,
+            }),
+          };
+        })
+      )
+    : [];
+
+  const syncAudioTracks = (globalTime: number) => {
+    for (const entry of audioEntries) {
+      const trackStart = Math.max(0, entry.track.startSeconds);
+      const trackEnd = audioTrackEndTime({
+        ...entry.track,
+        durationSeconds: entry.track.durationSeconds ?? entry.audio.duration,
+      });
+      const isActive = globalTime >= trackStart && globalTime <= trackEnd;
+      if (!isActive) {
+        entry.audio.pause();
+        continue;
+      }
+
+      const sourceTime = entry.trim.startSeconds + (globalTime - trackStart);
+      if (Math.abs(entry.audio.currentTime - sourceTime) > 0.16) {
+        void seekMedia(entry.audio, sourceTime).catch(() => undefined);
+      }
+      if (entry.audio.paused) void playAudio(entry.audio);
+    }
+  };
+  totalDuration = Math.max(
+    totalDuration,
+    ...audioEntries.map((entry) =>
+      audioTrackEndTime({
+        ...entry.track,
+        durationSeconds: entry.track.durationSeconds ?? entry.audio.duration,
+      })
+    )
+  );
 
   recorder.start(250);
 
   let timelineCursor = 0;
   for (let clipIndex = 0; clipIndex < draft.clips.length; clipIndex += 1) {
     const clip = draft.clips[clipIndex];
+    if (mediaKindForClip(clip) === "image") {
+      const image = await loadImage(clip);
+      const targetDuration = clipDuration(clip);
+      if (targetDuration <= 0) continue;
+      const clipStartMs = performance.now();
+
+      while (performance.now() - clipStartMs < targetDuration * 1000) {
+        const elapsedSeconds = (performance.now() - clipStartMs) / 1000;
+        const localTime = Math.min(targetDuration, elapsedSeconds);
+        const globalTime = timelineCursor + localTime;
+        ctx.fillStyle = "#111513";
+        ctx.fillRect(0, 0, dimensions.width, dimensions.height);
+        drawCoverImage(ctx, image, dimensions.width, dimensions.height);
+        drawTextOverlays(
+          ctx,
+          activeTextOverlaysAtTime(draft.textOverlays, globalTime, totalDuration),
+          dimensions
+        );
+        syncAudioTracks(globalTime);
+        options.onProgress?.({
+          clipIndex,
+          progress: totalDuration ? Math.min(1, globalTime / totalDuration) : 0,
+          timeSeconds: globalTime,
+        });
+        await nextAnimationFrame();
+      }
+
+      timelineCursor += targetDuration;
+      continue;
+    }
+
     const video = await loadVideo(clip);
     const source = audioContext && audioDestination
       ? audioContext.createMediaElementSource(video)
@@ -174,6 +309,7 @@ export async function renderVideoCompositionToBlob(
         activeTextOverlaysAtTime(draft.textOverlays, globalTime, totalDuration),
         dimensions
       );
+      syncAudioTracks(globalTime);
       options.onProgress?.({
         clipIndex,
         progress: totalDuration ? Math.min(1, globalTime / totalDuration) : 0,
@@ -191,6 +327,34 @@ export async function renderVideoCompositionToBlob(
     });
   }
 
+  if (timelineCursor < totalDuration) {
+    const tailStartMs = performance.now();
+    const tailDuration = totalDuration - timelineCursor;
+    while (performance.now() - tailStartMs < tailDuration * 1000) {
+      const elapsedSeconds = (performance.now() - tailStartMs) / 1000;
+      const globalTime = Math.min(totalDuration, timelineCursor + elapsedSeconds);
+      ctx.fillStyle = "#111513";
+      ctx.fillRect(0, 0, dimensions.width, dimensions.height);
+      drawTextOverlays(
+        ctx,
+        activeTextOverlaysAtTime(draft.textOverlays, globalTime, totalDuration),
+        dimensions
+      );
+      syncAudioTracks(globalTime);
+      options.onProgress?.({
+        clipIndex: draft.clips.length,
+        progress: totalDuration ? Math.min(1, globalTime / totalDuration) : 0,
+        timeSeconds: globalTime,
+      });
+      await nextAnimationFrame();
+    }
+  }
+
+  audioEntries.forEach((entry) => {
+    entry.audio.pause();
+    entry.source.disconnect();
+    entry.gain.disconnect();
+  });
   recorder.stop();
   canvasStream.getTracks().forEach((track) => track.stop());
   await audioContext?.close();

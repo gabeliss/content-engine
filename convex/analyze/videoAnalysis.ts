@@ -259,6 +259,11 @@ export const patchJob = internalMutation({
     if (args.startedAt !== undefined) patch.startedAt = args.startedAt;
     if (args.completedAt !== undefined) patch.completedAt = args.completedAt;
     await ctx.db.patch(args.jobId, patch);
+    if (args.status === "completed" || args.status === "failed") {
+      await ctx.scheduler.runAfter(0, internal.create.agent.continueAfterAsyncResult, {
+        analysisJobId: args.jobId,
+      });
+    }
   },
 });
 

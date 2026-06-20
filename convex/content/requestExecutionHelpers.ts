@@ -32,6 +32,21 @@ export function imageModelForRenderingMode(renderingMode: SlideshowPlan["renderi
   return process.env.CONTENT_ENGINE_IMAGE_MODEL?.trim() || DEFAULT_OVERLAY_IMAGE_MODEL;
 }
 
+export function imageModelForProviderRenderingMode(
+  provider: ModelProviderName,
+  renderingMode: SlideshowPlan["renderingMode"]
+): string | undefined {
+  if (provider === "fal") return imageModelForRenderingMode(renderingMode);
+  if (provider === "gemini") {
+    return process.env.CONTENT_ENGINE_GEMINI_IMAGE_MODEL?.trim() ||
+      "gemini-3-pro-image-preview";
+  }
+  if (provider === "bulkapis") {
+    return process.env.CONTENT_ENGINE_BULKAPIS_IMAGE_MODEL?.trim() || undefined;
+  }
+  return undefined;
+}
+
 export function providerImagePrompt(
   slidePrompt: string,
   aspectRatio: SlideshowPlan["aspectRatio"],

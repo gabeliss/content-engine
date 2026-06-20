@@ -7,6 +7,14 @@ import {
   artifactTypeValidator,
   contentRequestStatusValidator,
   contentFormatValidator,
+  createCheckpointModeValidator,
+  createCheckpointStatusValidator,
+  createInferredOutputTypeValidator,
+  createMessageKindValidator,
+  createMessageRoleValidator,
+  createReferenceMentionValidator,
+  createThreadStatusValidator,
+  createToolCallStatusValidator,
   creativeAssetKindValidator,
   creativeAssetMediaTypeValidator,
   distributionStatusValidator,
@@ -23,6 +31,7 @@ import {
   scheduleConfigValidator,
   slideshowStatusValidator,
   socialAccountStatusValidator,
+  studioRenderRequestStatusValidator,
   videoAnalysisModeValidator,
   videoAnalysisSourcePlatformValidator,
   videoAnalysisSourceTypeValidator,
@@ -361,6 +370,79 @@ export default defineSchema({
     .index("by_brand", ["brandId"])
     .index("by_user_status", ["userId", "status"]),
 
+  createThreads: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    title: v.optional(v.string()),
+    status: createThreadStatusValidator,
+    checkpointMode: createCheckpointModeValidator,
+    lastInferredOutputType: v.optional(createInferredOutputTypeValidator),
+    finalArtifactIds: v.optional(v.array(v.id("artifacts"))),
+    costUsd: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  createMessages: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    createThreadId: v.id("createThreads"),
+    role: createMessageRoleValidator,
+    content: v.string(),
+    kind: v.optional(createMessageKindValidator),
+    referenceMentions: v.optional(v.array(createReferenceMentionValidator)),
+    artifactIds: v.optional(v.array(v.id("artifacts"))),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_thread", ["createThreadId"]),
+
+  createToolCalls: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    createThreadId: v.id("createThreads"),
+    messageId: v.optional(v.id("createMessages")),
+    toolName: v.string(),
+    status: createToolCallStatusValidator,
+    label: v.string(),
+    input: v.optional(v.any()),
+    output: v.optional(v.any()),
+    artifactIds: v.optional(v.array(v.id("artifacts"))),
+    costUsd: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_thread", ["createThreadId"])
+    .index("by_thread_status", ["createThreadId", "status"]),
+
+  createCheckpoints: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    createThreadId: v.id("createThreads"),
+    status: createCheckpointStatusValidator,
+    label: v.string(),
+    message: v.string(),
+    artifactIds: v.optional(v.array(v.id("artifacts"))),
+    response: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_thread", ["createThreadId"])
+    .index("by_thread_status", ["createThreadId", "status"]),
+
   workflowRuns: defineTable({
     userId: v.string(),
     workspaceId: v.optional(v.id("workspaces")),
@@ -490,6 +572,29 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_status", ["workspaceId", "status"]),
+
+  studioRenderRequests: defineTable({
+    userId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    createThreadId: v.optional(v.id("createThreads")),
+    createToolCallId: v.optional(v.id("createToolCalls")),
+    videoProjectId: v.id("videoProjects"),
+    status: studioRenderRequestStatusValidator,
+    draftSnapshot: v.any(),
+    renderSettings: v.optional(v.any()),
+    outputArtifactId: v.optional(v.id("artifacts")),
+    progress: v.optional(v.number()),
+    progressMessage: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_thread", ["createThreadId"])
+    .index("by_project", ["videoProjectId"])
+    .index("by_status", ["status"]),
 
   distributionPlans: defineTable({
     userId: v.string(),

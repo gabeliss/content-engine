@@ -130,6 +130,7 @@ const primaryConfigFieldKeys = new Set([
   "platform",
   "personaIds",
   "postType",
+  "publishIntent",
   "prompt",
   "promptFromInputNode",
   "referenceImageUrl",
@@ -382,7 +383,7 @@ function friendlyConfigFieldKeysForNode(
     case "export":
       return ["destination", "folder", "fileName", "optimizeFor"];
     case "auto_post":
-      return ["autoPublish", "socialAccountIds", "captionFromInputNode", "caption", "scheduledAt", "timezone"];
+      return ["publishIntent", "socialAccountIds", "captionFromInputNode", "caption", "scheduledAt", "timezone"];
   }
 }
 
@@ -444,6 +445,23 @@ function friendlyConfigFieldForKey(key: string, config: Record<string, unknown>)
       };
     case "count":
       return { ...defaultField, label: "Number of images", type: "number" };
+    case "publishIntent":
+      return {
+        ...defaultField,
+        label: "Publish intent",
+        required: true,
+        type: "enum",
+        enumValues: ["draft", "publish", "schedule", "distribution_plan"],
+        description:
+          "Choose whether this node sends a provider draft, publishes now, schedules, or only creates a Content Engine plan.",
+      };
+    case "socialAccountIds":
+      return {
+        ...defaultField,
+        label: "Accounts",
+        type: "json",
+        description: "Choose the connected social accounts that should receive this post.",
+      };
     case "durationSeconds":
       return { ...defaultField, label: "Duration", type: "number" };
     case "intervalHours":
@@ -700,7 +718,7 @@ export function configFieldsForNode(
       llm: ["systemPrompt", "promptFromInputNode", "prompt", "responseFormat", "temperature", "maxTokens"],
       native_slideshow_planner: ["promptFromInputNode", "prompt", "slideCount", "aspectRatio", "platform", "tone"],
       post_compiler: ["postType", "platformPreset", "captionFromInputNode", "caption", "name", "optimizeForPlatforms"],
-      auto_post: ["autoPublish", "socialAccountIds", "captionFromInputNode", "caption", "scheduledAt", "timezone"],
+      auto_post: ["publishIntent", "socialAccountIds", "captionFromInputNode", "caption", "scheduledAt", "timezone"],
     };
     const fieldOrder = fieldOrderByType[type];
     if (fieldOrder) {

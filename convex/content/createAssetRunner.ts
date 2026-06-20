@@ -8,7 +8,7 @@ import type {
 } from "../providers/model";
 import {
   waitForGeneratedAudio,
-  waitForGeneratedImage,
+  waitForGeneratedImages,
   waitForGeneratedVideo,
 } from "../workflows/runtime/generationWaiters";
 import {
@@ -62,6 +62,17 @@ export type CreateAudioRunnerInput = CreateAssetRunnerScope & {
   model?: string;
   mode?: string;
   providerInput?: unknown;
+  voiceReferenceAudios?: CreateReferenceAsset[];
+};
+
+export type CreateLipsyncRunnerInput = CreateAssetRunnerScope & {
+  prompt: string;
+  provider?: ModelProviderName;
+  model?: string;
+  resolution?: string;
+  providerInput?: unknown;
+  referenceImages?: CreateReferenceAsset[];
+  referenceVideos?: CreateReferenceAsset[];
   voiceReferenceAudios?: CreateReferenceAsset[];
 };
 
@@ -189,11 +200,11 @@ export async function runCreateImageRequest(
   const generatedAssets = [...result.images];
   if (!generatedAssets.length && result.jobId) {
     generatedAssets.push(
-      await waitForGeneratedImage(provider, {
+      ...(await waitForGeneratedImages(provider, {
         jobId: result.jobId,
         model: result.metadata.model,
         metadata: result.metadata,
-      })
+      }))
     );
   }
   if (!generatedAssets.length) throw new Error("Image generation returned no images.");
@@ -426,6 +437,102 @@ export async function runCreateAudioRequest(
     provider: result.metadata.provider,
     model: result.metadata.model,
     prompt: text,
+    lifecycle: "preview",
+    reviewStatus: "pending",
+  });
+
+  return {
+    artifactId,
+    storageUrl: stored.storageUrl,
+    title,
+    costUsd: result.metadata.costUsd,
+  };
+}
+
+export async function runCreateLipsyncRequest(
+  ctx: ActionCtx,
+  args: CreateLipsyncRunnerInput
+): Promise<{
+  artifactId: Id<"artifacts">;
+  storageUrl: string;
+  title: string;
+  costUsd?: number;
+}> {
+  const prompt = args.prompt.trim();
+  if (!prompt) throw new Error("Prompt is required");
+
+  const providerName = args.provider ?? "fal";
+  const provider = getModelProvider(providerName);
+  if (!provider.capabilities.lipsync) {
+    throw new Error(`${provider.displayName} does not support lipsync generation.`);
+  }
+
+  const referenceImages = referenceAssetsFromArgs(args.referenceImages);
+  const referenceVideos = referenceAssetsFromArgs(args.referenceVideos);
+  const voiceReferenceAudios = referenceAssetsFromArgs(args.voiceReferenceAudios);
+  const providerInput = providerInputFromArgs(args.providerInput);
+  const image = referenceImages[0];
+  const video = referenceVideos[0];
+  const audio = voiceReferenceAudios[0];
+
+  if (!audio) {
+    throw new Error("Lip sync generation needs an audio input.");
+  }
+  if (!image && !video) {
+    throw new Error("Lip sync generation needs an image or video input.");
+  }
+
+  const result = await provider.generateLipsync({
+    audio,
+    image,
+    video,
+    model: args.model?.trim() || undefined,
+    resolution: args.resolution,
+    metadata: {
+      source: "create_page",
+      mode: "lipsync",
+      contentRequestId: args.contentRequestId,
+      hasImageInput: Boolean(image),
+      hasVideoInput: Boolean(video),
+      hasAudioInput: Boolean(audio),
+      arguments: providerInput,
+      bulkapisInput: providerInput,
+    },
+  });
+  const videoAsset = await waitForGeneratedVideo(provider, {
+    jobId: result.jobId,
+    model: result.metadata.model,
+    metadata: result.metadata,
+  });
+  const stored = await storeGeneratedAsset(ctx, videoAsset);
+  const title = defaultTitle(prompt, "Lip-synced video");
+  const artifactId = await ctx.runMutation(internal.artifacts.records.createFromRunner, {
+    userId: args.userId,
+    workspaceId: args.workspaceId,
+    brandId: args.brandId,
+    contentRequestId: args.contentRequestId,
+    type: "video",
+    title,
+    storageUrl: stored.storageUrl,
+    data: {
+      source: "create_page",
+      mode: "lipsync",
+      storageId: stored.storageId,
+      mimeType: stored.mimeType,
+      fileSize: stored.byteLength,
+      sourceMimeType: videoAsset.mimeType,
+      jobId: result.jobId,
+      status: "succeeded",
+      resolution: args.resolution,
+      hasImageInput: Boolean(image),
+      hasVideoInput: Boolean(video),
+      hasAudioInput: Boolean(audio),
+      userPrompt: prompt,
+      providerMetadata: result.metadata,
+    },
+    provider: result.metadata.provider,
+    model: result.metadata.model,
+    prompt,
     lifecycle: "preview",
     reviewStatus: "pending",
   });

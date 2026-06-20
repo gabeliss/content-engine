@@ -276,7 +276,7 @@ function workflowGraphSchema() {
       "graphs must be acyclic",
       "execution must be explicit and never triggered by graph edits",
       "terminal output nodes should be export or auto_post",
-      "auto_post should keep autoPublish false unless the user explicitly configures publishing",
+      "auto_post should set publishIntent to draft, publish, schedule, or distribution_plan explicitly",
     ],
   };
 }

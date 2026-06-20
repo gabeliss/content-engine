@@ -16,6 +16,7 @@ export type PublishingOperationStatus =
 export interface PublishingProviderCapabilities {
   listAccounts: boolean;
   uploadMedia: boolean;
+  draftPost: boolean;
   schedulePost: boolean;
   publishNow: boolean;
   readStatus: boolean;
@@ -144,6 +145,7 @@ export interface PublishingProvider {
   readonly capabilities: PublishingProviderCapabilities;
   listAccounts(input: ListPublishingAccountsInput): Promise<ListPublishingAccountsResult>;
   uploadMedia(input: UploadMediaInput): Promise<UploadedMedia>;
+  createDraft(input: PublishContentInput): Promise<PublishContentResult>;
   schedulePost(input: PublishContentInput): Promise<PublishContentResult>;
   publishNow(input: PublishContentInput): Promise<PublishContentResult>;
   getPublicationStatus(input: PublicationStatusInput): Promise<PublicationStatusResult>;

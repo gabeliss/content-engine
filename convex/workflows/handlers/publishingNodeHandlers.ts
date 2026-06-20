@@ -13,9 +13,9 @@ import { objectValue, stringFromValue } from "../runtime/inputValues";
 import { isAutoPostNode, isExportNode, isPostPackageNode } from "../runtime/nodeRuntime";
 import {
   autoPostOutputRefsForNode,
+  autoPostIntentForNode,
   autoPostPackageData,
   autoPostScheduleForNode,
-  autoPublishEnabled,
   captionFromPackageArtifact,
   exportedPackageData,
   exportDestinationForNode,
@@ -220,7 +220,9 @@ export async function executePublishingNode({
 
   if (isAutoPostNode(node)) {
     const providerName = publishingProviderNameForNode(node);
-    const autoPublish = autoPublishEnabled(node, resolvedInputs);
+    const publishIntent = autoPostIntentForNode(node, resolvedInputs);
+    const shouldSendToProvider = publishIntent !== "distribution_plan";
+    const autoPublish = shouldSendToProvider;
     const socialAccountIds = socialAccountIdsFromInputs(node, resolvedInputs);
     const scheduledFor = autoPostScheduleForNode(node, resolvedInputs);
     const config = objectValue(node.config);
@@ -308,9 +310,12 @@ export async function executePublishingNode({
     let providerPayload: unknown;
 
     try {
-      if (autoPublish) {
+      if (shouldSendToProvider) {
         if (socialAccountIds.length === 0 && providerName !== "manual") {
           throw new Error(`${node.label} needs at least one target social account to auto-post with ${providerName}.`);
+        }
+        if (publishIntent === "schedule" && !scheduledFor) {
+          throw new Error(`${node.label} needs a scheduled time before sending a scheduled post.`);
         }
 
         const provider = getPublishingProvider(providerName);
@@ -331,7 +336,9 @@ export async function executePublishingNode({
         }
 
         const publishInput = await loadPublishInput(provider, publishContext);
-        const result = scheduledFor
+        const result = publishIntent === "draft"
+          ? await provider.createDraft(publishInput)
+          : publishIntent === "schedule"
           ? await provider.schedulePost(publishInput)
           : await provider.publishNow(publishInput);
         publishStatus = mapProviderStatus(result.status);
@@ -351,9 +358,11 @@ export async function executePublishingNode({
           userId: context.run.userId,
           workflowRunId: context.run._id,
           workflowId: context.workflow._id,
-          type: scheduledFor ? "publish_requested" : "publish_completed",
+          type: publishIntent === "publish" ? "publish_completed" : "publish_requested",
           nodeId: node.id,
-          message: scheduledFor
+          message: publishIntent === "draft"
+            ? `${node.label} sent a draft through ${provider.displayName}.`
+            : publishIntent === "schedule"
             ? `${node.label} scheduled a post through ${provider.displayName}.`
             : `${node.label} published a post through ${provider.displayName}.`,
           data: {
@@ -376,6 +385,7 @@ export async function executePublishingNode({
           provider: providerName,
           status: publishStatus,
           autoPublish,
+          publishIntent,
           externalPostIds,
           publishedAt,
           scheduledFor,
@@ -400,6 +410,7 @@ export async function executePublishingNode({
           provider: providerName,
           status: "failed",
           autoPublish,
+          publishIntent,
           scheduledFor,
           errorMessage: message,
         }),
@@ -417,6 +428,7 @@ export async function executePublishingNode({
       provider: providerName,
       status: publishStatus,
       autoPublish,
+      publishIntent,
       externalPostIds,
     });
 
@@ -440,6 +452,7 @@ export async function executePublishingNode({
         nodeType: node.type,
         provider: providerName,
         autoPublish,
+        publishIntent,
         status: publishStatus,
         distributionPlanId,
         packageArtifactId: packageArtifact._id,

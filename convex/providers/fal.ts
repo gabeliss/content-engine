@@ -128,12 +128,38 @@ function createFalResponseDecodeError(
       operation,
       code: "provider",
       statusCode,
-      retryable: statusCode >= 500,
+      retryable: statusCode === 408 ||
+        statusCode === 429 ||
+        statusCode >= 500 ||
+        (statusCode >= 200 && statusCode < 300),
       details: {
         body: body.slice(0, 2000),
         contentType,
         cause: cause instanceof Error ? cause.message : String(cause),
       },
+    }
+  );
+}
+
+function createFalTransportError(
+  operation: string,
+  url: string,
+  cause: unknown
+): ProviderError {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new ProviderError(
+    `fal API transport error during ${operation}: ${message}`,
+    {
+      kind: "model",
+      provider: FAL_PROVIDER,
+      operation,
+      code: "temporary",
+      retryable: true,
+      details: {
+        url,
+        cause: message,
+      },
+      cause,
     }
   );
 }
@@ -144,15 +170,20 @@ async function falRequest<T>(
   init?: RequestInit
 ): Promise<T> {
   const apiKey = getFalApiKey();
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      "Accept-Encoding": "identity",
-      Authorization: `Key ${apiKey}`,
-      ...(init?.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        Accept: "application/json",
+        "Accept-Encoding": "identity",
+        Authorization: `Key ${apiKey}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    throw createFalTransportError(operation, url, error);
+  }
 
   const contentType = response.headers.get("content-type");
   let body = "";
@@ -524,6 +555,40 @@ async function submitFalJob(
   );
 }
 
+async function fetchFalJobResult(
+  args: {
+    fallbackUrl: string;
+    jobId?: string;
+    model: string;
+    responseUrl: string;
+  }
+): Promise<Record<string, unknown>> {
+  try {
+    return await falRequest<Record<string, unknown>>(
+      "get_job_result",
+      args.responseUrl,
+      { method: "GET" }
+    );
+  } catch (error) {
+    if (args.responseUrl === args.fallbackUrl) throw error;
+    if (error instanceof ProviderError && error.retryable) {
+      console.warn("fal result response_url failed; trying canonical result endpoint", {
+        errorMessage: error.message,
+        jobId: args.jobId,
+        model: args.model,
+        operation: error.operation,
+        statusCode: error.statusCode,
+      });
+      return await falRequest<Record<string, unknown>>(
+        "get_job_result",
+        args.fallbackUrl,
+        { method: "GET" }
+      );
+    }
+    throw error;
+  }
+}
+
 async function generateFalImage(
   input: GenerateImageInput
 ): Promise<GenerateImageResult> {
@@ -798,15 +863,17 @@ async function getFalJobStatus(
       };
     }
 
+    const fallbackResponseUrl = `${getFalQueueBaseUrl()}/${model}/requests/${input.jobId}`;
     const responseUrl =
       statusResponse.response_url ||
       metadataResponseUrl ||
-      `${getFalQueueBaseUrl()}/${model}/requests/${input.jobId}`;
-    const result = await falRequest<Record<string, unknown>>(
-      "get_job_result",
+      fallbackResponseUrl;
+    const result = await fetchFalJobResult({
+      fallbackUrl: fallbackResponseUrl,
+      jobId: input.jobId,
+      model,
       responseUrl,
-      { method: "GET" }
-    );
+    });
 
     return {
       jobId: input.jobId,

@@ -81,8 +81,8 @@ Publishing uses the publishing provider abstraction:
 
 | Provider | Status | Use |
 | --- | --- | --- |
-| `postiz` | Ready | Default live publishing/scheduling provider. |
-| `post_bridge` | Reserved | Registered placeholder; unsupported operations fail clearly. |
+| `post_bridge` | Ready | Default live publishing, scheduling, and provider-draft route. |
+| `postiz` | Ready | Alternative publishing/scheduling provider behind the abstraction. |
 | `manual` | Ready | Manual/export/testing provider. |
 
 BulkAPIs is a generation/media provider, not the current publishing route.
@@ -105,6 +105,8 @@ Convex/server variables:
 - OpenRouter: `OPENROUTER_API_KEY`, optional `OPENROUTER_BASE_URL`,
   `OPENROUTER_DRY_RUN`, `OPENROUTER_SITE_URL`, `OPENROUTER_APP_NAME`
 - fal: `FAL_API_KEY`, optional `FAL_QUEUE_BASE_URL`, `FAL_DRY_RUN`
+- PostBridge: `POSTBRIDGE_API_KEY`, optional `POSTBRIDGE_BASE_URL`,
+  `POSTBRIDGE_DRY_RUN`
 - Postiz: `POSTIZ_API_KEY`, optional `POSTIZ_BASE_URL`, `POSTIZ_DRY_RUN`
 - Analyze resolver: `MEDIA_RESOLVER_URL`, `MEDIA_RESOLVER_API_KEY`
 - Create defaults: `CONTENT_ENGINE_TEXT_MODEL`,

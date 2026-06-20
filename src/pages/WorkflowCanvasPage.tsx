@@ -39,6 +39,14 @@ export function WorkflowCanvasPage() {
     api.accounts.personas.list,
     workflow?.brandId ? { brandId: workflow.brandId } : "skip"
   );
+  const workflowSocialAccounts = useQuery(
+    api.accounts.socialAccounts.list,
+    workflow
+      ? workflow.workspaceId
+        ? { workspaceId: workflow.workspaceId }
+        : {}
+      : "skip"
+  );
   const workflowRuns = useQuery(
     api.workflows.runs.list,
     workflowId ? { workflowId: workflowId as Id<"workflows"> } : "skip"
@@ -276,6 +284,7 @@ export function WorkflowCanvasPage() {
         selectedNode={selectedNode}
         workflowBrandId={workflow?.brandId}
         workflowPersonas={workflowPersonas}
+        workflowSocialAccounts={workflowSocialAccounts}
       />
     ) : null;
 

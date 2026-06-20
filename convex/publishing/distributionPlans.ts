@@ -289,7 +289,7 @@ export const replaceArtifact = mutation({
 export const publish = action({
   args: {
     id: v.id("distributionPlans"),
-    mode: v.union(v.literal("schedule"), v.literal("now")),
+    mode: v.union(v.literal("draft"), v.literal("schedule"), v.literal("now")),
   },
   handler: async (ctx, args) => {
     const identity = await requireBetaAccessForAction(ctx);
@@ -320,7 +320,9 @@ export const publish = action({
     try {
       const input = await loadPublishInput(provider, context);
       const result =
-        args.mode === "schedule"
+        args.mode === "draft"
+          ? await provider.createDraft(input)
+          : args.mode === "schedule"
           ? await provider.schedulePost(input)
           : await provider.publishNow(input);
 
@@ -338,9 +340,11 @@ export const publish = action({
           userId: identity.subject,
           workflowRunId: context.plan.workflowRunId,
           workflowId: context.plan.workflowId,
-          type: args.mode === "schedule" ? "publish_requested" : "publish_completed",
+          type: args.mode === "now" ? "publish_completed" : "publish_requested",
           message:
-            args.mode === "schedule"
+            args.mode === "draft"
+              ? "Distribution plan sent as a provider draft."
+              : args.mode === "schedule"
               ? "Distribution plan scheduled through provider."
               : "Distribution plan published through provider.",
           data: result,

@@ -13,12 +13,28 @@ export type VideoComposerClip = {
   sourceId: string;
   title: string;
   storageUrl: string;
+  mediaKind?: "image" | "video";
   mimeType?: string;
   artifactId?: Id<"artifacts">;
   creativeAssetId?: Id<"creativeAssets">;
   durationSeconds?: number;
   trimStartSeconds: number;
   trimEndSeconds?: number;
+};
+
+export type VideoComposerAudioTrack = {
+  id: string;
+  sourceId: string;
+  title: string;
+  storageUrl: string;
+  mimeType?: string;
+  artifactId?: Id<"artifacts">;
+  creativeAssetId?: Id<"creativeAssets">;
+  startSeconds: number;
+  durationSeconds?: number;
+  trimStartSeconds: number;
+  trimEndSeconds?: number;
+  volume: number;
 };
 
 export type TimedTextOverlay = TextOverlayBlock & {
@@ -28,27 +44,45 @@ export type TimedTextOverlay = TextOverlayBlock & {
 
 export type VideoCompositionDraft = {
   aspectRatio: CompositionAspectRatio;
+  audioTracks: VideoComposerAudioTrack[];
   clips: VideoComposerClip[];
   textOverlays: TimedTextOverlay[];
 };
 
+export const DEFAULT_IMAGE_CLIP_DURATION_SECONDS = 4;
+
 export function createEmptyVideoCompositionDraft(): VideoCompositionDraft {
   return {
     aspectRatio: "9:16",
+    audioTracks: [],
     clips: [],
     textOverlays: [],
   };
 }
 
+export function mediaKindForClip(clip: Pick<VideoComposerClip, "mediaKind" | "mimeType" | "storageUrl">) {
+  if (clip.mediaKind === "image" || clip.mediaKind === "video") return clip.mediaKind;
+  if (clip.mimeType?.startsWith("image/")) return "image";
+  if (clip.mimeType?.startsWith("video/")) return "video";
+  if (/\.(png|jpe?g|webp|gif)(\?|$)/i.test(clip.storageUrl)) return "image";
+  return "video";
+}
+
 export function clipFromLibraryOutput(output: LibraryOutput): VideoComposerClip {
+  const mediaKind = output.mimeType?.startsWith("image/") || output.type === "image"
+    ? "image"
+    : "video";
   return {
     id: `${output.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
     sourceId: output.id,
     title: output.title,
     storageUrl: output.storageUrl,
+    mediaKind,
     mimeType: output.mimeType,
     artifactId: output.artifactId,
     creativeAssetId: output.creativeAssetId,
+    durationSeconds: mediaKind === "image" ? DEFAULT_IMAGE_CLIP_DURATION_SECONDS : undefined,
+    trimEndSeconds: mediaKind === "image" ? DEFAULT_IMAGE_CLIP_DURATION_SECONDS : undefined,
     trimStartSeconds: 0,
   };
 }
@@ -72,13 +106,45 @@ export function createTimedTextOverlay(index: number): TimedTextOverlay {
 }
 
 export function clipDuration(clip: VideoComposerClip) {
-  if (!clip.durationSeconds || !Number.isFinite(clip.durationSeconds)) return 0;
+  const fallbackDuration = mediaKindForClip(clip) === "image"
+    ? DEFAULT_IMAGE_CLIP_DURATION_SECONDS
+    : 0;
+  if (!clip.durationSeconds || !Number.isFinite(clip.durationSeconds)) return fallbackDuration;
   const trim = normalizedClipTrim(clip);
   return Math.max(0, trim.endSeconds - trim.startSeconds);
 }
 
+export function audioTrackDuration(track: VideoComposerAudioTrack) {
+  if (!track.durationSeconds || !Number.isFinite(track.durationSeconds)) return 0;
+  const duration = Math.max(0, track.durationSeconds);
+  const startSeconds = Math.min(
+    Math.max(0, track.trimStartSeconds),
+    Math.max(0, duration - 0.1)
+  );
+  const endSeconds = Math.min(
+    duration,
+    Math.max(startSeconds + 0.1, track.trimEndSeconds ?? duration)
+  );
+  return Math.max(0, endSeconds - startSeconds);
+}
+
+export function audioTrackEndTime(track: VideoComposerAudioTrack) {
+  return Math.max(0, track.startSeconds) + audioTrackDuration(track);
+}
+
 export function compositionDuration(clips: VideoComposerClip[]) {
   return clips.reduce((total, clip) => total + clipDuration(clip), 0);
+}
+
+export function compositionTimelineDuration(
+  clips: VideoComposerClip[],
+  audioTracks: VideoComposerAudioTrack[] = []
+) {
+  return Math.max(
+    compositionDuration(clips),
+    ...audioTracks.map(audioTrackEndTime),
+    0
+  );
 }
 
 export function clipStartTime(clips: VideoComposerClip[], clipId: string) {
@@ -91,7 +157,11 @@ export function clipStartTime(clips: VideoComposerClip[], clipId: string) {
 }
 
 export function normalizedClipTrim(clip: VideoComposerClip) {
-  const duration = Math.max(0, clip.durationSeconds ?? 0);
+  const duration = Math.max(
+    0,
+    clip.durationSeconds ??
+      (mediaKindForClip(clip) === "image" ? DEFAULT_IMAGE_CLIP_DURATION_SECONDS : 0)
+  );
   const startSeconds = Math.min(
     Math.max(0, clip.trimStartSeconds),
     Math.max(0, duration - 0.1)
@@ -99,6 +169,19 @@ export function normalizedClipTrim(clip: VideoComposerClip) {
   const endSeconds = Math.min(
     duration,
     Math.max(startSeconds + 0.1, clip.trimEndSeconds ?? duration)
+  );
+  return { startSeconds, endSeconds };
+}
+
+export function normalizedAudioTrim(track: VideoComposerAudioTrack) {
+  const duration = Math.max(0, track.durationSeconds ?? 0);
+  const startSeconds = Math.min(
+    Math.max(0, track.trimStartSeconds),
+    Math.max(0, duration - 0.1)
+  );
+  const endSeconds = Math.min(
+    duration,
+    Math.max(startSeconds + 0.1, track.trimEndSeconds ?? duration)
   );
   return { startSeconds, endSeconds };
 }

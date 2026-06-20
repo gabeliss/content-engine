@@ -10,7 +10,7 @@ import { requireBetaAccess } from "../auth/users";
 import { publishingProviderValidator, slideshowStatusValidator } from "../validators";
 import { requireWorkspaceMember } from "../workspaces/workspaces";
 
-const DEFAULT_PUBLISHING_PROVIDER = "postiz";
+const DEFAULT_PUBLISHING_PROVIDER = "post_bridge";
 
 function currentUserId(identity: { subject: string } | null) {
   if (!identity) throw new Error("Not authenticated");

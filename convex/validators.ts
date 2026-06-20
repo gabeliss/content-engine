@@ -95,7 +95,9 @@ export const platformValidator = v.union(
   v.literal("linkedin"),
   v.literal("facebook"),
   v.literal("threads"),
-  v.literal("pinterest")
+  v.literal("pinterest"),
+  v.literal("bluesky"),
+  v.literal("google_business")
 );
 
 export const creativeAssetKindValidator = v.union(
@@ -138,6 +140,7 @@ export const contentFormatValidator = v.union(
   v.literal("image"),
   v.literal("video"),
   v.literal("audio"),
+  v.literal("lipsync"),
   v.literal("slideshow"),
   v.literal("hook_demo_video"),
   v.literal("ai_ugc_video"),
@@ -238,6 +241,88 @@ export const contentRequestStatusValidator = v.union(
   v.literal("failed"),
   v.literal("discarded")
 );
+
+export const createThreadStatusValidator = v.union(
+  v.literal("idle"),
+  v.literal("clarifying"),
+  v.literal("planning"),
+  v.literal("waiting_for_user"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("failed"),
+  v.literal("canceled"),
+  v.literal("saved")
+);
+
+export const createMessageRoleValidator = v.union(
+  v.literal("user"),
+  v.literal("agent"),
+  v.literal("system")
+);
+
+export const createMessageKindValidator = v.union(
+  v.literal("chat"),
+  v.literal("clarification"),
+  v.literal("plan"),
+  v.literal("status"),
+  v.literal("tool_result"),
+  v.literal("final_review")
+);
+
+export const createToolCallStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("blocked"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("canceled")
+);
+
+export const createCheckpointStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("revised")
+);
+
+export const createCheckpointModeValidator = v.union(
+  v.literal("debug"),
+  v.literal("auto")
+);
+
+export const createInferredOutputTypeValidator = v.union(
+  v.literal("image"),
+  v.literal("video"),
+  v.literal("audio"),
+  v.literal("slideshow"),
+  v.literal("analysis"),
+  v.literal("text"),
+  v.literal("post"),
+  v.literal("unknown")
+);
+
+export const studioRenderRequestStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("blocked"),
+  v.literal("rendering"),
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("canceled")
+);
+
+export const createReferenceMentionValidator = v.object({
+  token: v.string(),
+  label: v.string(),
+  entityType: v.union(
+    v.literal("creative_asset"),
+    v.literal("persona"),
+    v.literal("artifact"),
+    v.literal("analysis")
+  ),
+  entityId: v.string(),
+  mediaType: v.optional(creativeAssetMediaTypeValidator),
+  instruction: v.optional(v.string()),
+});
 
 export const workflowRunEventTypeValidator = v.union(
   v.literal("run_created"),

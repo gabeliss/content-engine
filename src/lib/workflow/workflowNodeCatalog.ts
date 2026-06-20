@@ -427,11 +427,11 @@ export const WORKFLOW_NODE_CATALOG = [
     executable: true,
     configSchemaMode: "static",
     providerRequirement: "required",
-    defaultProvider: "manual",
+    defaultProvider: "post_bridge",
     inputPorts: [port("post_package", "Post Package", "post_package", { required: true })],
     outputPorts: [port("result", "Result", "json")],
     defaultConfig: {
-      autoPublish: false,
+      publishIntent: "",
       socialAccountIds: [],
       captionFromInputNode: false,
       caption: "",

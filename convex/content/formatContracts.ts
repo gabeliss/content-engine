@@ -74,6 +74,7 @@ export function defaultStructuredArtifactType(format: ContentFormat): ArtifactTy
     case "static_image":
       return "image_prompt";
     case "video":
+    case "lipsync":
       return "scene_spec";
     case "slideshow":
       return "slide_spec";

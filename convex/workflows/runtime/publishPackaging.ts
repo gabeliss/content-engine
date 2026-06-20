@@ -421,12 +421,43 @@ export function autoPublishEnabled(
   return value === true;
 }
 
+export type AutoPostIntent = "distribution_plan" | "draft" | "publish" | "schedule";
+
+export function autoPostIntentForNode(
+  node: WorkflowGraphNodeForRun,
+  resolvedInputs: ResolvedInputsForRun
+): AutoPostIntent {
+  const config = objectValue(node.config);
+  const publishIntentInput = resolvedInputs.inputs?.publishIntent;
+  const hasExplicitIntent =
+    publishIntentInput !== undefined ||
+    Object.prototype.hasOwnProperty.call(config, "publishIntent");
+  const rawValue = stringFromValue(publishIntentInput?.value) ??
+    stringFromValue(config.publishIntent);
+
+  if (
+    rawValue === "distribution_plan" ||
+    rawValue === "draft" ||
+    rawValue === "publish" ||
+    rawValue === "schedule"
+  ) {
+    return rawValue;
+  }
+
+  if (hasExplicitIntent) {
+    throw new Error("Choose a publish intent before running the Auto Post node.");
+  }
+
+  return autoPublishEnabled(node, resolvedInputs) ? "publish" : "distribution_plan";
+}
+
 export function autoPostPackageData(args: {
   packageArtifact: ArtifactDocForRun;
   distributionPlanId: Id<"distributionPlans">;
   provider: PublishingProviderName;
   status: string;
   autoPublish: boolean;
+  publishIntent?: AutoPostIntent;
   externalPostIds?: string[];
   publishedAt?: number;
   scheduledFor?: number;
@@ -442,6 +473,7 @@ export function autoPostPackageData(args: {
     provider: args.provider,
     status: args.status,
     autoPublish: args.autoPublish,
+    ...(args.publishIntent ? { publishIntent: args.publishIntent } : {}),
     requestedAt: Date.now(),
     ...(args.externalPostIds ? { externalPostIds: args.externalPostIds } : {}),
     ...(args.publishedAt ? { publishedAt: args.publishedAt } : {}),
@@ -470,6 +502,7 @@ export function autoPostOutputRefsForNode(args: {
   provider: PublishingProviderName;
   status: string;
   autoPublish: boolean;
+  publishIntent?: AutoPostIntent;
   externalPostIds?: string[];
 }) {
   return [{
@@ -483,6 +516,7 @@ export function autoPostOutputRefsForNode(args: {
       provider: args.provider,
       status: args.status,
       autoPublish: args.autoPublish,
+      ...(args.publishIntent ? { publishIntent: args.publishIntent } : {}),
       ...(args.externalPostIds ? { externalPostIds: args.externalPostIds } : {}),
     },
   }];

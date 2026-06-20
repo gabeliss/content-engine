@@ -28,6 +28,12 @@ const providerOptions: Array<{ value: WorkflowProviderName; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
 ];
 
+const publishingProviderOptions: Array<{ value: WorkflowProviderName; label: string }> = [
+  { value: "post_bridge", label: "PostBridge" },
+  { value: "postiz", label: "Postiz" },
+  { value: "manual", label: "Manual export" },
+];
+
 const retentionOptions: Array<{ value: NodeRetentionMode; label: string }> = [
   { value: "inherit", label: "Inherit workflow default" },
   { value: "keep", label: "Keep output" },
@@ -131,6 +137,8 @@ export function WorkflowNodeInspector({
   const showRetentionControl = selectedNode
     ? !["comment", "media", "runner"].includes(selectedNode.data.type)
     : false;
+  const availableProviderOptions =
+    selectedNode?.data.type === "auto_post" ? publishingProviderOptions : providerOptions;
 
   return (
     <aside
@@ -191,7 +199,7 @@ export function WorkflowNodeInspector({
                   }}
                   options={[
                     { value: "", label: "No provider" },
-                    ...providerOptions.map((provider) => ({
+                    ...availableProviderOptions.map((provider) => ({
                       value: provider.value,
                       label: provider.label,
                     })),

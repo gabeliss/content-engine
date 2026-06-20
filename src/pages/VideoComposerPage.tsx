@@ -25,7 +25,7 @@ import {
   creativeAssetOutputsFromAssets,
   workflowOutputsFromArtifacts,
 } from "../features/library/libraryOutputs";
-import { isVideoOutput } from "../features/library/libraryMedia";
+import { isImageOutput, isVideoOutput } from "../features/library/libraryMedia";
 import type { LibraryOutput } from "../features/library/libraryTypes";
 import { renderVideoCompositionToBlob } from "../features/video-composer/renderVideoComposition";
 import { VideoComposerPreview } from "../features/video-composer/VideoComposerPreview";
@@ -36,11 +36,14 @@ import {
   clipFromLibraryOutput,
   clipStartTime,
   compositionDuration,
+  compositionTimelineDuration,
   createEmptyVideoCompositionDraft,
   createTimedTextOverlay,
   formatTimelineTime,
+  mediaKindForClip,
   normalizedClipTrim,
   type TimedTextOverlay,
+  type VideoComposerAudioTrack,
   type VideoComposerClip,
   type VideoCompositionDraft,
 } from "../features/video-composer/videoComposerModel";
@@ -65,6 +68,17 @@ function videoDurationForUrl(url: string) {
     video.onloadedmetadata = () => resolve(video.duration || 0);
     video.onerror = () => resolve(0);
     video.src = url;
+  });
+}
+
+function audioDurationForUrl(url: string) {
+  return new Promise<number>((resolve) => {
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    audio.crossOrigin = "anonymous";
+    audio.onloadedmetadata = () => resolve(audio.duration || 0);
+    audio.onerror = () => resolve(0);
+    audio.src = url;
   });
 }
 
@@ -121,6 +135,8 @@ export function VideoComposerPage() {
   const { activeWorkspace, activeWorkspaceId } = useWorkspace();
   const workspaceArgs = activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {};
   const projectId = searchParams.get("projectId") as Id<"videoProjects"> | null;
+  const renderRequestId = searchParams.get("renderRequestId") as Id<"studioRenderRequests"> | null;
+  const autoRenderRequested = searchParams.get("autoRender") === "1";
   const artifacts = useQuery(api.artifacts.records.list, {
     ...workspaceArgs,
     includeDebug: true,
@@ -131,13 +147,21 @@ export function VideoComposerPage() {
     api.content.videoProjects.get,
     projectId ? { id: projectId } : "skip"
   );
+  const currentRenderRequest = useQuery(
+    api.create.studioRenderRequests.get,
+    renderRequestId ? { id: renderRequestId } : "skip"
+  );
+  const renderWorkerAvailability = useQuery(api.create.studioRenderRequests.workerAvailability);
   const uploadMedia = useAction(api.storage.files.uploadBase64ImageWithMetadata);
   const createArtifact = useMutation(api.artifacts.records.create);
+  const completeStudioRenderRequest = useMutation(api.create.studioRenderRequests.complete);
+  const requestStudioRender = useMutation(api.create.studioRenderRequests.requestForProject);
   const createVideoProject = useMutation(api.content.videoProjects.create);
   const updateVideoProject = useMutation(api.content.videoProjects.update);
   const touchVideoProject = useMutation(api.content.videoProjects.touch);
   const archiveVideoProject = useMutation(api.content.videoProjects.archive);
   const [aspectRatio, setAspectRatio] = useState<CompositionAspectRatio>("9:16");
+  const [audioTracks, setAudioTracks] = useState<VideoComposerAudioTrack[]>([]);
   const [clips, setClips] = useState<VideoComposerClip[]>([]);
   const [selectedClipId, setSelectedClipId] = useState("");
   const [textOverlays, setTextOverlays] = useState<TimedTextOverlay[]>([]);
@@ -155,16 +179,17 @@ export function VideoComposerPage() {
   const [loadedProjectId, setLoadedProjectId] = useState("");
   const [autosaveStatus, setAutosaveStatus] = useState("Saved");
   const creatingSourceKeyRef = useRef("");
+  const autoRenderKeyRef = useRef("");
   const lastSavedSnapshotRef = useRef("");
 
-  const videoOutputs = useMemo(
+  const visualOutputs = useMemo(
     () =>
       [
         ...creativeAssetOutputsFromAssets(creativeAssets ?? []),
         ...createOutputsFromArtifacts(artifacts ?? []),
         ...workflowOutputsFromArtifacts(artifacts ?? []),
       ]
-        .filter(isVideoOutput)
+        .filter((output) => isVideoOutput(output) || isImageOutput(output))
         .sort((first, second) => second.createdAt - first.createdAt),
     [artifacts, creativeAssets]
   );
@@ -172,7 +197,7 @@ export function VideoComposerPage() {
   const selectedClip = clips.find((clip) => clip.id === selectedClipId);
   const selectedClipIndex = clips.findIndex((clip) => clip.id === selectedClipId);
   const selectedClipTrim = selectedClip ? normalizedClipTrim(selectedClip) : undefined;
-  const durationSeconds = compositionDuration(clips);
+  const durationSeconds = compositionTimelineDuration(clips, audioTracks);
   const dimensions = dimensionsForAspectRatio(aspectRatio);
   const loading = !artifacts || !creativeAssets;
   const projectsLoading = videoProjects === undefined;
@@ -220,7 +245,7 @@ export function VideoComposerPage() {
   useEffect(() => {
     if (projectId || loading || !incomingSource) return;
     if (creatingSourceKeyRef.current === incomingSource.identity) return;
-    const output = videoOutputs.find((candidate) =>
+    const output = visualOutputs.find((candidate) =>
       sourceParamMatches(candidate, incomingSource.key, incomingSource.value)
     );
     if (!output) return;
@@ -231,7 +256,7 @@ export function VideoComposerPage() {
       clips: [clip],
     };
     void createProject(draft, `${output.title} edit`);
-  }, [incomingSource, loading, projectId, videoOutputs]);
+  }, [incomingSource, loading, projectId, visualOutputs]);
 
   useEffect(() => {
     if (!projectId) {
@@ -250,6 +275,7 @@ export function VideoComposerPage() {
       ...(currentProject.draft as Partial<VideoCompositionDraft> | undefined),
     };
     setAspectRatio(draft.aspectRatio);
+    setAudioTracks(draft.audioTracks ?? []);
     setClips(draft.clips);
     setTextOverlays(draft.textOverlays);
     setTitle(currentProject.title);
@@ -272,6 +298,7 @@ export function VideoComposerPage() {
     if (!projectId || loadedProjectId !== projectId || currentProject === undefined || !currentProject) return;
     const draft: VideoCompositionDraft = {
       aspectRatio,
+      audioTracks,
       clips,
       textOverlays,
     };
@@ -302,6 +329,7 @@ export function VideoComposerPage() {
     return () => window.clearTimeout(timeoutId);
   }, [
     aspectRatio,
+    audioTracks,
     clips,
     currentProject,
     loadedProjectId,
@@ -312,7 +340,29 @@ export function VideoComposerPage() {
   ]);
 
   useEffect(() => {
-    const missingDurationClips = clips.filter((clip) => !clip.durationSeconds);
+    if (!currentRenderRequest) return;
+    const progressPercent = typeof currentRenderRequest.progress === "number"
+      ? Math.round(Math.max(0, Math.min(1, currentRenderRequest.progress)) * 100)
+      : undefined;
+    if (currentRenderRequest.status === "queued") {
+      setStatus(progressPercent !== undefined ? `Server render queued (${progressPercent}%)...` : "Server render queued...");
+    } else if (currentRenderRequest.status === "rendering") {
+      setStatus(progressPercent !== undefined
+        ? `${currentRenderRequest.progressMessage ?? "Server render in progress"} (${progressPercent}%)...`
+        : "Server render in progress...");
+    } else if (currentRenderRequest.status === "completed") {
+      setStatus("Server render complete. The finished video is saved in Library.");
+    } else if (currentRenderRequest.status === "failed") {
+      setStatus(currentRenderRequest.errorMessage ?? "Server render failed.");
+    } else if (currentRenderRequest.status === "blocked") {
+      setStatus("Server render worker is not configured. Browser export is available.");
+    }
+  }, [currentRenderRequest]);
+
+  useEffect(() => {
+    const missingDurationClips = clips.filter((clip) =>
+      !clip.durationSeconds && mediaKindForClip(clip) !== "image"
+    );
     if (!missingDurationClips.length) return;
     let canceled = false;
     for (const clip of missingDurationClips) {
@@ -336,8 +386,33 @@ export function VideoComposerPage() {
     };
   }, [clips]);
 
+  useEffect(() => {
+    const missingDurationTracks = audioTracks.filter((track) => !track.durationSeconds);
+    if (!missingDurationTracks.length) return;
+    let canceled = false;
+    for (const track of missingDurationTracks) {
+      void audioDurationForUrl(track.storageUrl).then((durationSeconds) => {
+        if (canceled || !durationSeconds) return;
+        setAudioTracks((current) =>
+          current.map((currentTrack) =>
+            currentTrack.id === track.id
+              ? {
+                  ...currentTrack,
+                  durationSeconds,
+                  trimEndSeconds: currentTrack.trimEndSeconds ?? durationSeconds,
+                }
+              : currentTrack
+          )
+        );
+      });
+    }
+    return () => {
+      canceled = true;
+    };
+  }, [audioTracks]);
+
   const addSelectedClip = () => {
-    const output = videoOutputs.find((candidate) => candidate.id === selectedAssetId);
+    const output = visualOutputs.find((candidate) => candidate.id === selectedAssetId);
     if (!output) return;
     const clip = clipFromLibraryOutput(output);
     setClips((current) => [...current, clip]);
@@ -408,17 +483,20 @@ export function VideoComposerPage() {
     setSelectedTextId(overlay.id ?? "");
   };
 
-  const exportComposition = async () => {
+  const currentDraft = (): VideoCompositionDraft => ({
+    aspectRatio,
+    audioTracks,
+    clips,
+    textOverlays,
+  });
+
+  const exportCompositionInBrowser = async () => {
     if (clips.length === 0) return;
     setIsExporting(true);
     setStatus("Rendering edit in this browser...");
     setExportProgress(0);
     try {
-      const draft: VideoCompositionDraft = {
-        aspectRatio,
-        clips,
-        textOverlays,
-      };
+      const draft = currentDraft();
       const blob = await renderVideoCompositionToBlob(draft, {
         onProgress: (progress) => setExportProgress(progress.progress),
       });
@@ -431,6 +509,7 @@ export function VideoComposerPage() {
         workspaceId: activeWorkspaceId as Id<"workspaces"> | undefined,
         parentArtifactIds: clips
           .map((clip) => clip.artifactId)
+          .concat(audioTracks.map((track) => track.artifactId))
           .filter((artifactId): artifactId is Id<"artifacts"> => Boolean(artifactId)),
         type: "video",
         title: title.trim() || "Composed video",
@@ -447,17 +526,98 @@ export function VideoComposerPage() {
           composition: draft,
           sourceCreativeAssetIds: clips
             .map((clip) => clip.creativeAssetId)
+            .concat(audioTracks.map((track) => track.creativeAssetId))
             .filter(Boolean)
             .map(String),
         },
       });
-      setStatus(`Saved composed video to Library (${String(artifactId).slice(-6)}).`);
+      if (currentRenderRequest && currentRenderRequest.status !== "completed" && projectId) {
+        await completeStudioRenderRequest({
+          id: currentRenderRequest._id,
+          projectId,
+          outputArtifactId: artifactId,
+        });
+        setStatus(`Completed Create render request and saved video to Library (${String(artifactId).slice(-6)}).`);
+      } else {
+        setStatus(`Saved composed video to Library (${String(artifactId).slice(-6)}).`);
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to export video");
     } finally {
       setIsExporting(false);
     }
   };
+
+  const exportComposition = async () => {
+    if (clips.length === 0) return;
+    const shouldUseBrowserFallback =
+      !projectId ||
+      renderWorkerAvailability?.configured === false ||
+      Boolean(currentRenderRequest && currentRenderRequest.status !== "completed");
+
+    if (shouldUseBrowserFallback) {
+      await exportCompositionInBrowser();
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress(0);
+    setStatus("Queuing server render...");
+    try {
+      const draft = currentDraft();
+      await updateVideoProject({
+        id: projectId,
+        title,
+        draft,
+      });
+      lastSavedSnapshotRef.current = JSON.stringify({ title, draft });
+      setAutosaveStatus(`Saved ${new Date().toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })}`);
+      const request = await requestStudioRender({
+        projectId,
+        renderSettings: { fps: 30 },
+      });
+      if (request.status === "queued") {
+        navigate(
+          `/studio?projectId=${encodeURIComponent(String(projectId))}&renderRequestId=${encodeURIComponent(String(request.requestId))}`,
+          { replace: true }
+        );
+        setStatus("Server render queued. The finished MP4 will appear in Library when it completes.");
+        return;
+      }
+      setStatus("Server render worker is not configured; rendering in this browser...");
+      await exportCompositionInBrowser();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to export video");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!autoRenderRequested || !projectId || !renderRequestId) return;
+    if (!currentRenderRequest || currentRenderRequest.status === "completed") return;
+    if (currentProject === undefined || !currentProject || loadedProjectId !== projectId) return;
+    if (isExporting || clips.length === 0) return;
+
+    const key = `${projectId}:${renderRequestId}:${clips.length}:${durationSeconds}`;
+    if (autoRenderKeyRef.current === key) return;
+    autoRenderKeyRef.current = key;
+    setStatus("Auto-rendering Create request in this browser...");
+    void exportCompositionInBrowser();
+  }, [
+    autoRenderRequested,
+    clips.length,
+    currentProject,
+    currentRenderRequest,
+    durationSeconds,
+    isExporting,
+    loadedProjectId,
+    projectId,
+    renderRequestId,
+  ]);
 
   if (!projectId) {
     if (incomingSource) {
@@ -507,7 +667,7 @@ export function VideoComposerPage() {
             </button>
             <span className="font-[820] text-[var(--color-ink)]">Video Studio</span>
             <span>{activeWorkspace?.name ?? "Workspace"}</span>
-            <span>{clips.length} clip{clips.length === 1 ? "" : "s"} · {formatTimelineTime(durationSeconds)}</span>
+            <span>{clips.length} visual{clips.length === 1 ? "" : "s"} · {formatTimelineTime(durationSeconds)}</span>
           </div>
           <input
             className="mx-auto h-8 w-full max-w-[24rem] rounded-[0.35rem] border border-[var(--color-border)] bg-[var(--color-page)] px-3 text-center text-[0.82rem] font-[760] text-[var(--color-ink)] outline-none focus:border-[var(--color-primary)]"
@@ -530,14 +690,16 @@ export function VideoComposerPage() {
               type="button"
             >
               {isExporting ? <LoadingSignal label="Exporting" size="sm" /> : <Upload size={15} />}
-              Export
+              {currentRenderRequest && currentRenderRequest.status !== "completed"
+                ? "Complete Render"
+                : "Export"}
             </button>
           </div>
         </header>
 
         {loading ? (
           <div className="grid place-items-center text-[0.86rem] font-[720] text-[var(--color-ink-muted)]">
-            <LoadingSignal label="Loading videos" showLabel size="sm" />
+            <LoadingSignal label="Loading media" showLabel size="sm" />
           </div>
         ) : (
           <div className="grid min-h-0 grid-cols-[20rem_minmax(0,1fr)_22rem] gap-1 bg-[var(--color-border)] p-1">
@@ -571,20 +733,20 @@ export function VideoComposerPage() {
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="m-0 text-[0.9rem] font-[820] text-[var(--color-ink)]">Media</h2>
                   <span className="text-[0.72rem] font-[760] text-[var(--color-ink-muted)]">
-                    {videoOutputs.length}
+                    {visualOutputs.length}
                   </span>
                 </div>
                 <div className="grid gap-2">
                   <CustomSelect
                     dropdownClassName="!bg-[var(--color-surface)] !text-[var(--color-ink)]"
                     onChange={setSelectedAssetId}
-                    options={videoOutputs.map((output) => ({
+                    options={visualOutputs.map((output) => ({
                       value: output.id,
                       label: output.title,
                       description: output.source.replace(/_/g, " "),
-                      meta: output.type,
+                      meta: isImageOutput(output) ? "image" : "video",
                     }))}
-                    placeholder="Choose video"
+                    placeholder="Choose media"
                     rich
                     triggerClassName="grid min-h-9 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[0.35rem] border border-[var(--color-border)] bg-[var(--color-page)] px-3 py-2 text-left text-[0.8rem] font-[720] text-[var(--color-ink)] outline-none hover:border-[var(--color-border-strong)]"
                     value={selectedAssetId}
@@ -601,7 +763,7 @@ export function VideoComposerPage() {
                 </div>
                 <div className="min-h-0 overflow-y-auto">
                   <div className="grid grid-cols-2 gap-2">
-                    {videoOutputs.slice(0, 12).map((output) => (
+                    {visualOutputs.slice(0, 12).map((output) => (
                       <button
                         className={[
                           "grid overflow-hidden rounded-[0.45rem] border bg-[var(--color-page)] text-left transition hover:border-[var(--color-primary)]",
@@ -614,13 +776,21 @@ export function VideoComposerPage() {
                         type="button"
                       >
                         <span className="relative aspect-video overflow-hidden bg-[var(--color-page-quiet)]">
-                          <video
-                            className="h-full w-full object-cover"
-                            muted
-                            playsInline
-                            preload="metadata"
-                            src={output.storageUrl}
-                          />
+                          {isImageOutput(output) ? (
+                            <img
+                              alt={output.title}
+                              className="h-full w-full object-cover"
+                              src={output.storageUrl}
+                            />
+                          ) : (
+                            <video
+                              className="h-full w-full object-cover"
+                              muted
+                              playsInline
+                              preload="metadata"
+                              src={output.storageUrl}
+                            />
+                          )}
                         </span>
                         <span className="px-2 py-2 text-[0.72rem] font-[760] leading-tight text-[var(--color-ink)] [overflow-wrap:anywhere]">
                           {output.title}
@@ -641,6 +811,7 @@ export function VideoComposerPage() {
               </div>
               <div className="grid min-h-0 place-items-center p-3">
               <VideoComposerPreview
+                audioTracks={audioTracks}
                 aspectRatio={aspectRatio}
                 clips={clips}
                 isPlaying={isPreviewPlaying}
@@ -689,7 +860,7 @@ export function VideoComposerPage() {
               </div>
 
               <div className="grid gap-2">
-                <h3 className="m-0 text-[0.9rem] font-[820] text-[var(--color-ink)]">Video</h3>
+                <h3 className="m-0 text-[0.9rem] font-[820] text-[var(--color-ink)]">Visual</h3>
                 {selectedClip && selectedClipTrim ? (
                   <div className="grid gap-3 rounded-[0.35rem] border border-[var(--color-border)] bg-[var(--color-page)] p-3">
                     <div className="flex min-w-0 items-start justify-between gap-3">
@@ -750,7 +921,7 @@ export function VideoComposerPage() {
                   </div>
                 ) : (
                   <div className="rounded-[0.35rem] border border-[var(--color-border)] bg-[var(--color-page)] p-3 text-[0.78rem] font-[700] text-[var(--color-ink-muted)]">
-                    Select a timeline clip to trim it.
+                    Select a timeline visual to trim it.
                   </div>
                 )}
               </div>
@@ -901,6 +1072,7 @@ export function VideoComposerPage() {
           </div>
           <div className="min-h-0 overflow-hidden p-3">
             <VideoComposerTimeline
+              audioTracks={audioTracks}
               clips={clips}
               draggedClipId={draggedClipId}
               onDragEnd={() => setDraggedClipId("")}

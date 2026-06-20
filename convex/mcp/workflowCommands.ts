@@ -11,7 +11,7 @@ export type WorkflowGraphDoc = typeof workflowGraphValidator.type;
 export type WorkflowNodeDoc = WorkflowGraphDoc["nodes"][number];
 export type WorkflowEdgeDoc = WorkflowGraphDoc["edges"][number];
 
-export const DEFAULT_PUBLISHING_PROVIDER = "postiz";
+export const DEFAULT_PUBLISHING_PROVIDER = "post_bridge";
 
 export const workflowNodeValidator = v.object({
   id: v.string(),

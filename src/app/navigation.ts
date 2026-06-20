@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Link2,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   UserRound,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import {
 export const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/create", label: "Create", icon: Sparkles },
+  { to: "/tools", label: "Tools", icon: SlidersHorizontal },
   { to: "/analyze", label: "Analyze", icon: ScanSearch },
   { to: "/studio", label: "Studio", icon: Clapperboard },
   { to: "/brands", label: "Brands", icon: Building2 },

@@ -494,7 +494,7 @@ export const updateDistributionPlanStatus = mutation({
 export const publishDistributionPlan = action({
   args: {
     distributionPlanId: v.id("distributionPlans"),
-    mode: v.union(v.literal("schedule"), v.literal("now")),
+    mode: v.union(v.literal("draft"), v.literal("schedule"), v.literal("now")),
   },
   handler: async (ctx, args): Promise<unknown> => {
     requireUserId(await requireBetaAccessForAction(ctx));

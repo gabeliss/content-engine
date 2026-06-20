@@ -1,12 +1,15 @@
-import { Scissors, Trash2, Type } from "lucide-react";
+import { Music, Scissors, Trash2, Type } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TimelineRangeTrimHandles } from "./TimelineRangeTrimHandles";
 import {
+  audioTrackEndTime,
   clipDuration,
   clipStartTime,
   formatTimelineTime,
+  mediaKindForClip,
   normalizedClipTrim,
   type TimedTextOverlay,
+  type VideoComposerAudioTrack,
   type VideoComposerClip,
 } from "./videoComposerModel";
 
@@ -23,15 +26,18 @@ const TEXT_TRACK_COLORS = [
 const TIMELINE_SNAP_THRESHOLD_SECONDS = 0.12;
 
 function TimelineFilmstripFrame({
+  mediaKind,
   sourceUrl,
   timeSeconds,
 }: {
+  mediaKind: "image" | "video";
   sourceUrl: string;
   timeSeconds: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    if (mediaKind === "image") return undefined;
     const video = videoRef.current;
     if (!video) return undefined;
     const seekToFrame = () => {
@@ -43,7 +49,18 @@ function TimelineFilmstripFrame({
     }
     video.addEventListener("loadedmetadata", seekToFrame, { once: true });
     return () => video.removeEventListener("loadedmetadata", seekToFrame);
-  }, [sourceUrl, timeSeconds]);
+  }, [mediaKind, sourceUrl, timeSeconds]);
+
+  if (mediaKind === "image") {
+    return (
+      <img
+        alt=""
+        className="h-full w-full object-cover"
+        crossOrigin="anonymous"
+        src={sourceUrl}
+      />
+    );
+  }
 
   return (
     <video
@@ -68,6 +85,7 @@ function TimelineFilmstrip({
   const stripRef = useRef<HTMLDivElement>(null);
   const [frameCount, setFrameCount] = useState(1);
   const trim = normalizedClipTrim(clip);
+  const mediaKind = mediaKindForClip(clip);
   const trimmedDuration = Math.max(0.1, trim.endSeconds - trim.startSeconds);
 
   useEffect(() => {
@@ -106,7 +124,11 @@ function TimelineFilmstrip({
           className="min-w-0 overflow-hidden border-r border-[var(--color-surface)] last:border-r-0"
           key={`${clip.id}-${index}`}
         >
-          <TimelineFilmstripFrame sourceUrl={clip.storageUrl} timeSeconds={timeSeconds} />
+          <TimelineFilmstripFrame
+            mediaKind={mediaKind}
+            sourceUrl={clip.storageUrl}
+            timeSeconds={timeSeconds}
+          />
         </div>
       ))}
     </div>
@@ -114,6 +136,7 @@ function TimelineFilmstrip({
 }
 
 export function VideoComposerTimeline({
+  audioTracks,
   clips,
   draggedClipId,
   onDragEnd,
@@ -131,6 +154,7 @@ export function VideoComposerTimeline({
   textOverlays,
   totalDurationSeconds,
 }: {
+  audioTracks: VideoComposerAudioTrack[];
   clips: VideoComposerClip[];
   draggedClipId: string;
   onDragEnd: () => void;
@@ -170,8 +194,14 @@ export function VideoComposerTimeline({
       points.add(Number(start.toFixed(3)));
       points.add(Number(end.toFixed(3)));
     }
+    for (const track of audioTracks) {
+      const start = clamp(track.startSeconds ?? 0, 0, safeTotalDuration);
+      const end = clamp(audioTrackEndTime(track), start + 0.1, safeTotalDuration);
+      points.add(Number(start.toFixed(3)));
+      points.add(Number(end.toFixed(3)));
+    }
     return [...points].filter((point) => point >= 0 && point <= safeTotalDuration);
-  }, [clips, safeTotalDuration, textOverlays, ticks]);
+  }, [audioTracks, clips, safeTotalDuration, textOverlays, ticks]);
 
   const snapTimelineTime = (timeSeconds: number) => {
     let snapped = clamp(timeSeconds, 0, safeTotalDuration);
@@ -266,6 +296,34 @@ export function VideoComposerTimeline({
             </div>
 
             <div className="relative mt-2 grid gap-2">
+              <div className="relative h-9 overflow-hidden rounded-[0.45rem] bg-[var(--color-surface)]">
+                {audioTracks.length === 0 ? (
+                  <div className="grid h-full place-items-center text-[0.72rem] font-[720] text-[var(--color-ink-faint)]">
+                    Audio track
+                  </div>
+                ) : (
+                  audioTracks.map((track, index) => {
+                    const start = clamp(track.startSeconds ?? 0, 0, safeTotalDuration);
+                    const end = clamp(audioTrackEndTime(track), start + 0.1, safeTotalDuration);
+                    return (
+                      <div
+                        aria-label={track.title}
+                        className="absolute inset-y-1 inline-flex min-w-16 items-center gap-2 overflow-hidden rounded-[0.4rem] border border-[oklch(56%_0.12_210)] bg-[oklch(72%_0.11_210)] px-3 text-[0.76rem] font-[820] text-[var(--color-ink)] shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.3)]"
+                        key={track.id}
+                        style={{
+                          left: `${(start / safeTotalDuration) * 100}%`,
+                          width: `${((end - start) / safeTotalDuration) * 100}%`,
+                          top: `${Math.min(index, 2) * 0.12 + 0.25}rem`,
+                        }}
+                      >
+                        <Music size={14} />
+                        <span className="min-w-0 truncate">{track.title}</span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
               <div className="relative h-10 overflow-hidden rounded-[0.45rem] bg-[var(--color-surface)]">
                 {textOverlays.length === 0 ? (
                   <div className="grid h-full place-items-center text-[0.72rem] font-[720] text-[var(--color-ink-faint)]">
@@ -364,7 +422,7 @@ export function VideoComposerTimeline({
                     >
                       {selected ? (
                         <TimelineRangeTrimHandles
-                          maxSeconds={clip.durationSeconds ?? 0.1}
+                          maxSeconds={clip.durationSeconds ?? clipDuration(clip) ?? 0.1}
                           onChangeRange={(range) =>
                             onTrimClip(clip.id, {
                               trimEndSeconds: range.endSeconds,
@@ -389,7 +447,7 @@ export function VideoComposerTimeline({
                       <div className="relative z-10 mt-auto flex items-center justify-between gap-2 px-4 py-2">
                         <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-ink)]/70 px-2 py-1 text-[0.68rem] font-[760] text-[var(--color-surface)]">
                           <Scissors size={12} />
-                          trimmed
+                          {mediaKindForClip(clip) === "image" ? "still" : "trimmed"}
                         </span>
                         <button
                           aria-label={`Remove ${clip.title}`}

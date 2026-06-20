@@ -8,7 +8,17 @@ export type WorkflowId = Id<"workflows">;
 export type ContentRequestId = Id<"contentRequests">;
 
 export type PublishingProvider = "postiz" | "post_bridge" | "manual";
-export type Platform = "tiktok" | "instagram" | "youtube" | "x" | "linkedin";
+export type Platform =
+  | "tiktok"
+  | "instagram"
+  | "youtube"
+  | "x"
+  | "linkedin"
+  | "facebook"
+  | "threads"
+  | "pinterest"
+  | "bluesky"
+  | "google_business";
 export type ContentFormat =
   | "image"
   | "video"

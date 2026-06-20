@@ -1,11 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireBetaAccess } from "../auth/users";
 
-type SelectableMediaKind = "image" | "video" | "audio" | "media";
+export type SelectableMediaKind = "image" | "video" | "audio" | "media";
 
-type SelectableLibraryAsset = {
+export type SelectableLibraryAsset = {
   id: string;
   source: "create" | "workflow_export" | "creative_asset";
   sourceId: string;
@@ -180,6 +180,65 @@ function matchesBrand(asset: SelectableLibraryAsset, brandId?: Id<"brands">) {
   return !asset.brandId || asset.brandId === String(brandId);
 }
 
+export async function listSelectableLibraryAssets(
+  ctx: QueryCtx | MutationCtx,
+  args: {
+    brandId?: Id<"brands">;
+    mediaKind?: SelectableMediaKind;
+    userId: string;
+    workspaceId?: Id<"workspaces">;
+  }
+) {
+  if (args.workspaceId) {
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId!).eq("userId", args.userId)
+      )
+      .unique();
+    if (membership?.status !== "active") return [];
+  }
+
+  const [artifacts, creativeAssets] = await Promise.all([
+    args.workspaceId
+      ? ctx.db
+          .query("artifacts")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+          .collect()
+      : ctx.db
+          .query("artifacts")
+          .withIndex("by_user", (q) => q.eq("userId", args.userId))
+          .collect(),
+    args.workspaceId
+      ? ctx.db
+          .query("creativeAssets")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+          .collect()
+      : ctx.db
+          .query("creativeAssets")
+          .withIndex("by_user", (q) => q.eq("userId", args.userId))
+          .collect(),
+  ]);
+  const artifactsById = new Map(artifacts.map((artifact) => [
+    String(artifact._id),
+    artifact,
+  ]));
+
+  return [
+    ...artifacts.flatMap((artifact) => {
+      const createAsset = createAssetFromArtifact(artifact);
+      return createAsset ? [createAsset] : [];
+    }),
+    ...artifacts.flatMap((artifact) =>
+      workflowExportAssetsFromArtifacts(artifact, artifactsById)
+    ),
+    ...creativeAssets.map(creativeAssetToSelectable),
+  ]
+    .filter((asset) => matchesMediaKind(asset, args.mediaKind))
+    .filter((asset) => matchesBrand(asset, args.brandId))
+    .sort((first, second) => second.createdAt - first.createdAt);
+}
+
 export const listSelectable = query({
   args: {
     workspaceId: v.optional(v.id("workspaces")),
@@ -197,53 +256,9 @@ export const listSelectable = query({
     const identity = await requireBetaAccess(ctx);
     if (!identity) return [];
 
-    if (args.workspaceId) {
-      const membership = await ctx.db
-        .query("workspaceMembers")
-        .withIndex("by_workspace_user", (q) =>
-          q.eq("workspaceId", args.workspaceId!).eq("userId", identity.subject)
-        )
-        .unique();
-      if (membership?.status !== "active") return [];
-    }
-
-    const [artifacts, creativeAssets] = await Promise.all([
-      args.workspaceId
-        ? ctx.db
-            .query("artifacts")
-            .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-            .collect()
-        : ctx.db
-            .query("artifacts")
-            .withIndex("by_user", (q) => q.eq("userId", identity.subject))
-            .collect(),
-      args.workspaceId
-        ? ctx.db
-            .query("creativeAssets")
-            .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-            .collect()
-        : ctx.db
-            .query("creativeAssets")
-            .withIndex("by_user", (q) => q.eq("userId", identity.subject))
-            .collect(),
-    ]);
-    const artifactsById = new Map(artifacts.map((artifact) => [
-      String(artifact._id),
-      artifact,
-    ]));
-
-    return [
-      ...artifacts.flatMap((artifact) => {
-        const createAsset = createAssetFromArtifact(artifact);
-        return createAsset ? [createAsset] : [];
-      }),
-      ...artifacts.flatMap((artifact) =>
-        workflowExportAssetsFromArtifacts(artifact, artifactsById)
-      ),
-      ...creativeAssets.map(creativeAssetToSelectable),
-    ]
-      .filter((asset) => matchesMediaKind(asset, args.mediaKind))
-      .filter((asset) => matchesBrand(asset, args.brandId))
-      .sort((first, second) => second.createdAt - first.createdAt);
+    return await listSelectableLibraryAssets(ctx, {
+      ...args,
+      userId: identity.subject,
+    });
   },
 });

@@ -174,6 +174,7 @@ function normalizeTextBlock(value: unknown, slideIndex: number, blockIndex: numb
     x: clampNumber(requiredNumber(data.x, `slides[${slideIndex}].textBlocks[${blockIndex}].x`), 0, 88),
     y: clampNumber(requiredNumber(data.y, `slides[${slideIndex}].textBlocks[${blockIndex}].y`), 0, 92),
     width: clampNumber(requiredNumber(data.width, `slides[${slideIndex}].textBlocks[${blockIndex}].width`), 12, 96),
+    height: clampNumber(requiredNumber(data.height, `slides[${slideIndex}].textBlocks[${blockIndex}].height`), 4, 96),
     align: requiredTextAlign(data.align, `slides[${slideIndex}].textBlocks[${blockIndex}].align`),
     fontSize: clampNumber(requiredNumber(data.fontSize, `slides[${slideIndex}].textBlocks[${blockIndex}].fontSize`), 28, 128),
     fontWeight: [400, 500, 600, 700, 800, 900].includes(fontWeight) ? fontWeight : 800,

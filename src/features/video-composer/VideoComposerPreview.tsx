@@ -8,18 +8,23 @@ import {
 import type { TextOverlayBlock } from "../../lib/composition/textOverlays";
 import {
   activeTextOverlaysAtTime,
+  audioTrackEndTime,
   clampTimelineTime,
   clipAtTimelineTime,
   clipDuration,
-  compositionDuration,
+  compositionTimelineDuration,
   formatTimelineTime,
+  mediaKindForClip,
+  normalizedAudioTrim,
   normalizedClipTrim,
   type TimedTextOverlay,
+  type VideoComposerAudioTrack,
   type VideoComposerClip,
 } from "./videoComposerModel";
 import type { CompositionAspectRatio } from "../../lib/composition/aspectRatios";
 
 export function VideoComposerPreview({
+  audioTracks,
   aspectRatio,
   clips,
   isPlaying,
@@ -31,6 +36,7 @@ export function VideoComposerPreview({
   onSelectText,
   textOverlays,
 }: {
+  audioTracks: VideoComposerAudioTrack[];
   aspectRatio: CompositionAspectRatio;
   clips: VideoComposerClip[];
   isPlaying: boolean;
@@ -43,11 +49,12 @@ export function VideoComposerPreview({
   textOverlays: TimedTextOverlay[];
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
+  const audioRefs = useRef(new Map<string, HTMLAudioElement>());
   const videoRefs = useRef(new Map<string, HTMLVideoElement>());
   const activeClipIdRef = useRef("");
   const [stageScale, setStageScale] = useState(1);
   const dimensions = dimensionsForAspectRatio(aspectRatio);
-  const totalDuration = compositionDuration(clips);
+  const totalDuration = compositionTimelineDuration(clips, audioTracks);
   const timelineFrame = clipAtTimelineTime(clips, clampTimelineTime(clips, playheadSeconds));
   const activeClip = timelineFrame?.clip;
   const activeClipTrim = activeClip ? normalizedClipTrim(activeClip) : undefined;
@@ -79,6 +86,7 @@ export function VideoComposerPreview({
 
   useEffect(() => {
     if (!activeClip) return;
+    if (mediaKindForClip(activeClip) === "image") return;
     const video = videoRefs.current.get(activeClip.id);
     if (!video) return;
     const clipChanged = activeClipIdRef.current !== activeClip.id;
@@ -112,6 +120,64 @@ export function VideoComposerPreview({
     }
   }, [activeClip, isPlaying, onPlayingChange, sourceTime]);
 
+  useEffect(() => {
+    if (!activeClip || mediaKindForClip(activeClip) !== "image" || !isPlaying || !timelineFrame) return;
+    let animationFrame = 0;
+    const startedAt = performance.now();
+    const initialPlayheadSeconds = playheadSeconds;
+    const tick = () => {
+      const elapsedSeconds = (performance.now() - startedAt) / 1000;
+      const nextTime = initialPlayheadSeconds + elapsedSeconds;
+      const boundary = timelineFrame.clipStartSeconds + clipDuration(timelineFrame.clip);
+      if (nextTime >= boundary) {
+        if (boundary >= totalDuration) {
+          onPlayingChange(false);
+          onPlayheadChange(totalDuration);
+        } else {
+          onPlayheadChange(boundary);
+        }
+        return;
+      }
+      onPlayheadChange(nextTime);
+      animationFrame = requestAnimationFrame(tick);
+    };
+    animationFrame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [
+    activeClip,
+    isPlaying,
+    onPlayheadChange,
+    onPlayingChange,
+    playheadSeconds,
+    timelineFrame,
+    totalDuration,
+  ]);
+
+  useEffect(() => {
+    for (const track of audioTracks) {
+      const audio = audioRefs.current.get(track.id);
+      if (!audio) continue;
+      const durationSeconds = track.durationSeconds ?? audio.duration;
+      const trackEnd = audioTrackEndTime({ ...track, durationSeconds });
+      const trim = normalizedAudioTrim({ ...track, durationSeconds });
+      const isActive = isPlaying &&
+        playheadSeconds >= track.startSeconds &&
+        playheadSeconds <= trackEnd;
+
+      if (!isActive) {
+        audio.pause();
+        continue;
+      }
+
+      const sourceTime = trim.startSeconds + (playheadSeconds - track.startSeconds);
+      audio.volume = Math.max(0, Math.min(1, track.volume ?? 1));
+      if (Number.isFinite(sourceTime) && Math.abs(audio.currentTime - sourceTime) > 0.12) {
+        audio.currentTime = Math.max(trim.startSeconds, Math.min(trim.endSeconds, sourceTime));
+      }
+      void audio.play().catch(() => onPlayingChange(false));
+    }
+  }, [audioTracks, isPlaying, onPlayingChange, playheadSeconds]);
+
   return (
     <div className="grid min-w-0 gap-3">
       <div
@@ -121,62 +187,77 @@ export function VideoComposerPreview({
         style={{ aspectRatio: cssAspectRatio(dimensions) }}
       >
         {clips.length > 0 ? (
-          clips.map((clip) => (
-            <video
-              className={[
-                "absolute inset-0 h-full w-full object-cover transition-opacity duration-75",
-                activeClip?.id === clip.id ? "opacity-100" : "opacity-0",
-              ].join(" ")}
-              crossOrigin="anonymous"
-              key={clip.id}
-              muted={false}
-              onEnded={() => {
-                if (activeClip?.id !== clip.id) return;
-                const nextTime = timelineFrame
-                  ? timelineFrame.clipStartSeconds + clipDuration(timelineFrame.clip)
-                  : clampTimelineTime(clips, playheadSeconds + 0.05);
-                if (nextTime >= totalDuration) {
-                  onPlayingChange(false);
-                  onPlayheadChange(totalDuration);
-                  return;
-                }
-                onPlayheadChange(nextTime);
-              }}
-              onTimeUpdate={(event) => {
-                if (activeClip?.id !== clip.id || !activeClipTrim || !timelineFrame) return;
-                const localSeconds = Math.max(
-                  0,
-                  event.currentTarget.currentTime - activeClipTrim.startSeconds
-                );
-                const nextTime = timelineFrame.clipStartSeconds + localSeconds;
-                if (event.currentTarget.currentTime >= activeClipTrim.endSeconds) {
-                  const boundary = timelineFrame.clipStartSeconds +
-                    (activeClipTrim.endSeconds - activeClipTrim.startSeconds);
-                  if (boundary >= totalDuration) {
+          clips.map((clip) => {
+            const className = [
+              "absolute inset-0 h-full w-full object-cover transition-opacity duration-75",
+              activeClip?.id === clip.id ? "opacity-100" : "opacity-0",
+            ].join(" ");
+            if (mediaKindForClip(clip) === "image") {
+              return (
+                <img
+                  alt={clip.title}
+                  className={className}
+                  crossOrigin="anonymous"
+                  key={clip.id}
+                  src={clip.storageUrl}
+                />
+              );
+            }
+
+            return (
+              <video
+                className={className}
+                crossOrigin="anonymous"
+                key={clip.id}
+                muted={false}
+                onEnded={() => {
+                  if (activeClip?.id !== clip.id) return;
+                  const nextTime = timelineFrame
+                    ? timelineFrame.clipStartSeconds + clipDuration(timelineFrame.clip)
+                    : clampTimelineTime(clips, playheadSeconds + 0.05);
+                  if (nextTime >= totalDuration) {
                     onPlayingChange(false);
                     onPlayheadChange(totalDuration);
-                  } else {
-                    onPlayheadChange(boundary);
+                    return;
                   }
-                  return;
-                }
-                onPlayheadChange(clampTimelineTime(clips, nextTime));
-              }}
-              playsInline
-              preload="auto"
-              ref={(node) => {
-                if (node) {
-                  videoRefs.current.set(clip.id, node);
-                } else {
-                  videoRefs.current.delete(clip.id);
-                }
-              }}
-              src={clip.storageUrl}
-            />
-          ))
+                  onPlayheadChange(nextTime);
+                }}
+                onTimeUpdate={(event) => {
+                  if (activeClip?.id !== clip.id || !activeClipTrim || !timelineFrame) return;
+                  const localSeconds = Math.max(
+                    0,
+                    event.currentTarget.currentTime - activeClipTrim.startSeconds
+                  );
+                  const nextTime = timelineFrame.clipStartSeconds + localSeconds;
+                  if (event.currentTarget.currentTime >= activeClipTrim.endSeconds) {
+                    const boundary = timelineFrame.clipStartSeconds +
+                      (activeClipTrim.endSeconds - activeClipTrim.startSeconds);
+                    if (boundary >= totalDuration) {
+                      onPlayingChange(false);
+                      onPlayheadChange(totalDuration);
+                    } else {
+                      onPlayheadChange(boundary);
+                    }
+                    return;
+                  }
+                  onPlayheadChange(clampTimelineTime(clips, nextTime));
+                }}
+                playsInline
+                preload="auto"
+                ref={(node) => {
+                  if (node) {
+                    videoRefs.current.set(clip.id, node);
+                  } else {
+                    videoRefs.current.delete(clip.id);
+                  }
+                }}
+                src={clip.storageUrl}
+              />
+            );
+          })
         ) : (
           <div className="grid h-full place-items-center px-6 text-center text-[0.92rem] font-[680] text-white/70">
-            Add a video clip to start composing.
+            Add media to start composing.
           </div>
         )}
         <div className="pointer-events-none absolute inset-0 bg-black/10" />
@@ -217,6 +298,21 @@ export function VideoComposerPreview({
             <Play fill="currentColor" size={28} />
           </button>
         ) : null}
+        {audioTracks.map((track) => (
+          <audio
+            crossOrigin="anonymous"
+            key={track.id}
+            preload="auto"
+            ref={(node) => {
+              if (node) {
+                audioRefs.current.set(track.id, node);
+              } else {
+                audioRefs.current.delete(track.id);
+              }
+            }}
+            src={track.storageUrl}
+          />
+        ))}
       </div>
       <div className="mx-auto grid w-full max-w-[34rem] gap-2">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">

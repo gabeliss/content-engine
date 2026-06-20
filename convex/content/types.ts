@@ -227,6 +227,7 @@ const overlayTextBlockSchema = {
     "x",
     "y",
     "width",
+    "height",
     "align",
     "fontSize",
     "fontWeight",
