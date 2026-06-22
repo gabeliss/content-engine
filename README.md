@@ -41,9 +41,16 @@ Use Node 20. Convex is configured for Node 20 in `convex.json`.
 ```sh
 npm install
 cp .env.example .env.local
+npm run convex:dev
 ```
 
-Fill in the browser-visible variables in `.env.local`:
+The first `npm run convex:dev` links the checkout to a Convex project and writes
+the local deployment selector to `.env.local`. If you are joining an existing
+team project, choose that project when prompted; Convex gives each developer
+their own dev deployment by default.
+
+Fill in the browser-visible variables in `.env.local` from your Convex and Clerk
+dashboards:
 
 ```sh
 VITE_CONVEX_URL=...
@@ -51,13 +58,15 @@ VITE_CONVEX_SITE_URL=...
 VITE_CLERK_PUBLISHABLE_KEY=...
 ```
 
-Set server-side secrets in the Convex deployment, not with a `VITE_` prefix:
+Set server-side secrets in your Convex dev deployment, not with a `VITE_`
+prefix:
 
 ```sh
 npx convex env set CLERK_JWT_ISSUER_DOMAIN "https://..."
-npx convex env set GEMINI_API_KEY "..."
-npx convex env set FAL_API_KEY "..."
+npx convex env set BETA_ACCESS_EMAILS "you@example.com"
 npx convex env set OPENROUTER_API_KEY "..."
+npx convex env set FAL_API_KEY "..."
+npx convex env set GEMINI_API_KEY "..."
 npx convex env set BULKAPIS_API_KEY "..."
 npx convex env set POSTIZ_API_KEY "..."
 ```
@@ -65,6 +74,18 @@ npx convex env set POSTIZ_API_KEY "..."
 Only set provider secrets you need for the workflows you are testing. See
 [`docs/platform-architecture.md`](docs/platform-architecture.md) for the full
 environment-variable list and provider routing notes.
+
+### Teammate Development
+
+Invite teammates to the GitHub repository and to the Convex team as Developers.
+When they clone the repo and run `npm run convex:dev`, they should link to the
+existing team project and use their own Convex dev deployment. Their data,
+storage, and server-side environment variables are deployment-specific, so they
+must set provider keys for their dev deployment or use Convex project defaults.
+
+The Create chat agent uses OpenRouter for planning/text and fal.ai as the default
+media provider, so local agent-based generation typically needs both
+`OPENROUTER_API_KEY` and `FAL_API_KEY` in that teammate's Convex dev deployment.
 
 ## Local Development
 
