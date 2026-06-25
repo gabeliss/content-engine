@@ -42,7 +42,8 @@ function visibleChatArtifacts(artifacts: AgentCreateArtifact[] = []) {
   return artifacts.filter((artifact) =>
     artifact.status !== "generating" &&
     artifact.status !== "placeholder" &&
-    artifact.status !== "failed"
+    artifact.status !== "failed" &&
+    !(artifact.kind === "document" && artifact.text?.trim())
   );
 }
 
@@ -194,7 +195,26 @@ function AgentMessageWorkLog({
   );
 }
 
-function ThinkingMessage() {
+function ThinkingMessage({
+  step,
+}: {
+  step?: AgentCreateToolProgressStep;
+}) {
+  if (step) {
+    return (
+      <article className="grid min-w-0 justify-items-start">
+        <div className="grid w-full max-w-[min(48rem,100%)] min-w-0 gap-[var(--space-3)]">
+          <AgentMessageWorkLog
+            defaultOpen
+            isWorking
+            startedAt={step.createdAt}
+            steps={[step]}
+          />
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article className="grid min-w-0 justify-items-start">
       <div className="inline-flex min-h-9 items-center gap-2 rounded-full bg-[var(--color-page-quiet)] px-[var(--space-3)] text-[0.88rem] font-[690] text-[var(--color-ink-muted)]">
@@ -224,6 +244,7 @@ export function AgentCreateMessageList({
   onArtifactOpen,
   onArtifactOpenStudio,
   onArtifactSave,
+  activeThinkingStep,
   showThinkingPlaceholder = false,
   workingMessageId,
   threadKey,
@@ -236,6 +257,7 @@ export function AgentCreateMessageList({
   onArtifactOpen?: (artifact: AgentCreateArtifact) => void;
   onArtifactOpenStudio?: (artifact: AgentCreateArtifact) => void;
   onArtifactSave?: (artifact: AgentCreateArtifact) => void;
+  activeThinkingStep?: AgentCreateToolProgressStep;
   showThinkingPlaceholder?: boolean;
   workingMessageId?: string;
   threadKey?: string | null;
@@ -292,7 +314,10 @@ export function AgentCreateMessageList({
           const isUser = message.role === "user";
           const isSystem = message.role === "system";
           const artifacts = visibleChatArtifacts(message.artifacts);
-          const showWorkLog = !isUser && (Boolean(message.toolSteps?.length) || workingMessageId === message.id);
+          const steps = workingMessageId === message.id && activeThinkingStep
+            ? [...(message.toolSteps ?? []), activeThinkingStep]
+            : message.toolSteps;
+          const showWorkLog = !isUser && (Boolean(steps?.length) || workingMessageId === message.id);
           const content = showWorkLog ? stripRedundantPlan(message.content) : message.content;
           const previousUserMessage = !isUser
             ? messages
@@ -325,7 +350,7 @@ export function AgentCreateMessageList({
                     isWorking={workingMessageId === message.id}
                     onArtifactOpen={onArtifactOpen}
                     startedAt={previousUserMessage?.createdAt}
-                    steps={message.toolSteps}
+                    steps={steps}
                   />
                 ) : null}
 
@@ -381,7 +406,7 @@ export function AgentCreateMessageList({
             </article>
           );
         })}
-        {showThinkingPlaceholder ? <ThinkingMessage /> : null}
+        {showThinkingPlaceholder ? <ThinkingMessage step={activeThinkingStep} /> : null}
       </div>
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />
     </>

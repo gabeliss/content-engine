@@ -202,10 +202,10 @@ const toolDefinitions = [
       costUsd: "Provider cost estimate when available.",
     }),
     checkpoint: {
-      behavior: "after",
-      defaultInDebugMode: true,
+      behavior: "none",
+      defaultInDebugMode: false,
       label: "Review text",
-      description: "Show generated scripts, captions, or outlines before downstream production steps.",
+      description: "Generated scripts, captions, and outlines are shown in the work log without pausing the agent loop.",
     },
     artifactBehavior: {
       emitsArtifacts: true,

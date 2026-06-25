@@ -13,7 +13,6 @@ import { getModelProvider } from "../providers";
 import type { ModelProviderName } from "../providers/model";
 import { waitForGeneratedVideo } from "../workflows/runtime/generationWaiters";
 import {
-  artifactDurationSeconds,
   artifactMediaKind,
   artifactMimeType,
   isRecord,
@@ -517,6 +516,8 @@ export const completeTextGeneration = internalMutation({
       await executeRunnableQueuedTools(ctx, thread);
       return;
     }
+
+    if (await continueAgentLoopAfterToolCompletion(ctx, thread)) return;
 
     await ctx.db.patch(thread._id, {
       status: "ready",
@@ -1727,7 +1728,7 @@ async function readyUnreviewedArtifactIdsForThread(
       .collect();
     artifactIds.push(
       ...artifacts.flatMap((artifact) =>
-        artifact.storageUrl &&
+        shouldReviewGeneratedArtifact(artifact) &&
         !reviewedArtifactIds.has(String(artifact._id)) &&
         (thread.workspaceId ? artifact.workspaceId === thread.workspaceId : artifact.userId === thread.userId)
           ? [artifact._id]
@@ -1746,6 +1747,7 @@ async function readyUnreviewedArtifactIdsForThread(
       const artifact = await ctx.db.get(artifactId);
       if (
         artifact &&
+        shouldReviewGeneratedArtifact(artifact) &&
         (thread.workspaceId ? artifact.workspaceId === thread.workspaceId : artifact.userId === thread.userId)
       ) {
         artifactIds.push(artifact._id);
@@ -1754,6 +1756,18 @@ async function readyUnreviewedArtifactIdsForThread(
   }
 
   return [...new Set(artifactIds)];
+}
+
+function shouldReviewGeneratedArtifact(artifact: Doc<"artifacts">) {
+  const data = isRecord(artifact.data) ? artifact.data : {};
+  const mimeType = typeof data.mimeType === "string" ? data.mimeType : "";
+  return Boolean(artifact.storageUrl) &&
+    (
+      artifact.type === "image" ||
+      artifact.type === "video" ||
+      mimeType.startsWith("audio/") ||
+      data.kind === "audio"
+    );
 }
 
 async function createDebugReadyOutputCheckpointIfNeeded(
@@ -1786,6 +1800,47 @@ async function createDebugReadyOutputCheckpointIfNeeded(
   await ctx.db.patch(thread._id, {
     status: "waiting_for_user",
     updatedAt: now,
+  });
+
+  return true;
+}
+
+async function latestUserMessageForThread(
+  ctx: MutationCtx,
+  thread: Doc<"createThreads">
+) {
+  const messages = await ctx.db
+    .query("createMessages")
+    .withIndex("by_thread", (q) => q.eq("createThreadId", thread._id))
+    .collect();
+
+  return [...messages]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .find((message) => message.role === "user");
+}
+
+async function continueAgentLoopAfterToolCompletion(
+  ctx: MutationCtx,
+  thread: Doc<"createThreads">
+) {
+  if (await hasOpenCheckpoint(ctx, thread)) return false;
+
+  const latestUserMessage = await latestUserMessageForThread(ctx, thread);
+  if (!latestUserMessage) return false;
+
+  const now = Date.now();
+  await appendAgentMessage(ctx, thread, {
+    content: "Thinking through the next step.",
+    kind: "status",
+  });
+  await ctx.db.patch(thread._id, {
+    status: "planning",
+    updatedAt: now,
+  });
+  await ctx.scheduler.runAfter(0, internal.create.agent.decideAgentTurn, {
+    checkpointMode: thread.checkpointMode,
+    threadId: thread._id,
+    userMessageId: latestUserMessage._id,
   });
 
   return true;
@@ -2230,7 +2285,7 @@ export async function executeRunnableQueuedTools(
     .order("asc")
     .collect();
 
-  if (queuedToolCalls.length && await createDebugReadyOutputCheckpointIfNeeded(ctx, thread)) {
+  if (await createDebugReadyOutputCheckpointIfNeeded(ctx, thread)) {
     return { executedCount: 0, queuedCount: queuedToolCalls.length, checkpointCreated: true };
   }
 
@@ -2428,10 +2483,34 @@ export async function executeRunnableQueuedTools(
       q.eq("createThreadId", thread._id).eq("status", "blocked")
     )
     .collect();
+  const runningToolCalls = await ctx.db
+    .query("createToolCalls")
+    .withIndex("by_thread_status", (q) =>
+      q.eq("createThreadId", thread._id).eq("status", "running")
+    )
+    .collect();
+
+  if (
+    !remainingQueuedToolCalls.length &&
+    !blockedToolCalls.length &&
+    !runningToolCalls.length &&
+    (
+      executedCount > 0 ||
+      thread.status === "planning" ||
+      thread.status === "running" ||
+      thread.status === "waiting_for_user"
+    ) &&
+    !pausedForPendingAnalysis &&
+    !pausedForPendingContent &&
+    await continueAgentLoopAfterToolCompletion(ctx, thread)
+  ) {
+    return { executedCount, queuedCount: 0, continuedAgentLoop: true };
+  }
+
   await ctx.db.patch(thread._id, {
     status: blockedToolCalls.length
       ? "waiting_for_user"
-      : remainingQueuedToolCalls.length
+      : runningToolCalls.length || remainingQueuedToolCalls.length
         ? "planning"
         : "idle",
     updatedAt: now,

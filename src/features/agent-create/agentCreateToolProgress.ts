@@ -137,36 +137,6 @@ export function pendingStudioRenderStatus(status: string): AgentCreateToolStatus
   return undefined;
 }
 
-function promptFromToolInput(inputValue: unknown) {
-  const input = recordFromUnknown(inputValue);
-  return (
-    (typeof input.prompt === "string" && input.prompt.trim()) ||
-    (typeof input.text === "string" && input.text.trim()) ||
-    ""
-  );
-}
-
-function promptDraftLabel(toolName: string) {
-  if (toolName === "media.generateImage") return "Draft the image prompt";
-  if (toolName === "media.generateVideo") return "Draft the video prompt";
-  if (toolName === "media.renderVideo") return "Draft the render prompt";
-  if (toolName === "media.generateAudio") return "Draft the audio prompt";
-  if (toolName === "media.lipsync") return "Draft the lip-sync prompt";
-  if (toolName === "text.generate") return "Draft the text prompt";
-  return "Draft the prompt";
-}
-
-function shouldShowPromptDraftStep(toolName: string) {
-  return (
-    toolName === "media.generateImage" ||
-    toolName === "media.generateVideo" ||
-    toolName === "media.renderVideo" ||
-    toolName === "media.generateAudio" ||
-    toolName === "media.lipsync" ||
-    toolName === "text.generate"
-  );
-}
-
 export function toolProgressStepsForCall(args: {
   asyncState?: AsyncToolState;
   defaultProviders?: AgentCreateDefaultProviders;
@@ -177,18 +147,6 @@ export function toolProgressStepsForCall(args: {
   const status = asyncState?.status ?? toolCall.status;
   const errorMessage = asyncState?.errorMessage ?? toolCall.errorMessage;
   const steps: AgentCreateToolProgressStep[] = [];
-  const prompt = promptFromToolInput(toolCall.input);
-
-  if (prompt && shouldShowPromptDraftStep(toolCall.toolName)) {
-    steps.push({
-      id: `${toolCall._id}:prompt`,
-      label: promptDraftLabel(toolCall.toolName),
-      status: "succeeded",
-      detail: prompt.replace(/\s+/g, " "),
-      createdAt: toolCall.createdAt,
-      completedAt: toolCall.startedAt ?? toolCall.createdAt,
-    });
-  }
 
   steps.push({
     id: toolCall._id,

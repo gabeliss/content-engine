@@ -78,8 +78,14 @@ export function ToolProgressTimeline({
           const resultArtifacts = (step.artifacts ?? []).filter((artifact) =>
             artifact.status === "ready" &&
             !artifact.id.startsWith("studio:") &&
-            artifact.url !== undefined &&
-            !artifact.url.startsWith("/studio")
+            !artifact.url?.startsWith("/studio")
+          );
+          const textArtifacts = resultArtifacts.filter((artifact) =>
+            artifact.kind === "document" && artifact.text?.trim()
+          );
+          const mediaArtifacts = resultArtifacts.filter((artifact) =>
+            Boolean(artifact.url ?? artifact.thumbnailUrl) &&
+            (artifact.kind === "image" || artifact.kind === "video")
           );
 
           return (
@@ -147,7 +153,31 @@ export function ToolProgressTimeline({
                   Retry
                 </button>
               ) : null}
-              {resultArtifacts.length ? (
+              {textArtifacts.length ? (
+                <div className="mt-2 grid min-w-0 gap-2">
+                  {textArtifacts.map((artifact) => (
+                    <article
+                      className="grid min-w-0 gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-3)]"
+                      key={artifact.id}
+                    >
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <strong className="min-w-0 truncate text-[0.78rem] font-[780] text-[var(--color-ink)]">
+                          {artifact.title}
+                        </strong>
+                        {artifact.modelLabel ? (
+                          <span className="rounded-full bg-[var(--color-page-quiet)] px-2 py-0.5 text-[0.66rem] font-[760] text-[var(--color-ink-soft)]">
+                            {artifact.modelLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                      <pre className="m-0 max-h-[28rem] overflow-auto whitespace-pre-wrap break-words text-[0.74rem] leading-[1.45] text-[var(--color-ink-muted)]">
+                        {artifact.text}
+                      </pre>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {mediaArtifacts.length ? (
                 <details className="group/result mt-2 grid min-w-0 justify-items-start">
                   <summary className="inline-flex min-h-8 cursor-pointer list-none items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-[0.72rem] font-[780] text-[var(--color-ink-soft)] transition hover:bg-[var(--color-page-quiet)] marker:hidden">
                     <ChevronRight
@@ -158,7 +188,7 @@ export function ToolProgressTimeline({
                   </summary>
                   <div className="mt-2 w-full max-w-[min(24rem,100%)]">
                     <AgentCreateMediaResultGrid
-                      artifacts={resultArtifacts}
+                      artifacts={mediaArtifacts}
                       onPreview={onArtifactPreview ?? onArtifactOpen}
                     />
                   </div>

@@ -601,6 +601,39 @@ export function AgentCreateSurface() {
       activeProgressStep?.status === "running" ||
       activeWorkingArtifact
   ) && !openCheckpoints.length;
+  const activeThinkingStep = useMemo<AgentCreateToolProgressStep | undefined>(
+    () => {
+      const isPlanningWithoutTool =
+        activeThread?.status === "planning" &&
+        !activeProgressStep &&
+        !activeWorkingArtifact;
+      if (!showThinkingPlaceholder && !(showActivity && isPlanningWithoutTool)) {
+        return undefined;
+      }
+
+      const startedAt = pendingAgentTurn?.createdAt ?? activeThread?.updatedAt;
+      const isInitialTurn = Boolean(showThinkingPlaceholder);
+      return {
+        id: isInitialTurn ? "agent-thinking:initial" : "agent-thinking:next",
+        label: isInitialTurn ? "Thinking through the request" : "Thinking through next steps",
+        status: "running",
+        detail: isInitialTurn
+          ? "Deciding what tools and plan are needed."
+          : "Using the latest messages and tool results to decide the next tool calls.",
+        createdAt: startedAt,
+        startedAt,
+      };
+    },
+    [
+      activeProgressStep,
+      activeThread?.status,
+      activeThread?.updatedAt,
+      activeWorkingArtifact,
+      pendingAgentTurn?.createdAt,
+      showActivity,
+      showThinkingPlaceholder,
+    ]
+  );
   const workingMessageId = useMemo(
     () => {
       if (showThinkingPlaceholder) return undefined;
@@ -1102,6 +1135,7 @@ export function AgentCreateSurface() {
             onArtifactSave={(artifact) => {
               void saveArtifactToLibrary(artifact);
             }}
+            activeThinkingStep={activeThinkingStep}
             showThinkingPlaceholder={showThinkingPlaceholder}
             threadKey={activeThreadId}
             workingMessageId={workingMessageId}

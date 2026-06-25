@@ -72,6 +72,7 @@ export type AgentCreateArtifact = {
   description?: string;
   mimeType?: string;
   modelLabel?: string;
+  text?: string;
   thumbnailUrl?: string;
   url?: string;
 };

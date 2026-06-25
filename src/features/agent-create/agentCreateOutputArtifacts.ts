@@ -168,6 +168,7 @@ export function buildAgentCreateOutputArtifacts(threadOutputs?: ThreadOutputs): 
       title: artifact.title ?? "Generated text",
       description: generatedText?.slice(0, 220) ?? artifact.prompt,
       modelLabel: artifact.model,
+      text: generatedText,
       thumbnailUrl: kind === "image" || kind === "video" ? artifact.storageUrl : undefined,
       url: artifact.storageUrl,
     });

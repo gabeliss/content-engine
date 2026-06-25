@@ -29,7 +29,6 @@ import {
   normalizePlannedToolInputForToolCall,
   threadTitleFromMessage,
   toolDescriptorMap,
-  urlPattern,
   type CreateReferenceMention,
   type InferredOutputType,
 } from "./planning";
@@ -63,6 +62,10 @@ type CreatePlannedToolCall = {
   toolName: CreateToolName;
 };
 
+type CreateMessageForModel = Doc<"createMessages"> & {
+  generatedTextContext?: string;
+};
+
 type AgentDecision =
   | {
       kind: "chat";
@@ -82,6 +85,8 @@ const createAgentModel =
 
 const outputTypes = ["image", "video", "audio", "slideshow", "analysis", "text"] as const;
 const AGENT_ERROR_LOG_TEXT_LIMIT = 8000;
+const MAX_AGENT_TOOL_CALLS_PER_DECISION = 20;
+const MAX_AGENT_PLAN_STEPS = 12;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -132,6 +137,17 @@ function createAgentDecisionErrorLog(error: unknown) {
     message: "Unknown non-Error thrown",
     detailsPreview: compactLogValue(error),
   };
+}
+
+function requiresDebugReviewBeforeExecution(toolCall: CreatePlannedToolCall) {
+  const tool = toolDescriptorMap().get(toolCall.toolName);
+  if (!tool) return true;
+  return tool.checkpoint.behavior !== "none" &&
+    tool.checkpoint.defaultInDebugMode === true;
+}
+
+function hasDebugGatedToolCalls(intent: CreateDecisionIntent) {
+  return intent.toolCalls.some(requiresDebugReviewBeforeExecution);
 }
 
 async function hasRecordAccess(
@@ -214,8 +230,10 @@ function createProductionPlanningPolicy() {
   return [
     "Before selecting tools for a create request, make a concise production plan. Think in terms of: final artifact, source/reference roles, atomic assets, shots/clips/scenes, assembly, render/export.",
     "Return that plan as productionPlan in the JSON. Keep it brief and structured; do not include hidden reasoning, full scripts, long prose, or duplicated prompt text.",
-    "Keep planSteps short and keep each tool prompt focused on what that one tool needs. If detailed scripts, dialogue, shot lists, captions, or narration are useful, include a text.generate tool call for that artifact instead of expanding those details inside the planner JSON.",
-    "For requests whose final artifact is media, do not stop the plan at text.generate. Include the complete downstream production route in the same toolCalls array: source/reference assets, media generation, assembly/composition, and render/export as needed.",
+    "You are allowed to work iteratively. After any tool result appears in the conversation, decide the next best action from that actual result. If the request is already satisfied, choose kind=\"chat\" and summarize completion instead of calling another tool.",
+    "Keep planSteps short and keep each tool prompt focused on what that one tool needs. If detailed scripts, dialogue, shot lists, captions, or narration are useful before media planning, call text.generate for that artifact instead of expanding those details inside the planner JSON.",
+    "If downstream media prompts depend on unknown output from an earlier tool, return only the dependency tool call(s) for now. Do not invent dependent media calls in the same response; use the tool result from conversation context to decide the next tool calls.",
+    "If the user already supplied enough concrete beats or states for the media output, you may plan the full media route immediately without a preliminary text.generate step.",
     "Map each semantic production unit to the smallest appropriate tool call. Image tools create individual images/assets. Video tools create one coherent shot or clip. Studio tools sequence, stitch, overlay, transition, and render multi-part videos.",
     "If the user asks for multiple distinct assets, scenes, options, states, products, moments, or story beats, create separate toolCalls with distinct prompts instead of one call with count or one broad prompt.",
     "If multiple references represent different states or moments in the final output, do not pass them all as generic references to a single generation. Use them as separate source units, generate separate clips/assets as needed, then assemble.",
@@ -287,7 +305,7 @@ function createAgentSystemPrompt() {
   ].join("\n");
 }
 
-function messageForModel(message: Doc<"createMessages">): ModelMessage {
+function messageForModel(message: CreateMessageForModel): ModelMessage {
   const references = message.referenceMentions?.length
     ? [
         "",
@@ -297,10 +315,17 @@ function messageForModel(message: Doc<"createMessages">): ModelMessage {
         ),
       ].join("\n")
     : "";
+  const generatedText = message.generatedTextContext
+    ? [
+        "",
+        "Generated text artifact attached to this message:",
+        message.generatedTextContext,
+      ].join("\n")
+    : "";
 
   return {
     role: message.role === "user" ? "user" : "assistant",
-    content: `${message.content}${references}`,
+    content: `${message.content}${references}${generatedText}`,
   };
 }
 
@@ -375,7 +400,7 @@ function toolCallsFromDecision(
     });
   }
 
-  return calls.slice(0, 12).map((call) => ({
+  return calls.slice(0, MAX_AGENT_TOOL_CALLS_PER_DECISION).map((call) => ({
     ...call,
     prompt: call.prompt || fallbackBrief,
   }));
@@ -387,7 +412,7 @@ function planStepsFromDecision(value: unknown) {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 8);
+    .slice(0, MAX_AGENT_PLAN_STEPS);
 }
 
 export function normalizeAgentDecision(text: string): AgentDecision {
@@ -894,13 +919,35 @@ export const agentTurnContext = internalQuery({
       .query("createMessages")
       .withIndex("by_thread", (q) => q.eq("createThreadId", thread._id))
       .collect();
+    const recentMessages = messages
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-16);
+    const artifactIds = [
+      ...new Set(
+        recentMessages.flatMap((message) => message.artifactIds ?? [])
+      ),
+    ];
+    const artifacts = await Promise.all(artifactIds.map((artifactId) => ctx.db.get(artifactId)));
+    const generatedTextByArtifactId = new Map<string, string>();
+    for (const artifact of artifacts) {
+      if (!artifact) continue;
+      const data = isRecord(artifact.data) ? artifact.data : {};
+      const text = typeof data.text === "string" ? data.text.trim() : "";
+      if (text) generatedTextByArtifactId.set(String(artifact._id), text);
+    }
 
     return {
       thread,
       userMessage,
-      messages: messages
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .slice(-16),
+      messages: recentMessages.map((message) => {
+        const generatedTextContext = (message.artifactIds ?? [])
+          .map((artifactId) => generatedTextByArtifactId.get(String(artifactId)))
+          .filter((text): text is string => Boolean(text))
+          .map((text) => compactLogValue(text, 6000))
+          .filter((text): text is string => Boolean(text))
+          .join("\n\n");
+        return generatedTextContext ? { ...message, generatedTextContext } : message;
+      }),
     };
   },
 });
@@ -965,8 +1012,9 @@ export const applyAgentDecision = internalMutation({
       args.referenceMentions
     );
 
-    const nextStatus = args.checkpointMode === "debug" ? "waiting_for_user" : "planning";
-    if (args.checkpointMode === "debug") {
+    const requiresDebugReview = args.checkpointMode === "debug" && hasDebugGatedToolCalls(decision);
+    const nextStatus = requiresDebugReview ? "waiting_for_user" : "planning";
+    if (requiresDebugReview) {
       await ctx.db.insert("createCheckpoints", {
         userId: thread.userId,
         workspaceId: thread.workspaceId,
@@ -986,7 +1034,7 @@ export const applyAgentDecision = internalMutation({
       updatedAt: now,
     });
 
-    if (args.checkpointMode === "auto") {
+    if (!requiresDebugReview) {
       await executeRunnableQueuedTools(ctx, thread);
     }
   },
