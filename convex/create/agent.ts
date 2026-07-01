@@ -26,6 +26,7 @@ import type { CreateToolName } from "./tools";
 import {
   buildPlannedToolInput,
   buildEffectiveBrief,
+  explicitSlideshowRenderingMode,
   normalizePlannedToolInputForToolCall,
   threadTitleFromMessage,
   toolDescriptorMap,
@@ -242,6 +243,8 @@ function createProductionPlanningPolicy() {
     "Use one video generation call only when the desired output is one coherent shot, a deliberate blend/morph/interpolation, or the user explicitly asks for a single model-generated transition.",
     "Video generation prompts should describe the action, motion, performance, camera movement, and atmosphere of that exact shot or clip. They should not summarize the whole final edited video.",
     "Each tool call prompt must be written from the perspective of the tool receiving it. Include only the information that tool can act on directly through its prompt and inputs.",
+    "For slideshow requests, always use exactly one slideshow.render tool call. Do not decompose slideshow creation into separate media.generateImage calls for individual slides. The native slideshow pipeline plans slides, generates slide visuals, creates editable text blocks when appropriate, and assembles the slideshow artifact.",
+    "For slideshow.render, default to editable text overlays. Set input.requestedRenderingMode=\"full_graphic_generation\" only when the user asks for fully designed/finished graphic slides, poster-style slides, text baked into the artwork, or similar. Otherwise use input.requestedRenderingMode=\"background_plus_overlay\".",
     "When a tool call receives a reference image, write the prompt as grounded instructions for that provided image: identify the requested change, and state what identity, composition, setting, lighting, camera quality, style, or other continuity details should be preserved.",
     "For example, prefer prompts shaped like \"Edit the provided product photo to show the item in a new color while preserving the camera angle and lighting\" or \"Animate the provided character image so the character turns and waves\" over prompts that depend on unstated conversation history.",
     "For multi-state continuity, use prior image outputs deliberately: create the first state image, create later state images with input.usePriorImageOutputs=true when identity continuity matters, then create video clips with input.priorImageOutputIndex pointing at the exact still for that clip.",
@@ -270,7 +273,7 @@ function createAgentSystemPrompt() {
     "If the user wants to create, analyze, edit, compose, render, save, export, publish, or convert something into a workflow, choose kind=\"create\" and select the necessary tools.",
     "If the user appears to want creation but the desired output or source is genuinely ambiguous, choose kind=\"clarify\" and ask one concise question.",
     "Do not ask for brand/platform unless the user makes that relevant.",
-    "In Debug Mode the runtime will pause after the plan before spending generation or render resources.",
+    "In Debug Mode the runtime may pause for checkpointable tools before spending generation or render resources. Some native artifact tools, including slideshow.render, run without a debug checkpoint.",
     "For create decisions, write planSteps as plain-English user-visible actions. Do not expose internal tool labels. Example: \"Create an image of an apple.\"",
     "For create decisions, toolCalls is required. It is an ordered list of exact tool invocations you want the runtime to make.",
     ...createProductionPlanningPolicy(),
@@ -406,6 +409,35 @@ function toolCallsFromDecision(
   }));
 }
 
+function nativeSlideshowToolCalls(
+  brief: string,
+  requestedToolCalls: CreatePlannedToolCall[]
+): CreatePlannedToolCall[] {
+  const preferredCall = requestedToolCalls.find((toolCall) => toolCall.toolName === "slideshow.render") ??
+    requestedToolCalls[0];
+  const prompt = preferredCall?.toolName === "slideshow.render" && preferredCall.prompt?.trim()
+    ? preferredCall.prompt.trim()
+    : brief;
+  const input = preferredCall?.input ?? {};
+  const requestedRenderingMode =
+    explicitSlideshowRenderingMode(input.requestedRenderingMode) ??
+    explicitSlideshowRenderingMode(input.renderingMode) ??
+    explicitSlideshowRenderingMode(input.slideshowStyle) ??
+    "background_plus_overlay";
+
+  return [{
+    toolName: "slideshow.render",
+    prompt,
+    planStep: preferredCall?.planStep || "Create the slideshow.",
+    input: {
+      ...input,
+      brief,
+      plan: prompt,
+      requestedRenderingMode,
+    },
+  }];
+}
+
 function planStepsFromDecision(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
@@ -437,7 +469,10 @@ export function normalizeAgentDecision(text: string): AgentDecision {
   if (kind === "create") {
     const outputType = outputTypeFromDecision(parsed.outputType);
     const brief = stringFromDecision(parsed.brief);
-    const toolCalls = toolCallsFromDecision(parsed.toolCalls, brief);
+    const requestedToolCalls = toolCallsFromDecision(parsed.toolCalls, brief);
+    const toolCalls = outputType === "slideshow"
+      ? nativeSlideshowToolCalls(brief, requestedToolCalls)
+      : requestedToolCalls;
     const planSteps = planStepsFromDecision(parsed.planSteps);
     const productionPlan = productionPlanFromDecision(parsed.productionPlan);
     if (!outputType || !toolCalls.length || !brief) {

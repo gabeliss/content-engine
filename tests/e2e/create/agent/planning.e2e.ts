@@ -5,6 +5,7 @@ import {
   buildEffectiveBrief,
   buildPlannedToolInput,
   normalizePlannedToolInputForToolCall,
+  toolDescriptorMap,
 } from "../../../../convex/create/planning";
 import { normalizeFalVideoDurationForModel } from "../../../../convex/providers/fal";
 
@@ -79,6 +80,14 @@ const videoToolInput = buildPlannedToolInput({
 assert.equal(videoToolInput.aspectRatio, "16:9");
 assert.equal(videoToolInput.durationSeconds, 8);
 
+const slideshowToolInput = buildPlannedToolInput({
+  content: "Create a five-slide Pilates abs workout slideshow with titles and captions.",
+  outputType: "slideshow",
+  toolName: "slideshow.render",
+});
+assert.equal(slideshowToolInput.requestedRenderingMode, "background_plus_overlay");
+assert.equal(toolDescriptorMap().get("slideshow.render")?.checkpoint.behavior, "none");
+
 const transformationBrief =
   "Create a vertical before and after fitness transformation video. Show a woman at the start of her fitness journey, then cut to six months later where she looks stronger and more confident. Add short motivational text overlays and make it feel like a TikTok/Reels transformation video.";
 const transformationImageInput = buildPlannedToolInput({
@@ -131,6 +140,51 @@ assert.equal(multiToolCallDecision.toolCalls[1].toolName, "media.generateImage")
 assert.match(multiToolCallDecision.toolCalls[0].prompt ?? "", /start of her fitness journey/);
 assert.match(multiToolCallDecision.toolCalls[1].prompt ?? "", /six months later/);
 assert.equal(multiToolCallDecision.toolCalls[1].input?.usePriorImageOutputs, true);
+
+const slideshowDecision = normalizeAgentDecision(JSON.stringify({
+  kind: "create",
+  response: "I'll create the slideshow.",
+  outputType: "slideshow",
+  brief: "Create a five-slide Pilates abs workout slideshow with generated images and captions.",
+  toolCalls: [
+    {
+      tool: "media.generateImage",
+      prompt: "Generate a title slide image.",
+      planStep: "Generate the title slide image.",
+    },
+    {
+      tool: "media.generateImage",
+      prompt: "Generate The Hundred exercise image.",
+      planStep: "Generate The Hundred image.",
+    },
+  ],
+}));
+
+assert.equal(slideshowDecision.kind, "create");
+assert.equal(slideshowDecision.toolCalls.length, 1);
+assert.equal(slideshowDecision.toolCalls[0].toolName, "slideshow.render");
+assert.equal(slideshowDecision.toolCalls[0].input?.requestedRenderingMode, "background_plus_overlay");
+assert.match(slideshowDecision.toolCalls[0].prompt ?? "", /slideshow/i);
+
+const designedSlideshowDecision = normalizeAgentDecision(JSON.stringify({
+  kind: "create",
+  response: "I'll create finished designed slides.",
+  outputType: "slideshow",
+  brief: "Create five fully designed poster-style slides with the text baked into each graphic.",
+  toolCalls: [
+    {
+      tool: "slideshow.render",
+      prompt: "Create five fully designed poster-style slides with the text baked into each graphic.",
+      planStep: "Create the designed slideshow.",
+      input: { requestedRenderingMode: "full_graphic_generation" },
+    },
+  ],
+}));
+
+assert.equal(designedSlideshowDecision.kind, "create");
+assert.equal(designedSlideshowDecision.toolCalls.length, 1);
+assert.equal(designedSlideshowDecision.toolCalls[0].toolName, "slideshow.render");
+assert.equal(designedSlideshowDecision.toolCalls[0].input?.requestedRenderingMode, "full_graphic_generation");
 
 const multiClipReferenceVideoDecision = normalizeAgentDecision(JSON.stringify({
   kind: "create",

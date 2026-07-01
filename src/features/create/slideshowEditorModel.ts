@@ -82,15 +82,3 @@ export function applyPreset(
 export function presetForBlock(block: SlideshowTextBlock): TextStylePreset {
   return textStylePresetForBlock(block);
 }
-
-export function selectedSlideWindow(
-  slides: CanonicalSlideshowSlide[],
-  selectedSlide: CanonicalSlideshowSlide
-) {
-  const selectedIndex = slides.findIndex((slide) => slide.slideId === selectedSlide.slideId);
-  if (selectedIndex < 0) return [];
-  const windowSize = Math.min(5, slides.length);
-  const maxStart = Math.max(0, slides.length - windowSize);
-  const start = Math.min(Math.max(0, selectedIndex - 2), maxStart);
-  return slides.slice(start, start + windowSize);
-}

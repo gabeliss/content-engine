@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { MediaLightbox, type MediaLightboxItem } from "../../components/MediaLightbox";
 import { AgentCreateArtifactGrid } from "./AgentCreateArtifactCard";
+import { isInlineSlideshowArtifact } from "./AgentCreateSlideshowArtifact";
 import type {
   AgentCreateArtifact,
   AgentCreateMessage,
@@ -314,6 +315,9 @@ export function AgentCreateMessageList({
           const isUser = message.role === "user";
           const isSystem = message.role === "system";
           const artifacts = visibleChatArtifacts(message.artifacts);
+          const hasInlineSlideshow = artifacts.some((artifact) =>
+            isInlineSlideshowArtifact(artifact, false)
+          );
           const steps = workingMessageId === message.id && activeThinkingStep
             ? [...(message.toolSteps ?? []), activeThinkingStep]
             : message.toolSteps;
@@ -341,7 +345,9 @@ export function AgentCreateMessageList({
                     ? "max-w-[min(34rem,78%)] rounded-[1.25rem] bg-[var(--color-ink)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--color-surface)] shadow-[var(--shadow-sm)]"
                     : isSystem
                       ? "max-w-[min(42rem,100%)] rounded-[var(--radius-sm)] bg-[var(--color-page-quiet)] px-[var(--space-3)] py-[var(--space-2)]"
-                      : "max-w-[min(48rem,100%)]"
+                      : hasInlineSlideshow
+                        ? "w-full max-w-[min(54rem,100%)]"
+                        : "max-w-[min(48rem,100%)]"
                 )}
               >
                 {showWorkLog ? (

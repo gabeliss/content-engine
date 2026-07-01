@@ -3,24 +3,16 @@ import {
   Archive,
   Download,
   ExternalLink,
-  FileText,
-  Image,
   Music,
   Pencil,
   Play,
-  Video,
 } from "lucide-react";
-import type { AgentCreateArtifact, AgentCreateArtifactKind } from "./agentCreateTypes";
+import {
+  AgentCreateSlideshowArtifact,
+  isInlineSlideshowArtifact,
+} from "./AgentCreateSlideshowArtifact";
+import type { AgentCreateArtifact } from "./agentCreateTypes";
 import { agentCreateClassNames } from "./agentCreateUi";
-
-const artifactIcons: Record<AgentCreateArtifactKind, typeof Image> = {
-  audio: Music,
-  document: FileText,
-  file: FileText,
-  image: Image,
-  slideshow: FileText,
-  video: Video,
-};
 
 export function AgentCreateArtifactCard({
   artifact,
@@ -39,17 +31,23 @@ export function AgentCreateArtifactCard({
   onPreview?: (artifact: AgentCreateArtifact) => void;
   onSave?: (artifact: AgentCreateArtifact) => void;
 }) {
-  const Icon = artifactIcons[artifact.kind];
   const isReady = artifact.status === "ready";
   const isWorking = artifact.status === "generating" || artifact.status === "placeholder";
   const mediaUrl = artifact.url ?? artifact.thumbnailUrl;
+  const hasInlinePreview = Boolean(
+    (artifact.kind === "image" && mediaUrl) ||
+      (artifact.kind === "video" && mediaUrl) ||
+      (artifact.kind === "audio" && mediaUrl)
+  );
   const canPreview = Boolean(
     onPreview &&
       isReady &&
       mediaUrl &&
       (artifact.kind === "image" || artifact.kind === "video")
   );
-  const isDirectGeneratedArtifact = isReady && !artifact.id.includes(":");
+  const isDirectGeneratedArtifact = isReady &&
+    !artifact.id.includes(":") &&
+    artifact.kind !== "slideshow";
   const canOpenInStudio = artifact.id.startsWith("studio:") ||
     (isDirectGeneratedArtifact && (artifact.kind === "image" || artifact.kind === "video"));
   const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null);
@@ -209,57 +207,50 @@ export function AgentCreateArtifactCard({
     <article
       className={agentCreateClassNames(
         "grid min-w-0 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)]",
-        compact ? "grid-cols-[5.5rem_minmax(0,1fr)]" : "content-start"
+        compact && hasInlinePreview ? "grid-cols-[5.5rem_minmax(0,1fr)]" : "content-start"
       )}
     >
-      <div
-        className={agentCreateClassNames(
-          "relative grid place-items-center bg-[var(--color-page-quiet)] text-[var(--color-ink-muted)]",
-          compact ? "min-h-[5.5rem]" : "aspect-[16/10]"
-        )}
-      >
-        {artifact.kind === "image" && mediaUrl ? (
-          <img alt="" className="size-full object-cover" src={mediaUrl} />
-        ) : artifact.kind === "video" && mediaUrl ? (
-          <video
-            className="size-full object-cover"
-            controls={isReady && !compact}
-            muted
-            playsInline
-            preload="metadata"
-            src={mediaUrl}
-          />
-        ) : artifact.kind === "audio" && mediaUrl ? (
-          <div className="grid size-full place-items-center p-[var(--space-3)]">
-            <span className="grid size-14 place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)]">
-              <Music size={22} />
+      {hasInlinePreview ? (
+        <div
+          className={agentCreateClassNames(
+            "relative grid place-items-center bg-[var(--color-page-quiet)] text-[var(--color-ink-muted)]",
+            compact ? "min-h-[5.5rem]" : "aspect-[16/10]"
+          )}
+        >
+          {artifact.kind === "image" && mediaUrl ? (
+            <img alt="" className="size-full object-cover" src={mediaUrl} />
+          ) : artifact.kind === "video" && mediaUrl ? (
+            <video
+              className="size-full object-cover"
+              controls={isReady && !compact}
+              muted
+              playsInline
+              preload="metadata"
+              src={mediaUrl}
+            />
+          ) : artifact.kind === "audio" && mediaUrl ? (
+            <div className="grid size-full place-items-center p-[var(--space-3)]">
+              <span className="grid size-14 place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)]">
+                <Music size={22} />
+              </span>
+              {isReady && !compact ? (
+                <audio className="absolute bottom-2 left-2 right-2 w-[calc(100%-1rem)]" controls src={mediaUrl} />
+              ) : null}
+            </div>
+          ) : null}
+          {isWorking ? (
+            <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[0.66rem] font-[820] text-[var(--color-ink-soft)]">
+              <span className="size-1.5 animate-pulse rounded-full bg-[var(--color-primary)]" />
+              {artifact.status === "placeholder" ? "Planned" : "Working"}
             </span>
-            {isReady && !compact ? (
-              <audio className="absolute bottom-2 left-2 right-2 w-[calc(100%-1rem)]" controls src={mediaUrl} />
-            ) : null}
-          </div>
-        ) : (
-          <span
-            className={agentCreateClassNames(
-              "grid place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]",
-              compact ? "size-11" : "size-14"
-            )}
-          >
-            <Icon size={compact ? 18 : 22} />
-          </span>
-        )}
-        {isWorking ? (
-          <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[0.66rem] font-[820] text-[var(--color-ink-soft)]">
-            <span className="size-1.5 animate-pulse rounded-full bg-[var(--color-primary)]" />
-            {artifact.status === "placeholder" ? "Planned" : "Working"}
-          </span>
-        ) : null}
-        {artifact.status === "failed" ? (
-          <span className="absolute right-2 top-2 rounded-full bg-[var(--color-danger-soft)] px-2 py-1 text-[0.66rem] font-[820] text-[var(--color-danger)]">
-            Failed
-          </span>
-        ) : null}
-      </div>
+          ) : null}
+          {artifact.status === "failed" ? (
+            <span className="absolute right-2 top-2 rounded-full bg-[var(--color-danger-soft)] px-2 py-1 text-[0.66rem] font-[820] text-[var(--color-danger)]">
+              Failed
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid min-w-0 gap-[var(--space-2)] p-[var(--space-3)]">
         <div className="grid min-w-0 gap-[0.15rem]">
@@ -282,6 +273,17 @@ export function AgentCreateArtifactCard({
           <span className="rounded-full bg-[var(--color-page-quiet)] px-2 py-1 text-[0.66rem] font-[780] text-[var(--color-ink-soft)]">
             {artifact.kind}
           </span>
+          {!hasInlinePreview && isWorking ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-page-quiet)] px-2 py-1 text-[0.66rem] font-[780] text-[var(--color-ink-soft)]">
+              <span className="size-1.5 animate-pulse rounded-full bg-[var(--color-primary)]" />
+              {artifact.status === "placeholder" ? "Planned" : "Working"}
+            </span>
+          ) : null}
+          {!hasInlinePreview && artifact.status === "failed" ? (
+            <span className="rounded-full bg-[var(--color-danger-soft)] px-2 py-1 text-[0.66rem] font-[780] text-[var(--color-danger)]">
+              Failed
+            </span>
+          ) : null}
         </div>
 
         {(onOpen || onDownload) && (isReady || artifact.url) ? (
@@ -343,16 +345,20 @@ export function AgentCreateArtifactGrid({
   return (
     <div className="grid min-w-0 gap-[var(--space-3)]">
       {artifacts.map((artifact) => (
-        <AgentCreateArtifactCard
-          artifact={artifact}
-          compact={compact}
-          key={artifact.id}
-          onDownload={onDownload}
-          onOpen={onOpen}
-          onOpenStudio={onOpenStudio}
-          onPreview={onPreview}
-          onSave={onSave}
-        />
+        isInlineSlideshowArtifact(artifact, compact) ? (
+          <AgentCreateSlideshowArtifact artifact={artifact} key={artifact.id} />
+        ) : (
+          <AgentCreateArtifactCard
+            artifact={artifact}
+            compact={compact}
+            key={artifact.id}
+            onDownload={onDownload}
+            onOpen={onOpen}
+            onOpenStudio={onOpenStudio}
+            onPreview={onPreview}
+            onSave={onSave}
+          />
+        )
       ))}
     </div>
   );

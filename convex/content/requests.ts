@@ -916,7 +916,7 @@ export const execute = internalAction({
         image: GenerateImageResult;
       }> = [];
 
-      for (const slide of plan.slides) {
+      const pendingImageResults = await Promise.all(plan.slides.map(async (slide) => {
         const prompt = providerImagePrompt(promptForSlide(slide), plan.aspectRatio, plan.renderingMode);
         const referenceImagesForSlide = slide.useReferenceImage === true ? referenceImages : [];
         const referenceAssetIds = referenceImagesForSlide.length > 0
@@ -951,7 +951,7 @@ export const execute = internalAction({
             },
           });
           costUsd = sumCost(costUsd, image.metadata);
-          pendingImages.push({ slide, prompt, imageProvider, referenceAssetIds, image });
+          return { slide, prompt, imageProvider, referenceAssetIds, image };
         } catch (error) {
           imageErrors.push(`Slide ${slide.index}: ${error instanceof Error ? error.message : "Image generation failed"}`);
           await createRequestArtifact(ctx, {
@@ -968,8 +968,14 @@ export const execute = internalAction({
             prompt,
             parentArtifactIds: [specArtifactId],
           });
+          return null;
         }
-      }
+      }));
+      pendingImages.push(
+        ...pendingImageResults.filter(
+          (pending): pending is NonNullable<typeof pending> => Boolean(pending)
+        )
+      );
 
       const resolvedImages = await Promise.all(pendingImages.map(async (pending) => {
         try {

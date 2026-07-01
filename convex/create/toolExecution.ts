@@ -22,6 +22,10 @@ import {
 } from "./referenceResolution";
 import { listReferencesForToolCall } from "./referenceDiscovery";
 import {
+  explicitSlideshowRenderingMode,
+  toolDescriptorMap,
+} from "./planning";
+import {
   analysisJobIdFromToolOutput,
   analysisContextForThreadToolOutputs,
   briefWithAnalysisContext,
@@ -32,6 +36,7 @@ import {
   selectCreateAgentStudioVisualArtifacts,
 } from "./studioComposition";
 import { createStudioRenderRequest } from "./studioRenderRequests";
+import type { CreateToolName } from "./tools";
 import { createWorkflowDraftFromThread } from "./workflowExport";
 
 export type MediaGenerationMode = "image" | "video" | "audio" | "lipsync";
@@ -1352,25 +1357,18 @@ async function createSlideshowRequestForToolCall(
   const provider = providerForMediaMode(workspace, "image");
   const references = await resolveToolReferences(ctx, thread, input);
   await appendDiscoveredReferencesForThread(ctx, thread, toolCall._id, references);
-  const previousImages = await readyArtifactsForThreadToolOutputs(
-    ctx,
-    thread,
-    toolCall._id,
-    "image"
-  );
-  references.imageReferences.push(
-    ...previousImages.flatMap((artifact) => {
-      const reference = referenceFromArtifact(artifact);
-      return reference ? [reference] : [];
-    })
-  );
+  const requestedRenderingMode =
+    explicitSlideshowRenderingMode(input.requestedRenderingMode) ??
+    explicitSlideshowRenderingMode(input.renderingMode) ??
+    explicitSlideshowRenderingMode(input.slideshowStyle) ??
+    "background_plus_overlay";
   const now = Date.now();
   const requestId = await ctx.db.insert("contentRequests", {
     userId: thread.userId,
     workspaceId: thread.workspaceId,
     contentFormat: "slideshow",
     prompt: effectiveBrief,
-    requestedRenderingMode: "background_plus_overlay",
+    requestedRenderingMode,
     generation: {
       mode: "slideshow",
       provider,
@@ -1391,6 +1389,7 @@ async function createSlideshowRequestForToolCall(
       contentRequestId: requestId,
       mode: "slideshow",
       provider,
+      requestedRenderingMode,
       status: "queued",
       usedAnalysisContext: effectiveBrief !== brief,
       referenceCount: references.imageReferences.length + references.creativeAssetReferences.length,
@@ -1712,7 +1711,19 @@ async function readyUnreviewedArtifactIdsForThread(
   thread: Doc<"createThreads">
 ) {
   const reviewedArtifactIds = await reviewedCheckpointArtifactIdSet(ctx, thread);
-  const requestIds = await contentRequestIdsForThreadToolOutputs(ctx, thread);
+  const toolCalls = await ctx.db
+    .query("createToolCalls")
+    .withIndex("by_thread", (q) => q.eq("createThreadId", thread._id))
+    .collect();
+  const requestIds = [
+    ...new Set(
+      toolCalls.flatMap((toolCall) => {
+        if (!shouldCreateDebugOutputCheckpointForTool(toolCall.toolName)) return [];
+        const requestId = contentRequestIdFromToolOutput(toolCall.output);
+        return requestId ? [requestId] : [];
+      })
+    ),
+  ];
   const artifactIds: Id<"artifacts">[] = [];
 
   for (const requestId of requestIds) {
@@ -1737,11 +1748,8 @@ async function readyUnreviewedArtifactIdsForThread(
     );
   }
 
-  const toolCalls = await ctx.db
-    .query("createToolCalls")
-    .withIndex("by_thread", (q) => q.eq("createThreadId", thread._id))
-    .collect();
   for (const toolCall of toolCalls) {
+    if (!shouldCreateDebugOutputCheckpointForTool(toolCall.toolName)) continue;
     for (const artifactId of toolCall.artifactIds ?? []) {
       if (reviewedArtifactIds.has(String(artifactId))) continue;
       const artifact = await ctx.db.get(artifactId);
@@ -1768,6 +1776,11 @@ function shouldReviewGeneratedArtifact(artifact: Doc<"artifacts">) {
       mimeType.startsWith("audio/") ||
       data.kind === "audio"
     );
+}
+
+function shouldCreateDebugOutputCheckpointForTool(toolName: string) {
+  const tool = toolDescriptorMap().get(toolName as CreateToolName);
+  return Boolean(tool?.checkpoint.behavior !== "none" && tool?.checkpoint.defaultInDebugMode);
 }
 
 async function createDebugReadyOutputCheckpointIfNeeded(
@@ -2489,11 +2502,13 @@ export async function executeRunnableQueuedTools(
       q.eq("createThreadId", thread._id).eq("status", "running")
     )
     .collect();
+  const hasPendingContentRequests = await hasPendingContentRequestsForThreadToolOutputs(ctx, thread);
 
   if (
     !remainingQueuedToolCalls.length &&
     !blockedToolCalls.length &&
     !runningToolCalls.length &&
+    !hasPendingContentRequests &&
     (
       executedCount > 0 ||
       thread.status === "planning" ||
@@ -2510,7 +2525,9 @@ export async function executeRunnableQueuedTools(
   await ctx.db.patch(thread._id, {
     status: blockedToolCalls.length
       ? "waiting_for_user"
-      : runningToolCalls.length || remainingQueuedToolCalls.length
+      : runningToolCalls.length || hasPendingContentRequests
+        ? "running"
+      : remainingQueuedToolCalls.length
         ? "planning"
         : "idle",
     updatedAt: now,

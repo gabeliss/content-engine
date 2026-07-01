@@ -217,6 +217,7 @@ function isRoutineProgressMessage(message: {
 
 function shouldAttachToolArtifactsToChat(toolName: string) {
   return (
+    toolName === "slideshow.render" ||
     toolName === "artifact.export" ||
     toolName === "publishing.prepare" ||
     toolName === "workflow.createDraft"

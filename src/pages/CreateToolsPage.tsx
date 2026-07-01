@@ -564,9 +564,9 @@ export function CreateToolsPage() {
 
             {mode === "slideshow" ? (
               <div className="grid min-w-0 gap-[var(--space-3)] lg:grid-cols-[minmax(12rem,18rem)]">
-                <Select label="Rendering" value={slideshowMode} onChange={setSlideshowMode}>
-                  <option value="background_plus_overlay">Background + overlay</option>
-                  <option value="full_graphic_generation">Full graphic slides</option>
+                <Select label="Slideshow style" value={slideshowMode} onChange={setSlideshowMode}>
+                  <option value="background_plus_overlay">Editable text</option>
+                  <option value="full_graphic_generation">Designed slides</option>
                 </Select>
               </div>
             ) : null}
