@@ -1,4 +1,5 @@
 import type { Doc } from "../_generated/dataModel";
+import type { RequestedRenderingMode } from "../content/planningPrompts";
 import { listCreateToolsForPlanner } from "./tools";
 import type { CreateToolName, CreateToolPlannerDescriptor } from "./tools";
 
@@ -100,6 +101,16 @@ function inferredTextKind(content: string) {
   if (/\b(shot list|shots)\b/i.test(content)) return "shot_list";
   if (/\b(scene list|storyline|story line|outline|treatment)\b/i.test(content)) return "outline";
   return "text_draft";
+}
+
+export function explicitSlideshowRenderingMode(value: unknown): RequestedRenderingMode | undefined {
+  if (value === "background_plus_overlay" || value === "editable_text" || value === "editable") {
+    return "background_plus_overlay";
+  }
+  if (value === "full_graphic_generation" || value === "designed_slides" || value === "designed") {
+    return "full_graphic_generation";
+  }
+  return undefined;
 }
 
 function analyzeSourceInput(args: PlannedToolInputArgs) {
@@ -222,6 +233,7 @@ export function buildPlannedToolInput(args: PlannedToolInputArgs): Record<string
     return {
       ...baseInput,
       plan: args.content,
+      requestedRenderingMode: "background_plus_overlay",
     };
   }
 

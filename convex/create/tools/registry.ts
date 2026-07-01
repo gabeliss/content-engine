@@ -375,11 +375,13 @@ const toolDefinitions = [
       plan: "Canonical slideshow plan or plan artifact id.",
       aspectRatio: "Optional output aspect ratio.",
       references: "Optional image references for slide backgrounds.",
+      requestedRenderingMode: "Optional slideshow style: background_plus_overlay for editable text, or full_graphic_generation for finished designed slides.",
     }),
     outputSchema: fieldsSchema("Rendered slideshow artifacts.", {
       artifactIds: "Rendered slideshow or slide artifact ids.",
       previewUrls: "Preview image URLs for rendered slides.",
     }),
+    checkpoint: noCheckpoint,
     artifactBehavior: {
       emitsArtifacts: true,
       artifactTypes: ["slideshow", "image"],

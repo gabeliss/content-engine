@@ -14,7 +14,6 @@ import {
   activeSlides,
   createTextBlock,
   normalizedTextBlocks,
-  selectedSlideWindow,
   slideImagePrompt,
   withAutoTextBlockHeight,
 } from "./slideshowEditorModel";
@@ -108,7 +107,6 @@ export function SlideshowEditor({
 
   const selectedBlockIndex = textBlocksDraft.findIndex((block) => block.id === selectedBlockId);
   const selectedBlock = selectedBlockIndex >= 0 ? textBlocksDraft[selectedBlockIndex] : undefined;
-  const stageSlides = selectedSlide ? selectedSlideWindow(slides, selectedSlide) : [];
   const selectedSlideIndex = slides.findIndex((slide) => slide.slideId === selectedSlide?.slideId);
   const previousSlide = selectedSlideIndex > 0 ? slides[selectedSlideIndex - 1] : undefined;
   const nextSlide = selectedSlideIndex >= 0 ? slides[selectedSlideIndex + 1] : undefined;
@@ -404,7 +402,6 @@ export function SlideshowEditor({
           selectedSlide={selectedSlide}
           slides={slides}
           spec={spec}
-          stageSlides={stageSlides}
           textBlocksDraft={textBlocksDraft}
         />
       </div>

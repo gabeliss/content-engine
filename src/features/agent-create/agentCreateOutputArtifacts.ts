@@ -202,12 +202,24 @@ export function buildAgentCreateOutputArtifacts(threadOutputs?: ThreadOutputs): 
     const request = entry.request;
     const requestStatus = artifactStatusFromRequest(request.status);
 
+    if (request.contentFormat === "slideshow") {
+      for (const slideshow of entry.slideshows) {
+        artifacts.push({
+          id: String(slideshow._id),
+          kind: "slideshow",
+          status: slideshow.status === "failed" ? "failed" : "ready",
+          title: slideshow.title,
+          description: statusLabel(slideshow.status),
+          url: `/slideshows/${encodeURIComponent(String(slideshow._id))}`,
+        });
+      }
+      continue;
+    }
+
     if (!entry.artifacts.length && !entry.slideshows.length) {
       artifacts.push({
         id: `request:${request._id}`,
-        kind: request.contentFormat === "slideshow"
-          ? "slideshow"
-          : request.contentFormat === "image" ||
+        kind: request.contentFormat === "image" ||
               request.contentFormat === "video" ||
               request.contentFormat === "lipsync" ||
               request.contentFormat === "audio"
@@ -243,6 +255,7 @@ export function buildAgentCreateOutputArtifacts(threadOutputs?: ThreadOutputs): 
         status: slideshow.status === "failed" ? "failed" : "ready",
         title: slideshow.title,
         description: statusLabel(slideshow.status),
+        url: `/slideshows/${encodeURIComponent(String(slideshow._id))}`,
       });
     }
   }
